@@ -344,13 +344,48 @@ async function fetchLineRoute(code, env) {
 }
 
 // Geometric match for bus direction & nearest stop if not reported by GPS service
-function matchBusDirection(bus, directions) {
+function matchBusDirection(bus, directions, lineCode = "") {
   if (!directions) return { dir: "D", dir_name: "Hat Güzergahı", headsign: "", stop: "", color: "#06b6d4" };
   const dD = directions.D;
   const dG = directions.G;
   if (!dD && !dG) return { dir: "D", dir_name: "Hat Güzergahı", headsign: "", stop: "", color: "#06b6d4" };
   if (!dD) return { dir: "G", dir_name: dG.destination || "Gidiş", headsign: dG.headsign, stop: (dG.stops && dG.stops[0]) ? dG.stops[0].name : "", color: "#a855f7" };
   if (!dG) return { dir: "D", dir_name: dD.destination || "Dönüş", headsign: dD.headsign, stop: (dD.stops && dD.stops[0]) ? dD.stops[0].name : "", color: "#06b6d4" };
+
+  // Specialized check for Metrobüs (34, 34G, 34AS, 34BZ, 34C, 34Z, 34B, 34A)
+  // Beylikdüzü is at West (lon ~28.62), Söğütlüçeşme is at East (lon ~29.04).
+  const isMetrobus = lineCode.startsWith("34") || (dG.destination && dG.destination.includes("SÖĞÜTLÜ"));
+  if (isMetrobus && bus.bearing != null && (bus.s || 0) >= 5) {
+    // Eastbound (heading roughly 30° - 150°) -> Heading to Söğütlüçeşme (G)
+    // Westbound (heading roughly 210° - 330°) -> Heading to Beylikdüzü (D)
+    if (bus.bearing >= 30 && bus.bearing <= 150) {
+      let minDistG = Infinity, closestStopG = null;
+      for (const s of (dG.stops || [])) {
+        const dist = (s.lat - bus.lat) ** 2 + (s.lon - bus.lon) ** 2;
+        if (dist < minDistG) { minDistG = dist; closestStopG = s; }
+      }
+      return {
+        dir: "G",
+        dir_name: dG.destination || "Gidiş Yönü",
+        headsign: dG.headsign || "",
+        stop: closestStopG ? closestStopG.name : "",
+        color: "#a855f7"
+      };
+    } else if (bus.bearing >= 210 && bus.bearing <= 330) {
+      let minDistD = Infinity, closestStopD = null;
+      for (const s of (dD.stops || [])) {
+        const dist = (s.lat - bus.lat) ** 2 + (s.lon - bus.lon) ** 2;
+        if (dist < minDistD) { minDistD = dist; closestStopD = s; }
+      }
+      return {
+        dir: "D",
+        dir_name: dD.destination || "Dönüş Yönü",
+        headsign: dD.headsign || "",
+        stop: closestStopD ? closestStopD.name : "",
+        color: "#06b6d4"
+      };
+    }
+  }
 
   let minDistD = Infinity, closestStopD = null;
   for (const s of (dD.stops || [])) {
@@ -393,7 +428,7 @@ async function handleLine(env, url) {
   const code = norm(url.searchParams.get("code"));
   if (!code || code.length > 12) return json({ error: "Lütfen bir hat kodu girin (örn. 15B, 500T, 14BK)" }, 400);
 
-  // 1. Fetch route line stops and directions
+  // 1. Fetch route line stops and directions (cached in KV)
   const routeData = await fetchLineRoute(code, env);
 
   // 2. Load door number mapping
@@ -404,69 +439,7 @@ async function handleLine(env, url) {
   const assignedDoors = (map && map[code]) || [];
   const doorSet = new Set(assignedDoors);
 
-  // 3. Try real-time line position query if quota allows
-  const busMap = new Map();
-  const otoKey = "line_oto:" + code;
-  let otoData = await env.LIVE.get(otoKey, "json");
-
-  if (!otoData) {
-    const q = await quota(env);
-    if (q.n < 99) {
-      try {
-        await spend(env, q);
-        const rows = await soapWithRetry(IETT, "GetHatOtoKonum_json", { HatKodu: code }, env);
-        if (Array.isArray(rows)) {
-          otoData = rows;
-          await env.LIVE.put(otoKey, JSON.stringify(otoData), { expirationTtl: 25 }).catch(() => {});
-        }
-      } catch (e) {
-        console.warn(`GetHatOtoKonum error for ${code}:`, String(e));
-      }
-    }
-  }
-
-  if (Array.isArray(otoData)) {
-    for (const row of otoData) {
-      const r = lower(row);
-      const lat = num(r.enlem);
-      const lon = num(r.boylam);
-      if (lat === null || lon === null) continue;
-      const kapi = r.kapino;
-      const gCode = String(r.guzergahkodu || "");
-      let dir = gCode.includes("_G_") ? "G" : (gCode.includes("_D_") ? "D" : "");
-      let dirName = r.yon || "";
-
-      if (!dir) {
-        const match = matchBusDirection({ lat, lon }, routeData.directions);
-        dir = match.dir;
-        if (!dirName) dirName = match.dir_name;
-      }
-
-      const dirObj = routeData.directions && routeData.directions[dir];
-      const headsign = dirObj ? dirObj.headsign : (dirName ? `➔ ${dirName}` : "");
-      const color = dir === "G" ? "#a855f7" : "#06b6d4";
-
-      busMap.set(kapi, {
-        id: kapi,
-        lat,
-        lon,
-        line: code,
-        name: routeData.name,
-        dir,
-        dir_name: dirName,
-        headsign,
-        color,
-        stop: r.yakindurakkodu || "",
-        time: r.son_konum_zamani || "",
-        s: 0,
-        op: "İETT",
-        p: "",
-        a: 0
-      });
-    }
-  }
-
-  // 4. Enrich & merge with live fleet GPS (for accurate speed, plate, and extra fleet buses)
+  // 3. Load fleet directly from fast in-memory or KV cache
   let fleet = null;
   if (inMemoryBusesRaw) {
     try { fleet = JSON.parse(inMemoryBusesRaw); } catch (e) {}
@@ -478,6 +451,73 @@ async function handleLine(env, url) {
     }
   }
   fleet = fleet || [];
+
+  const busMap = new Map();
+
+  // 4. Fallback: ONLY query slow SOAP GetHatOtoKonum if line has NO mapped doors in bus_lines_map
+  if (assignedDoors.length === 0) {
+    const otoKey = "line_oto:" + code;
+    let otoData = await env.LIVE.get(otoKey, "json");
+
+    if (!otoData) {
+      const q = await quota(env);
+      if (q.n < 95) {
+        try {
+          await spend(env, q);
+          // Query with a 2-second timeout to never block user response
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2000));
+          const rows = await Promise.race([soap(IETT, "GetHatOtoKonum_json", { HatKodu: code }, env), timeoutPromise]);
+          if (Array.isArray(rows)) {
+            otoData = rows;
+            await env.LIVE.put(otoKey, JSON.stringify(otoData), { expirationTtl: 25 }).catch(() => {});
+          }
+        } catch (e) {
+          // Graceful fallback to fleet
+        }
+      }
+    }
+
+    if (Array.isArray(otoData)) {
+      for (const row of otoData) {
+        const r = lower(row);
+        const lat = num(r.enlem);
+        const lon = num(r.boylam);
+        if (lat === null || lon === null) continue;
+        const kapi = r.kapino;
+        const gCode = String(r.guzergahkodu || "");
+        let dir = gCode.includes("_G_") ? "G" : (gCode.includes("_D_") ? "D" : "");
+        let dirName = r.yon || "";
+
+        if (!dir) {
+          const match = matchBusDirection({ lat, lon }, routeData.directions, code);
+          dir = match.dir;
+          if (!dirName) dirName = match.dir_name;
+        }
+
+        const dirObj = routeData.directions && routeData.directions[dir];
+        const headsign = dirObj ? dirObj.headsign : (dirName ? `➔ ${dirName}` : "");
+        const color = dir === "G" ? "#a855f7" : "#06b6d4";
+
+        busMap.set(kapi, {
+          id: kapi,
+          lat,
+          lon,
+          line: code,
+          name: routeData.name,
+          dir,
+          dir_name: dirName,
+          headsign,
+          color,
+          stop: r.yakindurakkodu || "",
+          time: r.son_konum_zamani || "",
+          s: 0,
+          op: "İETT",
+          p: "",
+          a: 0
+        });
+      }
+    }
+  }
 
   for (const b of fleet) {
     if (doorSet.has(b.id) || busMap.has(b.id)) {
@@ -532,7 +572,7 @@ async function handleLineRoute(env, url) {
   const code = norm(url.searchParams.get("code"));
   if (!code || code.length > 12) return json({ error: "Lütfen bir hat kodu girin" }, 400);
   const route = await fetchLineRoute(code, env);
-  return json(route, 200, { "cache-control": "public, max-age=86400" });
+  return json(route, 200, { "cache-control": "public, max-age=604800, stale-while-revalidate=86400" });
 }
 
 async function handleLinesMap(env) {

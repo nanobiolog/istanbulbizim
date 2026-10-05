@@ -417,6 +417,8 @@
       display: flex;
       align-items: center;
       gap: 10px;
+      min-width: 0;
+      flex: 1;
     }
     .line-badge-large {
       font-size: 16px;
@@ -426,15 +428,30 @@
       padding: 4px 10px;
       border-radius: 8px;
       box-shadow: 0 2px 6px rgba(2, 132, 199, 0.4);
+      flex-shrink: 0;
+    }
+    .line-banner-text-group {
+      min-width: 0;
+      flex: 1;
     }
     .line-banner-text {
-      font-size: 12px;
+      font-size: 13px;
+      font-weight: 700;
       color: var(--text);
       line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .line-banner-sub {
       font-size: 11px;
       color: #93c5fd;
+    }
+    .line-banner-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
     }
     .btn-clear-line {
       background: rgba(255, 255, 255, 0.1);
@@ -445,11 +462,34 @@
       font-size: 11px;
       font-weight: 600;
       cursor: pointer;
-      transition: background 0.15s;
+      transition: background 0.15s, border-color 0.15s;
+      white-space: nowrap;
     }
     .btn-clear-line:hover {
       background: rgba(239, 68, 68, 0.3);
       border-color: rgba(239, 68, 68, 0.5);
+    }
+    .btn-sheet-chevron {
+      display: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #94a3b8;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.25s ease, background 0.15s, color 0.15s;
+    }
+    .btn-sheet-chevron:hover {
+      background: rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+    }
+    .btn-sheet-chevron svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
     }
 
     /* Direction Tabs for Filtered Line */
@@ -943,11 +983,250 @@
       opacity: 1;
     }
 
+    /* Floating Mobile Brand Pill */
+    .mobile-brand-pill {
+      display: none;
+    }
+
+    /* Layers & Options Modal Backdrop & Content */
+    .layers-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      z-index: 2500;
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+    .layers-modal-backdrop.open {
+      display: flex;
+      opacity: 1;
+    }
+    .layers-modal-content {
+      background: rgba(15, 23, 42, 0.98);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 24px 24px 0 0;
+      width: 100%;
+      max-width: 460px;
+      padding: 16px 20px calc(20px + var(--safe-bottom)) 20px;
+      box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.7);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      transform: translateY(100%);
+      transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .layers-modal-backdrop.open .layers-modal-content {
+      transform: translateY(0);
+    }
+    @media (min-width: 769px) {
+      .layers-modal-backdrop {
+        align-items: center;
+      }
+      .layers-modal-content {
+        border-radius: 20px;
+        transform: scale(0.95);
+        transition: transform 0.2s ease;
+      }
+      .layers-modal-backdrop.open .layers-modal-content {
+        transform: scale(1);
+      }
+    }
+    .layers-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .layers-modal-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-modal-close {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      border: 0;
+      color: #ffffff;
+      font-size: 15px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+    .btn-modal-close:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+    .layers-toggles-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .layers-stats-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .layers-stat-pill {
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .layers-stat-num {
+      font-size: 18px;
+      font-weight: 800;
+      color: #38bdf8;
+    }
+    .layers-stat-txt {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .modal-legend-section {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+    .modal-legend-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+    .mobile-fleet-summary {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 6px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .fleet-summary-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+      color: #cbd5e1;
+    }
+    .btn-open-layers-sheet {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      color: #38bdf8;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 8px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-open-layers-sheet:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
     /* RESPONSIVE DESIGN: MOBILE VIEW (< 768px) */
     @media (max-width: 768px) {
       :root {
         --panel-width: 100vw;
       }
+
+      /* Minimalist Mobile Top Brand Pill */
+      .mobile-brand-pill {
+        position: absolute;
+        top: 14px;
+        left: 14px;
+        z-index: 990;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        background: rgba(15, 23, 42, 0.85);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+        user-select: none;
+      }
+      .mobile-brand-icon {
+        width: 20px;
+        height: 20px;
+        border-radius: 6px;
+        background: linear-gradient(135deg, #0284c7, #38bdf8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .mobile-brand-icon svg {
+        width: 12px;
+        height: 12px;
+        fill: #ffffff;
+      }
+      .mobile-brand-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #ffffff;
+        letter-spacing: -0.01em;
+      }
+      .mobile-brand-badge {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 10px;
+        color: #34d399;
+        font-weight: 600;
+        background: rgba(16, 185, 129, 0.15);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        padding: 2px 6px;
+        border-radius: 999px;
+      }
+      .mobile-brand-badge .pulse-dot {
+        width: 5px;
+        height: 5px;
+      }
+
+      /* Quick Actions Top-Right */
+      .map-actions {
+        top: 14px;
+        right: 14px;
+        gap: 6px;
+      }
+      .btn-circle {
+        width: 38px;
+        height: 38px;
+      }
+      .btn-circle svg {
+        width: 18px;
+        height: 18px;
+      }
+      .leaflet-control-zoom {
+        display: none !important;
+      }
+
+      /* Mobile Bottom Sheet */
       #sidebar {
         top: auto;
         bottom: 0;
@@ -956,32 +1235,127 @@
         width: 100vw;
         max-width: 100vw;
         border-radius: 24px 24px 0 0;
+        border: 1px solid rgba(255, 255, 255, 0.12);
         border-bottom: 0;
-        padding: 12px 16px calc(14px + var(--safe-bottom)) 16px;
-        max-height: 80vh;
-        box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.6);
+        padding: 8px 14px calc(12px + var(--safe-bottom)) 14px;
+        box-shadow: 0 -10px 35px rgba(0, 0, 0, 0.65);
+        gap: 8px;
+        overflow: hidden;
+        transition: height 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
       }
       .sheet-handle {
         display: block;
+        width: 42px;
+        height: 5px;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 999px;
+        margin: 2px auto 6px auto;
+        cursor: grab;
+        flex-shrink: 0;
       }
-      /* Bottom sheet states on mobile */
-      #sidebar.sheet-collapsed {
-        max-height: 120px;
-        overflow: hidden;
-      }
-      #sidebar.sheet-collapsed .stats-grid,
-      #sidebar.sheet-collapsed .collapsible-section,
-      #sidebar.sheet-collapsed .legend-bar,
-      #sidebar.sheet-collapsed #bus-results-list,
-      #sidebar.sheet-collapsed .footer-bar {
+
+      /* Hide redundant / bulky desktop elements in mobile bottom sheet */
+      #sidebar .app-header {
         display: none !important;
       }
-      .map-actions {
-        top: 14px;
-        right: 14px;
+      #sidebar .stats-grid,
+      #sidebar .collapsible-section,
+      #sidebar .legend-bar,
+      #sidebar .footer-bar {
+        display: none !important;
       }
-      .leaflet-top.leaflet-right {
-        top: 60px !important;
+
+      /* State 1: PEEK (Map-first default) */
+      #sidebar.sheet-peek {
+        height: 74px;
+      }
+      #sidebar.sheet-peek .quick-chips-wrapper,
+      #sidebar.sheet-peek .dir-tabs-wrapper,
+      #sidebar.sheet-peek #bus-results-list,
+      #sidebar.sheet-peek .mobile-fleet-summary {
+        display: none !important;
+      }
+
+      /* State 2: HALF (Default when line selected or chips expanded) */
+      #sidebar.sheet-half {
+        height: 44vh;
+      }
+      #sidebar.sheet-half .mobile-fleet-summary {
+        display: flex;
+      }
+
+      /* State 3: FULL (Extensive list or search suggestions) */
+      #sidebar.sheet-full {
+        height: 84vh;
+      }
+      #sidebar.sheet-full .mobile-fleet-summary {
+        display: flex;
+      }
+
+      #sidebar.sheet-half #bus-results-list,
+      #sidebar.sheet-full #bus-results-list {
+        flex: 1;
+        max-height: none;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      /* When a line is selected, streamline view by hiding search bar & chips */
+      #sidebar.line-selected .search-wrapper,
+      #sidebar.line-selected .quick-chips-wrapper,
+      #sidebar.line-selected .mobile-fleet-summary {
+        display: none !important;
+      }
+      #sidebar.line-selected.sheet-peek #selected-line-banner {
+        display: flex !important;
+      }
+
+      #selected-line-banner {
+        padding: 8px 12px;
+        border-radius: 12px;
+      }
+      .line-badge-large {
+        font-size: 15px;
+        padding: 3px 8px;
+      }
+      .line-banner-text {
+        font-size: 12px;
+        font-weight: 700;
+        max-width: 170px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .btn-clear-line {
+        padding: 5px 9px;
+        font-size: 11px;
+        border-radius: 6px;
+      }
+      .btn-sheet-chevron {
+        display: flex;
+      }
+      #sidebar.sheet-peek .btn-sheet-chevron {
+        transform: rotate(0deg);
+      }
+      #sidebar.sheet-half .btn-sheet-chevron,
+      #sidebar.sheet-full .btn-sheet-chevron {
+        transform: rotate(180deg);
+      }
+
+      .dir-tabs-wrapper {
+        margin-top: 2px;
+        gap: 5px;
+      }
+      .dir-tab {
+        padding: 6px 8px;
+        font-size: 11px;
+      }
+      .bus-card {
+        padding: 7px 10px;
+        border-radius: 8px;
+      }
+      #search-suggestions {
+        max-height: 40vh;
       }
     }
   </style>
@@ -991,6 +1365,20 @@
 
   <!-- Toast Notification -->
   <div id="toast-msg"></div>
+
+  <!-- Floating Mobile Brand Pill (Top Left on Mobile) -->
+  <div class="mobile-brand-pill">
+    <div class="mobile-brand-icon">
+      <svg viewBox="0 0 24 24">
+        <path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z"/>
+      </svg>
+    </div>
+    <span class="mobile-brand-title">İstanbul Bizim</span>
+    <div class="mobile-brand-badge">
+      <span class="pulse-dot"></span>
+      <span>CANLI</span>
+    </div>
+  </div>
 
   <!-- Floating Quick Actions (Top Right) -->
   <div class="map-actions">
@@ -1012,10 +1400,16 @@
         <path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/>
       </svg>
     </button>
+    <!-- Layers & Options Modal Button -->
+    <button class="btn-circle" id="btn-layers" title="Katmanlar ve Ayarlar" aria-label="Katmanlar ve Ayarlar">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
   </div>
 
   <!-- Main Floating Sidebar / Mobile Bottom Sheet -->
-  <aside id="sidebar">
+  <aside id="sidebar" class="sheet-peek">
     <div class="sheet-handle" id="sheet-handle"></div>
 
     <header class="app-header">
@@ -1059,16 +1453,33 @@
       <button class="chip" data-line="M4">M4 Metro</button>
     </div>
 
+    <!-- Mobile Fleet Summary Row (Shown on mobile when no line is selected) -->
+    <div class="mobile-fleet-summary" id="mobile-fleet-summary">
+      <div class="fleet-summary-left">
+        <span class="pulse-dot"></span>
+        <span id="mobile-fleet-text">Canlı filo yükleniyor...</span>
+      </div>
+      <button class="btn-open-layers-sheet" id="btn-open-layers-inline" type="button">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        <span>Katmanlar</span>
+      </button>
+    </div>
+
     <!-- Active Line Selected Banner -->
     <div id="selected-line-banner">
       <div class="line-banner-info">
         <div class="line-badge-large" id="banner-line-code">15B</div>
-        <div>
+        <div class="line-banner-text-group">
           <div class="line-banner-text" id="banner-line-title">Hattı Filtrelendi</div>
           <div class="line-banner-sub" id="banner-line-sub">0 / 0 Canlı Araç</div>
         </div>
       </div>
-      <button class="btn-clear-line" id="btn-banner-clear">✕ Tümüne Dön</button>
+      <div class="line-banner-right">
+        <button class="btn-clear-line" id="btn-banner-clear">✕ Tümüne Dön</button>
+        <button class="btn-sheet-chevron" id="btn-sheet-toggle" aria-label="Genişlet / Daralt">
+          <svg viewBox="0 0 24 24"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+        </button>
+      </div>
     </div>
     <div id="dir-tabs-wrapper" class="dir-tabs-wrapper" style="display:none">
       <button class="dir-tab active" data-dir="ALL" id="tab-dir-all">Tüm Yönler</button>
@@ -1171,6 +1582,75 @@
     </div>
   </div>
 
+  <!-- Layers & Settings Modal / Bottom Sheet -->
+  <div id="layers-modal" class="layers-modal-backdrop">
+    <div class="layers-modal-content">
+      <div class="layers-modal-header">
+        <div class="layers-modal-title">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          <span>Katmanlar ve Seçenekler</span>
+        </div>
+        <button class="btn-modal-close" id="btn-layers-close" aria-label="Kapat">✕</button>
+      </div>
+      
+      <!-- Layer Toggles -->
+      <div class="layers-toggles-list">
+        <label class="toggle-row">
+          <span>🚌 Canlı İETT Otobüsleri</span>
+          <div class="switch">
+            <input type="checkbox" id="chk-buses-modal" checked>
+            <span class="slider"></span>
+          </div>
+        </label>
+        <label class="toggle-row">
+          <span>🚇 Raylı Sistemler (Metro / Tramvay)</span>
+          <div class="switch">
+            <input type="checkbox" id="chk-metro-modal" checked>
+            <span class="slider"></span>
+          </div>
+        </label>
+        <label class="toggle-row">
+          <span>🚆 Hareketli Trenler (Tarife / Canlı)</span>
+          <div class="switch">
+            <input type="checkbox" id="chk-trains-modal" checked>
+            <span class="slider"></span>
+          </div>
+        </label>
+        <label class="toggle-row">
+          <span>🕒 Durağan / Garaj Araçları (+10 dk)</span>
+          <div class="switch">
+            <input type="checkbox" id="chk-stale-modal">
+            <span class="slider"></span>
+          </div>
+        </label>
+      </div>
+
+      <!-- Live Fleet Stats Summary -->
+      <div class="layers-stats-row">
+        <div class="layers-stat-pill">
+          <span class="layers-stat-num" id="modal-stat-buses">0</span>
+          <span class="layers-stat-txt">Canlı İETT Otobüsü</span>
+        </div>
+        <div class="layers-stat-pill">
+          <span class="layers-stat-num" id="modal-stat-trains">0</span>
+          <span class="layers-stat-txt">Canlı Metro / Raylı</span>
+        </div>
+      </div>
+
+      <!-- Traffic Speed Legend -->
+      <div class="modal-legend-section">
+        <div class="modal-legend-title">Trafik Hız Skalası</div>
+        <div class="legend-bar">
+          <div class="legend-item"><span class="legend-dot" style="background:#10b981"></span> Akıcı (>15 km/s)</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Yoğun (5-15)</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#64748b"></span> Duran (0-5)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
   <script>
     (function () {
@@ -1223,6 +1703,58 @@
       // Marker Pool & Animation Map for 60fps continuous gliding
       const busAnimMap = new Map();
       const lineRouteCache = new Map();
+      const ROUTE_CACHE_PREFIX = "ib_route_v2_";
+      const ROUTE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+      function getStoredRoute(code) {
+        if (!code) return null;
+        if (lineRouteCache.has(code)) return lineRouteCache.get(code);
+        try {
+          const raw = localStorage.getItem(ROUTE_CACHE_PREFIX + code);
+          if (!raw) return null;
+          const item = JSON.parse(raw);
+          if (Date.now() - item.savedAt < ROUTE_CACHE_MAX_AGE_MS && item.data && item.data.directions) {
+            lineRouteCache.set(code, item.data);
+            return item.data;
+          }
+        } catch (e) {}
+        return null;
+      }
+
+      function setStoredRoute(code, data) {
+        if (!code || !data || !data.directions) return;
+        lineRouteCache.set(code, data);
+        try {
+          localStorage.setItem(ROUTE_CACHE_PREFIX + code, JSON.stringify({
+            savedAt: Date.now(),
+            data
+          }));
+        } catch (e) {
+          try {
+            for (let i = 0; i < localStorage.length; i++) {
+              const k = localStorage.key(i);
+              if (k && k.startsWith(ROUTE_CACHE_PREFIX)) localStorage.removeItem(k);
+            }
+          } catch (_) {}
+        }
+      }
+
+      function smoothStep(t) {
+        return t * t * (3 - 2 * t);
+      }
+
+      function lerpAngle(fromAngle, toAngle, factor) {
+        let diff = (toAngle - fromAngle) % 360;
+        if (diff < -180) diff += 360;
+        if (diff > 180) diff -= 360;
+        return (fromAngle + diff * factor + 360) % 360;
+      }
+
+      function geoDistanceMeters(lat1, lon1, lat2, lon2) {
+        const dLat = (lat2 - lat1) * 111139;
+        const dLon = (lon2 - lon1) * 111139 * Math.cos(lat1 * Math.PI / 180);
+        return Math.sqrt(dLat * dLat + dLon * dLon);
+      }
 
       // ─── APPLICATION STATE ───
       let fleetBuses = [];
@@ -1263,6 +1795,7 @@
       const bannerLineTitle = el("banner-line-title");
       const bannerLineSub = el("banner-line-sub");
       const btnBannerClear = el("btn-banner-clear");
+      const btnSheetToggle = el("btn-sheet-toggle");
       const dirTabsWrapper = el("dir-tabs-wrapper");
       const tabDirAll = el("tab-dir-all");
       const tabDirD = el("tab-dir-d");
@@ -1274,6 +1807,38 @@
       const chkStale = el("chk-stale");
       const toastMsg = el("toast-msg");
       const mobileInspector = el("mobile-vehicle-inspector");
+      const mobileFleetSummary = el("mobile-fleet-summary");
+      const mobileFleetText = el("mobile-fleet-text");
+      const btnLayers = el("btn-layers");
+      const layersModal = el("layers-modal");
+      const btnLayersClose = el("btn-layers-close");
+      const btnOpenLayersInline = el("btn-open-layers-inline");
+      const chkBusesModal = el("chk-buses-modal");
+      const chkMetroModal = el("chk-metro-modal");
+      const chkTrainsModal = el("chk-trains-modal");
+      const chkStaleModal = el("chk-stale-modal");
+      const modalStatBuses = el("modal-stat-buses");
+      const modalStatTrains = el("modal-stat-trains");
+
+      // Mobile Bottom Sheet Snap States
+      let currentSheetState = "peek"; // "peek" | "half" | "full"
+
+      function setSheetState(state) {
+        if (window.innerWidth > 768) return;
+        sidebar.classList.remove("sheet-peek", "sheet-half", "sheet-full");
+        currentSheetState = state;
+        sidebar.classList.add(`sheet-${state}`);
+      }
+
+      function toggleSheetState() {
+        if (currentSheetState === "peek") {
+          setSheetState("half");
+        } else if (currentSheetState === "half") {
+          setSheetState("peek");
+        } else {
+          setSheetState("half");
+        }
+      }
 
       function showToast(text, duration = 3000) {
         toastMsg.textContent = text;
@@ -1295,6 +1860,117 @@
         const y = Math.sin(dLon) * Math.cos(rLat2);
         const x = Math.cos(rLat1) * Math.sin(rLat2) - Math.sin(rLat1) * Math.cos(rLat2) * Math.cos(dLon);
         return (Math.atan2(y, x) * (180 / Math.PI) + 360) % 360;
+      }
+
+      function matchBusDirection(bus, directions, lineCode = "") {
+        if (!directions) return { dir: "D", dir_name: "Hat Güzergahı", headsign: "", stop: "", color: "#06b6d4" };
+        const dD = directions.D;
+        const dG = directions.G;
+        if (!dD && !dG) return { dir: "D", dir_name: "Hat Güzergahı", headsign: "", stop: "", color: "#06b6d4" };
+        if (!dD) return { dir: "G", dir_name: dG.destination || "Gidiş", headsign: dG.headsign, stop: (dG.stops && dG.stops[0]) ? dG.stops[0].name : "", color: "#a855f7" };
+        if (!dG) return { dir: "D", dir_name: dD.destination || "Dönüş", headsign: dD.headsign, stop: (dD.stops && dD.stops[0]) ? dD.stops[0].name : "", color: "#06b6d4" };
+
+        const isMetrobus = lineCode.startsWith("34") || (dG.destination && dG.destination.includes("SÖĞÜTLÜ"));
+        if (isMetrobus && bus.bearing != null && (bus.s || 0) >= 4) {
+          if (bus.bearing >= 30 && bus.bearing <= 150) {
+            let minDistG = Infinity, closestStopG = null;
+            for (const s of (dG.stops || [])) {
+              const dist = (s.lat - bus.lat) ** 2 + (s.lon - bus.lon) ** 2;
+              if (dist < minDistG) { minDistG = dist; closestStopG = s; }
+            }
+            return {
+              dir: "G",
+              dir_name: dG.destination || "Gidiş Yönü",
+              headsign: dG.headsign || "",
+              stop: closestStopG ? closestStopG.name : "",
+              color: "#a855f7"
+            };
+          } else if (bus.bearing >= 210 && bus.bearing <= 330) {
+            let minDistD = Infinity, closestStopD = null;
+            for (const s of (dD.stops || [])) {
+              const dist = (s.lat - bus.lat) ** 2 + (s.lon - bus.lon) ** 2;
+              if (dist < minDistD) { minDistD = dist; closestStopD = s; }
+            }
+            return {
+              dir: "D",
+              dir_name: dD.destination || "Dönüş Yönü",
+              headsign: dD.headsign || "",
+              stop: closestStopD ? closestStopD.name : "",
+              color: "#06b6d4"
+            };
+          }
+        }
+
+        let minDistD = Infinity, closestStopD = null;
+        for (const s of (dD.stops || [])) {
+          const dist = (s.lat - bus.lat) ** 2 + (s.lon - bus.lon) ** 2;
+          if (dist < minDistD) { minDistD = dist; closestStopD = s; }
+        }
+        let minDistG = Infinity, closestStopG = null;
+        for (const s of (dG.stops || [])) {
+          const dist = (s.lat - bus.lat) ** 2 + (s.lon - bus.lon) ** 2;
+          if (dist < minDistG) { minDistG = dist; closestStopG = s; }
+        }
+
+        if (minDistG < minDistD) {
+          return {
+            dir: "G",
+            dir_name: dG.destination || "Gidiş Yönü",
+            headsign: dG.headsign || "",
+            stop: closestStopG ? closestStopG.name : "",
+            color: "#a855f7"
+          };
+        } else {
+          return {
+            dir: "D",
+            dir_name: dD.destination || "Dönüş Yönü",
+            headsign: dD.headsign || "",
+            stop: closestStopD ? closestStopD.name : "",
+            color: "#06b6d4"
+          };
+        }
+      }
+
+      function matchBusesForLine(code, routeData) {
+        const assignedDoors = (busLinesMap && busLinesMap[code]) || [];
+        const doorSet = new Set(assignedDoors);
+        const buses = [];
+        const dirs = routeData ? routeData.directions : null;
+
+        for (let i = 0; i < fleetBuses.length; i++) {
+          const b = fleetBuses[i];
+          if (doorSet.has(b.id)) {
+            const match = matchBusDirection(b, dirs, code);
+            buses.push({
+              id: b.id,
+              lat: b.lat,
+              lon: b.lon,
+              line: code,
+              name: routeData ? routeData.name : code,
+              dir: match.dir,
+              dir_name: match.dir_name,
+              headsign: match.headsign,
+              color: match.color,
+              stop: match.stop,
+              time: b.t,
+              s: b.s,
+              op: b.op || "İETT",
+              p: b.p || "",
+              a: b.a || 0,
+              bearing: b.bearing || 0
+            });
+          }
+        }
+
+        return {
+          code,
+          name: routeData ? routeData.name : code,
+          directions: dirs || {},
+          buses,
+          count: buses.length,
+          assigned_count: assignedDoors.length,
+          updated_at: lastFleetTime || Date.now()
+        };
       }
 
       function formatBusAge(saat, fallbackAge) {
@@ -1330,6 +2006,7 @@
 
       // ─── 60 FPS CONTINUOUS VEHICLE ANIMATION ENGINE ───
       let animLoopRunning = false;
+      let lastTrainFrameTime = 0;
       function startAnimationLoop() {
         if (animLoopRunning) return;
         animLoopRunning = true;
@@ -1343,17 +2020,20 @@
 
             if (elapsed <= item.duration) {
               const progress = Math.min(1, Math.max(0, elapsed / item.duration));
-              lat = item.fromLat + (item.targetLat - item.fromLat) * progress;
-              lon = item.fromLon + (item.targetLon - item.fromLon) * progress;
+              const t = smoothStep(progress);
+              lat = item.fromLat + (item.targetLat - item.fromLat) * t;
+              lon = item.fromLon + (item.targetLon - item.fromLon) * t;
             } else {
-              // Beyond duration: dead-reckoning extrapolation if vehicle is moving
+              // Target coordinate reached: settle smoothly, NO runaway linear extrapolation!
               lat = item.targetLat;
               lon = item.targetLon;
               const speed = item.data ? (item.data.s || 0) : 0;
-              if (speed >= 5 && item.bearing != null) {
-                // Extrapolate up to 35s extra based on reported speed and bearing
-                const extraSec = Math.min(35, (elapsed - item.duration) / 1000);
-                const distM = (speed * 1000 / 3600) * extraSec;
+              if (speed >= 8 && item.bearing != null) {
+                // Gentle decaying drift for at most 4 seconds and 20 meters
+                const extraSec = Math.min(4, (elapsed - item.duration) / 1000);
+                const decayFactor = 1 - Math.exp(-extraSec / 1.8);
+                const maxDriftM = Math.min(20, (speed * 1000 / 3600) * 1.2);
+                const distM = maxDriftM * decayFactor;
                 const rad = item.bearing * (Math.PI / 180);
                 const dLat = (distM * Math.cos(rad)) / 111139;
                 const dLon = (distM * Math.sin(rad)) / (111139 * Math.cos(lat * Math.PI / 180));
@@ -1367,7 +2047,39 @@
             item.marker.setLatLng([lat, lon]);
 
             if (item.arrowEl && item.bearing != null) {
-              item.arrowEl.style.transform = `rotate(${item.bearing}deg)`;
+              if (item.displayBearing == null) item.displayBearing = item.bearing;
+              item.displayBearing = lerpAngle(item.displayBearing, item.bearing, 0.15);
+              item.arrowEl.style.transform = `rotate(${item.displayBearing}deg)`;
+            }
+          }
+
+          // 60 FPS Metro Train Simulation Glide
+          if (chkTrains && chkTrains.checked && activeTrains.length > 0) {
+            const trainDt = Math.min(0.1, (now - (lastTrainFrameTime || now)) / 1000);
+            lastTrainFrameTime = now;
+            for (let i = 0; i < activeTrains.length; i++) {
+              const t = activeTrains[i];
+              const stns = t.stations;
+              if (!stns || stns.length < 2) continue;
+              t.progress += trainDt * (t.speed / 600);
+              if (t.progress >= 1.0) {
+                t.progress = 0;
+                t.segIdx += t.dir;
+                if (t.segIdx >= stns.length - 1) {
+                  t.segIdx = stns.length - 2;
+                  t.dir = -1;
+                } else if (t.segIdx < 0) {
+                  t.segIdx = 0;
+                  t.dir = 1;
+                }
+              }
+              const s1 = stns[t.segIdx];
+              const s2 = stns[t.segIdx + 1];
+              if (s1 && s2 && t.marker) {
+                const curLat = s1.lat + (s2.lat - s1.lat) * t.progress;
+                const curLon = s1.lon + (s2.lon - s1.lon) * t.progress;
+                t.marker.setLatLng([curLat, curLon]);
+              }
             }
           }
 
@@ -1633,7 +2345,11 @@
               item.fromLon = item.currentLon;
               item.targetLat = b.lat;
               item.targetLon = b.lon;
-              item.bearing = calculateBearing(item.fromLat, item.fromLon, b.lat, b.lon);
+              const distM = geoDistanceMeters(item.fromLat, item.fromLon, b.lat, b.lon);
+              if (b.s >= 4 && distM >= 10) {
+                const newBearing = calculateBearing(item.fromLat, item.fromLon, b.lat, b.lon);
+                item.bearing = lerpAngle(item.bearing || newBearing, newBearing, 0.7);
+              }
               item.startTime = now;
               item.duration = currentBatchDuration;
             }
@@ -1653,6 +2369,8 @@
         }
 
         statBuses.innerHTML = `${renderedCount.toLocaleString("tr-TR")} <small>araç</small>`;
+        if (modalStatBuses) modalStatBuses.textContent = renderedCount.toLocaleString("tr-TR");
+        if (mobileFleetText) mobileFleetText.textContent = `${renderedCount.toLocaleString("tr-TR")} İETT • ${activeTrains.length} Tren Canlı`;
         startAnimationLoop();
       }
 
@@ -1723,30 +2441,34 @@
 
         const activeBusIds = new Set();
 
+        function buildMarkerIcon(moving, curBearing, c, bid) {
+          return moving
+            ? `<div class="bus-anim-marker" style="--marker-color:${c}">
+                 <div class="bus-radar-pulse"></div>
+                 <div class="bus-dir-arrow" id="arrow-${bid}" style="transform:rotate(${curBearing}deg)">
+                   <svg viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z" fill="${c}" stroke="#ffffff" stroke-width="1.5"/></svg>
+                 </div>
+                 <div class="bus-badge-label">${bid}</div>
+               </div>`
+            : `<div class="bus-anim-marker bus-stopped" style="--marker-color:${c}">
+                 <div class="bus-stop-dot" style="background:${c}"></div>
+                 <div class="bus-badge-label">${bid}</div>
+               </div>`;
+        }
+
         // Reconcile and update bus markers smoothly
         visibleBuses.forEach(b => {
           activeBusIds.add(b.id);
           const isDirG = b.dir === "G";
           const col = b.color || (isDirG ? "#a855f7" : "#06b6d4");
-          const isMoving = (b.s || 0) > 2;
-          const bearing = b.bearing || 0;
+          let item = busAnimMap.get(b.id);
+          const distM = item ? geoDistanceMeters(item.currentLat, item.currentLon, b.lat, b.lon) : 0;
+          const isMoving = (b.s >= 4 && (!item || distM >= 10));
+          const bearing = b.bearing || (item ? item.bearing : 0) || 0;
           pts.push([b.lat, b.lon]);
 
-          let item = busAnimMap.get(b.id);
           if (!item) {
-            const iconHtml = isMoving
-              ? `<div class="bus-anim-marker" style="--marker-color:${col}">
-                   <div class="bus-radar-pulse"></div>
-                   <div class="bus-dir-arrow" id="arrow-${b.id}" style="transform:rotate(${bearing}deg)">
-                     <svg viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z" fill="${col}" stroke="#ffffff" stroke-width="1.5"/></svg>
-                   </div>
-                   <div class="bus-badge-label">${b.id}</div>
-                 </div>`
-              : `<div class="bus-anim-marker bus-stopped" style="--marker-color:${col}">
-                   <div class="bus-stop-dot" style="background:${col}"></div>
-                   <div class="bus-badge-label">${b.id}</div>
-                 </div>`;
-
+            const iconHtml = buildMarkerIcon(isMoving, bearing, col, b.id);
             const busIcon = L.divIcon({
               className: "bus-custom-div-icon",
               html: iconHtml,
@@ -1774,6 +2496,8 @@
               currentLat: b.lat,
               currentLon: b.lon,
               bearing,
+              displayBearing: bearing,
+              wasMoving: isMoving,
               startTime: now,
               duration: currentBatchDuration,
               data: b
@@ -1785,13 +2509,31 @@
               if (arr && item) item.arrowEl = arr;
             }, 0);
           } else {
+            // Update icon if stopped vs moving state changed
+            if (item.wasMoving !== isMoving) {
+              item.wasMoving = isMoving;
+              item.marker.setIcon(L.divIcon({
+                className: "bus-custom-div-icon",
+                html: buildMarkerIcon(isMoving, item.bearing || bearing, col, b.id),
+                iconSize: [32, 32],
+                iconAnchor: [16, 16]
+              }));
+              setTimeout(() => {
+                const arr = document.getElementById(`arrow-${b.id}`);
+                if (item) item.arrowEl = arr;
+              }, 0);
+            }
+
             // Update existing marker position smoothly
             if (b.lat !== item.targetLat || b.lon !== item.targetLon) {
               item.fromLat = item.currentLat;
               item.fromLon = item.currentLon;
               item.targetLat = b.lat;
               item.targetLon = b.lon;
-              item.bearing = calculateBearing(item.fromLat, item.fromLon, b.lat, b.lon);
+              if (isMoving && distM >= 10) {
+                const newBearing = calculateBearing(item.fromLat, item.fromLon, b.lat, b.lon);
+                item.bearing = lerpAngle(item.bearing || newBearing, newBearing, 0.7);
+              }
               item.startTime = now;
               item.duration = currentBatchDuration;
             }
@@ -1908,6 +2650,11 @@
         btnSearchClear.style.display = "flex";
         searchSuggestions.style.display = "none";
 
+        if (window.innerWidth <= 768) {
+          sidebar.classList.add("line-selected");
+          setSheetState("half");
+        }
+
         // Highlight chip if matching
         document.querySelectorAll(".chip").forEach(c => {
           c.classList.toggle("active", c.getAttribute("data-line") === code);
@@ -1916,33 +2663,60 @@
         // Ensure background fleet layer is cleared
         busesLayer.clearLayers();
 
-        // Render from cache immediately if switching and cached
-        const cached = lineRouteCache.get(code);
-        if (cached && isSwitchingLine) {
-          selectedLineData = cached;
+        // 1. INSTANT LOCAL RENDERING (0ms):
+        // If route is stored or if we have mapped buses in fleet, show them IMMEDIATELY!
+        const cachedRoute = getStoredRoute(code);
+        if (cachedRoute && isSwitchingLine) {
+          selectedLineData = matchBusesForLine(code, cachedRoute);
           renderSelectedLine(false);
+          if (!isSilent) txtStatusMsg.textContent = `${code} aktif (${selectedLineData.buses.length} araç)`;
+        } else if (isSwitchingLine) {
+          // Even without route polyline yet, show the line's live buses immediately!
+          const quickMatch = matchBusesForLine(code, null);
+          if (quickMatch.buses.length > 0) {
+            selectedLineData = quickMatch;
+            renderSelectedLine(false);
+          }
         }
 
-        if (!isSilent) txtStatusMsg.textContent = `${code} güzergahı ve araçları çekiliyor...`;
+        if (!isSilent && (!cachedRoute || !selectedLineData)) {
+          txtStatusMsg.textContent = `${code} güzergahı ve araçları çekiliyor...`;
+        }
 
         const reqId = ++currentSearchRequestId;
         currentLineAbortController = new AbortController();
 
-        // Fetch complete line data (route stops, directions, real-time buses)
+        // 2. FAST ROUTE PRELOAD (if route wasn't in cache):
+        if (!cachedRoute) {
+          fetch(`/line/route?code=${encodeURIComponent(code)}`, { signal: currentLineAbortController.signal })
+            .then(r => r.json())
+            .then(routeData => {
+              if (reqId !== currentSearchRequestId || selectedLineCode !== code) return;
+              if (routeData && routeData.directions && Object.keys(routeData.directions).length > 0) {
+                setStoredRoute(code, routeData);
+                if (selectedLineData) {
+                  selectedLineData.directions = routeData.directions;
+                  selectedLineData.name = routeData.name;
+                  selectedLineData = matchBusesForLine(code, routeData);
+                  renderSelectedLine(true);
+                }
+              }
+            })
+            .catch(() => {});
+        }
+
+        // 3. Complete Line Data Fetch (updates fleet & line metadata)
         fetch(`/line?code=${encodeURIComponent(code)}`, { signal: currentLineAbortController.signal })
           .then(r => r.json())
           .then(data => {
-            // Guard: If user navigated away, cleared selection, or switched to another line, drop response!
-            if (reqId !== currentSearchRequestId || selectedLineCode !== code) {
-              return;
-            }
+            if (reqId !== currentSearchRequestId || selectedLineCode !== code) return;
 
             if (data.directions || data.buses) {
+              setStoredRoute(code, data);
               selectedLineData = data;
-              lineRouteCache.set(code, data);
               renderSelectedLine(isSilent);
               txtStatusMsg.textContent = `${code} aktif (${(data.buses || []).length} araç)`;
-            } else {
+            } else if (!selectedLineData || (selectedLineData.buses || []).length === 0) {
               if (!isSilent) showToast(`"${code}" hattı bulunamadı`);
               txtStatusMsg.textContent = "Hat bulunamadı";
               routeLayer.clearLayers();
@@ -1956,7 +2730,9 @@
           .catch(err => {
             if (err && err.name === "AbortError") return;
             if (reqId !== currentSearchRequestId || selectedLineCode !== code) return;
-            if (!isSilent) showToast("Hat verisi alınırken hata oluştu");
+            if (!isSilent && (!selectedLineData || (selectedLineData.buses || []).length === 0)) {
+              showToast("Hat verisi alınırken hata oluştu");
+            }
           });
       }
 
@@ -1980,6 +2756,11 @@
         lineInput.value = "";
         btnSearchClear.style.display = "none";
         searchSuggestions.style.display = "none";
+
+        if (window.innerWidth <= 768) {
+          sidebar.classList.remove("line-selected");
+          setSheetState("peek");
+        }
 
         for (const [id, item] of busAnimMap.entries()) {
           if (item.marker) {
@@ -2036,22 +2817,24 @@
         for (const b of fleetBuses) {
           if (doorSet.has(b.id)) {
             const prev = (selectedLineData.buses || []).find(x => x.id === b.id);
+            const match = matchBusDirection(b, selectedLineData.directions, selectedLineCode);
             matchingBuses.push({
               id: b.id,
               lat: b.lat,
               lon: b.lon,
               line: selectedLineCode,
               name: selectedLineData.name,
-              dir: prev ? prev.dir : (b.dir || "D"),
-              dir_name: prev ? prev.dir_name : (b.dir_name || ""),
-              headsign: prev ? prev.headsign : (b.headsign || ""),
-              color: prev ? prev.color : (b.color || "#06b6d4"),
-              stop: prev ? prev.stop : (b.stop || ""),
+              dir: prev ? prev.dir : match.dir,
+              dir_name: prev ? prev.dir_name : match.dir_name,
+              headsign: prev ? prev.headsign : match.headsign,
+              color: prev ? prev.color : match.color,
+              stop: prev ? prev.stop : match.stop,
               time: b.t,
               s: b.s,
               op: b.op || "İETT",
               p: b.p || "",
-              a: b.a || 0
+              a: b.a || 0,
+              bearing: b.bearing || 0
             });
           }
         }
@@ -2186,6 +2969,10 @@
         });
 
         statTrains.innerHTML = `${activeTrains.length} <small>tren</small>`;
+        if (modalStatTrains) modalStatTrains.textContent = String(activeTrains.length);
+        if (mobileFleetText && fleetBuses && fleetBuses.length > 0) {
+          mobileFleetText.textContent = `${fleetBuses.length.toLocaleString("tr-TR")} İETT • ${activeTrains.length} Tren Canlı`;
+        }
       }
 
       function tickTrains() {
@@ -2398,30 +3185,107 @@
         }
       });
 
-      // Layer Toggles
-      chkBuses.addEventListener("change", renderBuses);
-      chkMetro.addEventListener("change", renderMetroLines);
-      chkTrains.addEventListener("change", () => {
+      // Layer Toggles Synchronization (Desktop Sidebar & Mobile Modal)
+      function syncCheckboxes(box1, box2, changeHandler) {
+        if (!box1 || !box2) return;
+        box1.addEventListener("change", () => {
+          box2.checked = box1.checked;
+          changeHandler();
+        });
+        box2.addEventListener("change", () => {
+          box1.checked = box2.checked;
+          changeHandler();
+        });
+      }
+
+      syncCheckboxes(chkBuses, chkBusesModal, renderBuses);
+      syncCheckboxes(chkMetro, chkMetroModal, renderMetroLines);
+      syncCheckboxes(chkTrains, chkTrainsModal, () => {
         if (!chkTrains.checked) trainsLayer.clearLayers();
       });
-      chkStale.addEventListener("change", renderBuses);
+      syncCheckboxes(chkStale, chkStaleModal, renderBuses);
 
-      // Mobile Bottom Sheet Gestures & Toggle
-      let startY = 0;
+      // Layers & Options Modal Controls
+      if (btnLayers) {
+        btnLayers.addEventListener("click", () => {
+          layersModal.classList.add("open");
+        });
+      }
+      if (btnLayersClose) {
+        btnLayersClose.addEventListener("click", () => {
+          layersModal.classList.remove("open");
+        });
+      }
+      if (btnOpenLayersInline) {
+        btnOpenLayersInline.addEventListener("click", (e) => {
+          e.stopPropagation();
+          layersModal.classList.add("open");
+        });
+      }
+      if (layersModal) {
+        layersModal.addEventListener("click", (e) => {
+          if (e.target === layersModal) {
+            layersModal.classList.remove("open");
+          }
+        });
+      }
+
+      // Mobile Bottom Sheet Gestures & Multi-Snap Controls
+      let touchStartY = 0;
       sheetHandle.addEventListener("touchstart", (e) => {
-        startY = e.touches[0].clientY;
-      });
+        touchStartY = e.touches[0].clientY;
+      }, { passive: true });
+
       sheetHandle.addEventListener("touchend", (e) => {
-        const endY = e.changedTouches[0].clientY;
-        const diff = endY - startY;
-        if (diff > 40) {
-          sidebar.classList.add("sheet-collapsed");
-        } else if (diff < -40) {
-          sidebar.classList.remove("sheet-collapsed");
+        const touchEndY = e.changedTouches[0].clientY;
+        const diff = touchEndY - touchStartY;
+        if (Math.abs(diff) < 15) {
+          toggleSheetState();
+          return;
+        }
+        if (diff < -35) {
+          // Swiped UP
+          if (currentSheetState === "peek") setSheetState("half");
+          else if (currentSheetState === "half") setSheetState("full");
+        } else if (diff > 35) {
+          // Swiped DOWN
+          if (currentSheetState === "full") setSheetState("half");
+          else if (currentSheetState === "half") setSheetState("peek");
+        }
+      }, { passive: true });
+
+      sheetHandle.addEventListener("click", () => {
+        if (window.innerWidth <= 768) toggleSheetState();
+      });
+
+      if (btnSheetToggle) {
+        btnSheetToggle.addEventListener("click", (e) => {
+          e.stopPropagation();
+          toggleSheetState();
+        });
+      }
+
+      selectedLineBanner.addEventListener("click", (e) => {
+        if (e.target.closest("#btn-banner-clear") || e.target.closest("#btn-sheet-toggle")) return;
+        if (window.innerWidth <= 768 && currentSheetState === "peek") {
+          setSheetState("half");
         }
       });
-      sheetHandle.addEventListener("click", () => {
-        sidebar.classList.toggle("sheet-collapsed");
+
+      lineInput.addEventListener("focus", () => {
+        if (window.innerWidth <= 768) {
+          setSheetState("full");
+        }
+      });
+
+      map.on("click", () => {
+        if (window.innerWidth <= 768) {
+          searchSuggestions.style.display = "none";
+          lineInput.blur();
+          if (currentSheetState !== "peek") {
+            setSheetState("peek");
+          }
+        }
       });
 
       // Mobile Inspector Close & Popup Cleanup
@@ -2474,9 +3338,16 @@
           console.warn("Hat eşleşmeleri yüklenemedi:", e);
         }
 
+        if (window.innerWidth <= 768) {
+          setSheetState("peek");
+        }
+
         // Fetch initial fleet and metro data
         await fetchFleet();
         await loadMetroData();
+
+        // Background Route Pre-caching for Popular Bus & Metrobüs Lines
+        precachePopularRoutes();
 
         // 2.5-Second Fast Edge Polling with ETag / 304 Not Modified
         setInterval(fetchFleet, POLL_INTERVAL_MS);
@@ -2487,6 +3358,24 @@
           updateLiveAges();
           tickTrains();
         }, 1000);
+      }
+
+      async function precachePopularRoutes() {
+        const POPULAR = ["34G", "34", "34AS", "34BZ", "34C", "34B", "34A", "500T", "15B", "16D", "14BK", "E-10"];
+        for (const line of POPULAR) {
+          if (!getStoredRoute(line)) {
+            try {
+              const res = await fetch(`/line/route?code=${encodeURIComponent(line)}`);
+              if (res.ok) {
+                const data = await res.json();
+                if (data && data.directions && Object.keys(data.directions).length > 0) {
+                  setStoredRoute(line, data);
+                }
+              }
+            } catch (e) {}
+            await new Promise(r => setTimeout(r, 200));
+          }
+        }
       }
 
       init();
