@@ -1,0 +1,1861 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1329">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>İstanbul Bizim - Canlı İETT Otobüs & Metro Haritası</title>
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+  
+  <style>
+    :root {
+      --bg-dark: #0b1329;
+      --card-bg: rgba(15, 23, 42, 0.88);
+      --card-border: rgba(255, 255, 255, 0.1);
+      --card-border-focus: rgba(56, 189, 248, 0.5);
+      --accent: #0284c7;
+      --accent-hover: #0369a1;
+      --accent-glow: rgba(56, 189, 248, 0.35);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --metrobus: #f97316;
+      --panel-width: 380px;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      height: 100%;
+      width: 100%;
+      background: var(--bg-dark);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    #map {
+      position: absolute;
+      inset: 0;
+      background: #090e1a;
+      z-index: 1;
+    }
+
+    /* Custom Leaflet Controls */
+    .leaflet-bar {
+      border: 1px solid var(--card-border) !important;
+      border-radius: 12px !important;
+      overflow: hidden;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4) !important;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+    .leaflet-bar a {
+      background: var(--card-bg) !important;
+      color: var(--text) !important;
+      border-bottom: 1px solid var(--card-border) !important;
+      width: 38px !important;
+      height: 38px !important;
+      line-height: 38px !important;
+      font-size: 16px !important;
+      transition: background 0.15s, color 0.15s;
+    }
+    .leaflet-bar a:hover {
+      background: rgba(30, 41, 59, 0.95) !important;
+      color: #38bdf8 !important;
+    }
+
+    /* Floating Map Action Buttons (Top/Bottom Right) */
+    .map-actions {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      z-index: 990;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .btn-circle {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: 1px solid var(--card-border);
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.4);
+      transition: transform 0.15s, background 0.15s, border-color 0.15s;
+    }
+    .btn-circle:hover {
+      background: rgba(30, 41, 59, 0.95);
+      border-color: rgba(56, 189, 248, 0.4);
+      transform: translateY(-1px);
+    }
+    .btn-circle:active {
+      transform: scale(0.95);
+    }
+    .btn-circle svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+
+    /* Main Desktop Sidebar / Mobile Bottom Sheet */
+    #sidebar {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      width: var(--panel-width);
+      max-width: calc(100vw - 32px);
+      max-height: calc(100vh - 32px);
+      background: var(--card-bg);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 16px;
+      box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.6), 0 0 1px 1px rgba(255, 255, 255, 0.05);
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), max-height 0.3s ease;
+    }
+
+    /* Mobile Sheet Drag Handle */
+    .sheet-handle {
+      display: none;
+      width: 36px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.25);
+      border-radius: 999px;
+      margin: 0 auto 4px auto;
+      cursor: grab;
+    }
+
+    /* Header */
+    .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #0284c7, #38bdf8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.4);
+      flex-shrink: 0;
+    }
+    .brand-icon svg {
+      width: 20px;
+      height: 20px;
+      fill: #ffffff;
+    }
+    .brand-title {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+    .brand-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+
+    /* Search Box */
+    .search-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .search-icon {
+      position: absolute;
+      left: 12px;
+      width: 16px;
+      height: 16px;
+      fill: var(--text-dim);
+      pointer-events: none;
+    }
+    #line-input {
+      width: 100%;
+      height: 42px;
+      padding: 0 40px 0 38px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(15, 23, 42, 0.8);
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 600;
+      outline: none;
+      transition: all 0.2s;
+    }
+    #line-input::placeholder {
+      color: var(--text-dim);
+      font-weight: 500;
+    }
+    #line-input:focus {
+      border-color: #38bdf8;
+      box-shadow: 0 0 0 3px var(--accent-glow);
+      background: rgba(15, 23, 42, 0.95);
+    }
+    .search-clear {
+      position: absolute;
+      right: 10px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      border: 0;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .search-clear:hover {
+      background: rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+    }
+
+    /* Suggestions dropdown */
+    #search-suggestions {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: 220px;
+      background: rgba(15, 23, 42, 0.98);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--card-border-focus);
+      border-radius: 12px;
+      overflow-y: auto;
+      z-index: 1100;
+      display: none;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6);
+    }
+    .suggest-item {
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      transition: background 0.12s;
+    }
+    .suggest-item:hover, .suggest-item.active {
+      background: rgba(56, 189, 248, 0.15);
+    }
+    .suggest-code {
+      font-weight: 700;
+      color: #38bdf8;
+      font-size: 14px;
+    }
+    .suggest-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-left: 8px;
+    }
+
+    /* Popular Quick Filter Chips */
+    .quick-chips-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      scrollbar-width: none;
+    }
+    .quick-chips-wrapper::-webkit-scrollbar { display: none; }
+    
+    .chip {
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .chip:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+    .chip.active {
+      background: #0284c7;
+      color: #ffffff;
+      border-color: #38bdf8;
+      box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);
+    }
+    .chip.metrobus-chip {
+      color: #fdba74;
+    }
+    .chip.metrobus-chip.active {
+      background: #ea580c;
+      color: #ffffff;
+      border-color: #fb923c;
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+    .stat-card {
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      transition: transform 0.15s, background 0.15s;
+    }
+    .stat-card:hover {
+      background: rgba(30, 41, 59, 0.85);
+    }
+    .stat-val {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #38bdf8;
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+    }
+    .stat-val small {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-dim);
+    }
+    .stat-lbl {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    /* Selected Line Active Banner */
+    #selected-line-banner {
+      display: none;
+      background: linear-gradient(135deg, rgba(2, 132, 199, 0.25), rgba(15, 23, 42, 0.9));
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      border-radius: 14px;
+      padding: 10px 14px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .line-banner-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .line-badge-large {
+      font-size: 16px;
+      font-weight: 800;
+      color: #ffffff;
+      background: #0284c7;
+      padding: 4px 10px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(2, 132, 199, 0.4);
+    }
+    .line-banner-text {
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.3;
+    }
+    .line-banner-sub {
+      font-size: 11px;
+      color: #93c5fd;
+    }
+    .btn-clear-line {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      color: #ffffff;
+      padding: 6px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-clear-line:hover {
+      background: rgba(239, 68, 68, 0.3);
+      border-color: rgba(239, 68, 68, 0.5);
+    }
+
+    /* Toggles & Options */
+    .collapsible-section {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      color: #cbd5e1;
+      cursor: pointer;
+      user-select: none;
+      padding: 2px 0;
+    }
+    .toggle-row span {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+    }
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background-color: #334155;
+      transition: .25s;
+      border-radius: 34px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .25s;
+      border-radius: 50%;
+    }
+    input:checked + .slider {
+      background-color: #0284c7;
+    }
+    input:checked + .slider:before {
+      transform: translateX(16px);
+    }
+
+    /* Vehicle Speed Legend */
+    .legend-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 10px;
+      padding: 6px 12px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    /* Vehicle List Container */
+    #bus-results-list {
+      max-height: 220px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding-right: 2px;
+    }
+    #bus-results-list::-webkit-scrollbar {
+      width: 4px;
+    }
+    #bus-results-list::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+    }
+    .bus-card {
+      padding: 8px 12px;
+      border-radius: 10px;
+      background: rgba(30, 41, 59, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    }
+    .bus-card:hover {
+      background: rgba(51, 65, 85, 0.7);
+      border-color: rgba(56, 189, 248, 0.3);
+      transform: translateX(2px);
+    }
+    .bus-card-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .bus-id {
+      font-weight: 700;
+      font-size: 13px;
+      color: #ffffff;
+    }
+    .bus-plate {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .bus-speed-badge {
+      font-size: 12px;
+      font-weight: 700;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Footer Status Bar */
+    .footer-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-muted);
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding-top: 8px;
+    }
+    .sync-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .timer-badge {
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      font-weight: 700;
+      color: #38bdf8;
+    }
+
+    /* Mobile Bottom Inspector Card (Tapping Vehicle on Mobile) */
+    #mobile-vehicle-inspector {
+      display: none;
+      position: absolute;
+      bottom: calc(16px + var(--safe-bottom));
+      left: 16px;
+      right: 16px;
+      background: rgba(15, 23, 42, 0.96);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      border-radius: 18px;
+      padding: 16px;
+      z-index: 1200;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.7);
+      animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes slideUp {
+      from { transform: translateY(100%); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .inspector-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .inspector-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .inspector-close {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      border: 0;
+      color: #ffffff;
+      font-size: 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .inspector-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+      font-size: 12px;
+    }
+    .inspector-row {
+      background: rgba(30, 41, 59, 0.6);
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .inspector-row-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 2px;
+    }
+    .inspector-row-val {
+      font-weight: 700;
+      color: #ffffff;
+    }
+    .inspector-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .btn-inspector-action {
+      flex: 1;
+      height: 38px;
+      border-radius: 10px;
+      border: 0;
+      background: #0284c7;
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.15s;
+    }
+    .btn-inspector-action:hover {
+      background: #0369a1;
+    }
+
+    /* Popups (Desktop) */
+    .leaflet-popup-content-wrapper {
+      background: rgba(15, 23, 42, 0.95) !important;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      color: #f8fafc !important;
+      border: 1px solid rgba(255, 255, 255, 0.15) !important;
+      border-radius: 14px !important;
+      box-shadow: 0 16px 32px rgba(0, 0, 0, 0.6) !important;
+    }
+    .leaflet-popup-tip {
+      background: rgba(15, 23, 42, 0.95) !important;
+    }
+    .popup-box {
+      font-size: 12px;
+      line-height: 1.5;
+      padding: 4px 2px;
+    }
+    .popup-header {
+      font-size: 15px;
+      font-weight: 800;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .popup-badge {
+      background: #0284c7;
+      color: #fff;
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 6px;
+    }
+    .popup-details {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 8px;
+      margin-bottom: 8px;
+    }
+    .btn-popup-filter {
+      width: 100%;
+      height: 32px;
+      border-radius: 8px;
+      border: 0;
+      background: #0284c7;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      margin-top: 6px;
+    }
+    .btn-popup-filter:hover {
+      background: #0369a1;
+    }
+
+    /* GPS Locator User Pulse Marker */
+    .user-loc-marker {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #38bdf8;
+      border: 3px solid #ffffff;
+      box-shadow: 0 0 15px #38bdf8;
+      position: relative;
+    }
+    .user-loc-marker::after {
+      content: '';
+      position: absolute;
+      inset: -8px;
+      border-radius: 50%;
+      background: rgba(56, 189, 248, 0.4);
+      animation: locPulse 1.8s ease-out infinite;
+    }
+    @keyframes locPulse {
+      0% { transform: scale(0.5); opacity: 1; }
+      100% { transform: scale(2.2); opacity: 0; }
+    }
+
+    /* Toast Notification */
+    #toast-msg {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-60px);
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: #ffffff;
+      padding: 8px 18px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      z-index: 2000;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s;
+      opacity: 0;
+      pointer-events: none;
+    }
+    #toast-msg.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    /* RESPONSIVE DESIGN: MOBILE VIEW (< 768px) */
+    @media (max-width: 768px) {
+      :root {
+        --panel-width: 100vw;
+      }
+      #sidebar {
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100vw;
+        max-width: 100vw;
+        border-radius: 24px 24px 0 0;
+        border-bottom: 0;
+        padding: 12px 16px calc(14px + var(--safe-bottom)) 16px;
+        max-height: 80vh;
+        box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.6);
+      }
+      .sheet-handle {
+        display: block;
+      }
+      /* Bottom sheet states on mobile */
+      #sidebar.sheet-collapsed {
+        max-height: 120px;
+        overflow: hidden;
+      }
+      #sidebar.sheet-collapsed .stats-grid,
+      #sidebar.sheet-collapsed .collapsible-section,
+      #sidebar.sheet-collapsed .legend-bar,
+      #sidebar.sheet-collapsed #bus-results-list,
+      #sidebar.sheet-collapsed .footer-bar {
+        display: none !important;
+      }
+      .map-actions {
+        top: 14px;
+        right: 14px;
+      }
+      .leaflet-top.leaflet-right {
+        top: 60px !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Toast Notification -->
+  <div id="toast-msg"></div>
+
+  <!-- Floating Quick Actions (Top Right) -->
+  <div class="map-actions">
+    <!-- Locate User GPS -->
+    <button class="btn-circle" id="btn-locate" title="Konumumu Bul" aria-label="Konumumu Bul">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/>
+      </svg>
+    </button>
+    <!-- Recenter Istanbul -->
+    <button class="btn-circle" id="btn-recenter" title="İstanbul'u Ortala" aria-label="İstanbul'u Ortala">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+      </svg>
+    </button>
+    <!-- Toggle Map Style (Dark / Light) -->
+    <button class="btn-circle" id="btn-theme" title="Harita Teması Değiştir" aria-label="Harita Teması Değiştir">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Main Floating Sidebar / Mobile Bottom Sheet -->
+  <aside id="sidebar">
+    <div class="sheet-handle" id="sheet-handle"></div>
+
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24">
+            <path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="brand-title">İstanbul Bizim</h1>
+          <div class="brand-sub">Canlı İETT & Metro Takip Ağı</div>
+        </div>
+      </div>
+      <div class="status-pill" id="status-pill">
+        <span class="pulse-dot"></span>
+        <span id="txt-status-pill">Canlı GPS</span>
+      </div>
+    </header>
+
+    <!-- Search Input & Autocomplete -->
+    <div class="search-wrapper">
+      <svg class="search-icon" viewBox="0 0 24 24">
+        <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+      </svg>
+      <input id="line-input" type="search" placeholder="Hat Ara: 500T, 15B, 34G, 16D..." autocomplete="off" spellcheck="false" enterkeyhint="search">
+      <button class="search-clear" id="btn-search-clear" title="Temizle">✕</button>
+      <div id="search-suggestions"></div>
+    </div>
+
+    <!-- Popular Quick Filter Chips -->
+    <div class="quick-chips-wrapper">
+      <button class="chip active" data-filter="all">Tüm Filo</button>
+      <button class="chip metrobus-chip" data-line="34G">⚡ Metrobüs</button>
+      <button class="chip" data-line="500T">500T</button>
+      <button class="chip" data-line="15B">15B</button>
+      <button class="chip" data-line="16D">16D</button>
+      <button class="chip" data-line="14BK">14BK</button>
+      <button class="chip" data-line="E-10">E-10</button>
+      <button class="chip" data-line="M2">M2 Metro</button>
+      <button class="chip" data-line="M4">M4 Metro</button>
+    </div>
+
+    <!-- Active Line Selected Banner -->
+    <div id="selected-line-banner">
+      <div class="line-banner-info">
+        <div class="line-badge-large" id="banner-line-code">15B</div>
+        <div>
+          <div class="line-banner-text" id="banner-line-title">Hattı Filtrelendi</div>
+          <div class="line-banner-sub" id="banner-line-sub">0 / 0 Canlı Araç</div>
+        </div>
+      </div>
+      <button class="btn-clear-line" id="btn-banner-clear">✕ Tümüne Dön</button>
+    </div>
+
+    <!-- Statistics Overview -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-val" id="stat-buses">0 <small>araç</small></div>
+        <div class="stat-lbl">Canlı İETT Otobüsü</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="stat-trains">0 <small>tren</small></div>
+        <div class="stat-lbl">Canlı Metro / Raylı</div>
+      </div>
+    </div>
+
+    <!-- Layer Toggles -->
+    <div class="collapsible-section">
+      <label class="toggle-row">
+        <span>🚌 Canlı İETT Otobüsleri</span>
+        <div class="switch">
+          <input type="checkbox" id="chk-buses" checked>
+          <span class="slider"></span>
+        </div>
+      </label>
+      <label class="toggle-row">
+        <span>🚇 Raylı Sistemler (Metro / Tramvay)</span>
+        <div class="switch">
+          <input type="checkbox" id="chk-metro" checked>
+          <span class="slider"></span>
+        </div>
+      </label>
+      <label class="toggle-row">
+        <span>🚆 Hareketli Trenler (Tarife / Canlı)</span>
+        <div class="switch">
+          <input type="checkbox" id="chk-trains" checked>
+          <span class="slider"></span>
+        </div>
+      </label>
+      <label class="toggle-row">
+        <span>🕒 Durağan / Garaj Araçları (+10 dk)</span>
+        <div class="switch">
+          <input type="checkbox" id="chk-stale">
+          <span class="slider"></span>
+        </div>
+      </label>
+    </div>
+
+    <!-- Speed Color Legend -->
+    <div class="legend-bar">
+      <div class="legend-item"><span class="legend-dot" style="background:#10b981"></span> Akıcı (>15 km/s)</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Yoğun (5-15)</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#64748b"></span> Duran</div>
+    </div>
+
+    <!-- Active Filtered Buses List -->
+    <div id="bus-results-list"></div>
+
+    <!-- Footer Status & Synchronization -->
+    <footer class="footer-bar">
+      <div class="sync-indicator">
+        <span id="txt-status-msg">Filo senkronize</span>
+      </div>
+      <div class="timer-badge" id="txt-timer" title="Sonraki GPS tazeleme">10s</div>
+    </footer>
+  </aside>
+
+  <!-- Mobile Bottom Vehicle Inspection Modal -->
+  <div id="mobile-vehicle-inspector">
+    <div class="inspector-header">
+      <div class="inspector-title">
+        <span id="insp-icon">🚌</span>
+        <span id="insp-title">Araç Bilgisi</span>
+      </div>
+      <button class="inspector-close" id="btn-insp-close">✕</button>
+    </div>
+    <div class="inspector-grid">
+      <div class="inspector-row">
+        <div class="inspector-row-label">Hatta Atama</div>
+        <div class="inspector-row-val" id="insp-line">-</div>
+      </div>
+      <div class="inspector-row">
+        <div class="inspector-row-label">Anlık Hız</div>
+        <div class="inspector-row-val" id="insp-speed">-</div>
+      </div>
+      <div class="inspector-row">
+        <div class="inspector-row-label">Son GPS Konumu</div>
+        <div class="inspector-row-val" id="insp-time">-</div>
+      </div>
+      <div class="inspector-row">
+        <div class="inspector-row-label">Operatör / Filo</div>
+        <div class="inspector-row-val" id="insp-op">-</div>
+      </div>
+    </div>
+    <div class="inspector-actions">
+      <button class="btn-inspector-action" id="btn-insp-filter">🔍 Bu Hattaki Tüm Araçları Gör</button>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+  <script>
+    (function () {
+      "use strict";
+
+      // ─── MAP INITIALIZATION ───
+      const ISTANBUL_CENTER = [41.015, 28.979];
+      const map = L.map("map", {
+        center: ISTANBUL_CENTER,
+        zoom: 11,
+        minZoom: 9,
+        maxZoom: 18,
+        preferCanvas: true,
+        zoomControl: false
+      });
+
+      L.control.zoom({ position: "bottomright" }).addTo(map);
+
+      // Basemap Tiles (Carto Retina Dark & Light without requiring API key)
+      const cartoKeyParam = "__CARTO_KEY__";
+      const keySuffix = (cartoKeyParam && cartoKeyParam !== "__CARTO_KEY__") ? `?key=${cartoKeyParam}` : "";
+
+      const darkTile = L.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png${keySuffix}`, {
+        subdomains: "abcd",
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://carto.com/">CARTO</a> | Veri: İBB Açık Veri & İETT'
+      });
+
+      const lightTile = L.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png${keySuffix}`, {
+        subdomains: "abcd",
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://carto.com/">CARTO</a> | Veri: İBB Açık Veri & İETT'
+      });
+
+      let currentTheme = localStorage.getItem("theme") || "dark";
+      if (currentTheme === "light") {
+        lightTile.addTo(map);
+      } else {
+        darkTile.addTo(map);
+      }
+
+      // ─── LAYER GROUPS ───
+      const busesLayer = L.layerGroup().addTo(map);
+      const selectedLineLayer = L.layerGroup().addTo(map);
+      const metroRailLayer = L.layerGroup().addTo(map);
+      const trainsLayer = L.layerGroup().addTo(map);
+      const userLocationLayer = L.layerGroup().addTo(map);
+
+      // Marker Pool for zero-flicker 60fps rendering
+      const busMarkerPool = new Map();
+
+      // ─── APPLICATION STATE ───
+      let fleetBuses = [];
+      let busLinesMap = {};
+      let doorLineMap = {};
+      let allLineCodes = [];
+      let selectedLineCode = null;
+      let selectedLineData = null;
+      let metroNetwork = {};
+      let metroColors = {};
+      let activeTrains = [];
+      let lastFleetTime = 0;
+      let pollCountdown = 10;
+      let isSheetExpanded = false;
+
+      // ─── DOM SELECTORS ───
+      const el = id => document.getElementById(id);
+      const sidebar = el("sidebar");
+      const sheetHandle = el("sheet-handle");
+      const lineInput = el("line-input");
+      const btnSearchClear = el("btn-search-clear");
+      const searchSuggestions = el("search-suggestions");
+      const statBuses = el("stat-buses");
+      const statTrains = el("stat-trains");
+      const txtStatusPill = el("txt-status-pill");
+      const txtStatusMsg = el("txt-status-msg");
+      const txtTimer = el("txt-timer");
+      const selectedLineBanner = el("selected-line-banner");
+      const bannerLineCode = el("banner-line-code");
+      const bannerLineTitle = el("banner-line-title");
+      const bannerLineSub = el("banner-line-sub");
+      const btnBannerClear = el("btn-banner-clear");
+      const busResultsList = el("bus-results-list");
+      const chkBuses = el("chk-buses");
+      const chkMetro = el("chk-metro");
+      const chkTrains = el("chk-trains");
+      const chkStale = el("chk-stale");
+      const toastMsg = el("toast-msg");
+      const mobileInspector = el("mobile-vehicle-inspector");
+
+      function showToast(text, duration = 3000) {
+        toastMsg.textContent = text;
+        toastMsg.classList.add("show");
+        setTimeout(() => toastMsg.classList.remove("show"), duration);
+      }
+
+      function getBusColor(speed) {
+        if (speed >= 15) return "#10b981"; // Green (Flowing)
+        if (speed >= 5) return "#f59e0b";  // Amber (Heavy traffic)
+        return "#64748b";                  // Gray (Stopped / Idle)
+      }
+
+      function formatBusAge(saat, fallbackAge) {
+        if (!saat) return fallbackAge != null ? `${fallbackAge} sn önce` : "-";
+        const p = String(saat).split(":").map(Number);
+        if (p.length < 3 || isNaN(p[0]) || isNaN(p[1]) || isNaN(p[2])) {
+          return fallbackAge != null ? `${fallbackAge} sn önce` : "-";
+        }
+        const now = new Date();
+        const istanbulSec = (now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds() + 10800) % 86400;
+        const busSec = p[0] * 3600 + p[1] * 60 + p[2];
+        let diff = (istanbulSec - busSec + 86400) % 86400;
+        if (diff > 43200) diff = 0;
+
+        if (diff < 60) return `${diff} sn önce`;
+        const m = Math.floor(diff / 60);
+        const s = diff % 60;
+        if (m < 60) return `${m} dk ${s} sn önce`;
+        const h = Math.floor(m / 60);
+        return `${h} sa ${m % 60} dk önce`;
+      }
+
+      function getBusAgeSec(saat, fallbackAge) {
+        if (!saat) return fallbackAge || 0;
+        const p = String(saat).split(":").map(Number);
+        if (p.length < 3 || isNaN(p[0]) || isNaN(p[1]) || isNaN(p[2])) return fallbackAge || 0;
+        const now = new Date();
+        const istanbulSec = (now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds() + 10800) % 86400;
+        const busSec = p[0] * 3600 + p[1] * 60 + p[2];
+        let diff = (istanbulSec - busSec + 86400) % 86400;
+        return diff > 43200 ? 0 : diff;
+      }
+
+      // ─── HIGH PERFORMANCE VEHICLE RENDERING (DIFF / POOLING) ───
+      function renderBuses() {
+        if (!chkBuses.checked || selectedLineCode) {
+          busMarkerPool.forEach(marker => busesLayer.removeLayer(marker));
+          busMarkerPool.clear();
+          return;
+        }
+
+        const showStale = chkStale.checked;
+        const currentIds = new Set();
+        let renderedCount = 0;
+
+        for (let i = 0; i < fleetBuses.length; i++) {
+          const b = fleetBuses[i];
+          const age = getBusAgeSec(b.t, b.a);
+          if (!showStale && age > 600) continue;
+
+          currentIds.add(b.id);
+          renderedCount++;
+          const col = getBusColor(b.s);
+
+          let marker = busMarkerPool.get(b.id);
+          if (!marker) {
+            // Create circle marker
+            marker = L.circleMarker([b.lat, b.lon], {
+              radius: 4,
+              weight: 1,
+              color: "#ffffff",
+              fillColor: col,
+              fillOpacity: 0.85
+            });
+
+            marker.on("click", (e) => {
+              L.DomEvent.stopPropagation(e);
+              inspectVehicle(b);
+            });
+
+            busMarkerPool.set(b.id, marker);
+            busesLayer.addLayer(marker);
+          } else {
+            // Update in-place without rebuilding DOM
+            marker.setLatLng([b.lat, b.lon]);
+            if (marker.options.fillColor !== col) {
+              marker.setStyle({ fillColor: col });
+            }
+          }
+        }
+
+        // Cleanup removed vehicles
+        for (const [id, marker] of busMarkerPool.entries()) {
+          if (!currentIds.has(id)) {
+            busesLayer.removeLayer(marker);
+            busMarkerPool.delete(id);
+          }
+        }
+
+        statBuses.innerHTML = `${renderedCount.toLocaleString("tr-TR")} <small>araç</small>`;
+      }
+
+      // ─── VEHICLE INSPECTOR (DESKTOP POPUP + MOBILE BOTTOM CARD) ───
+      function inspectVehicle(b) {
+        const mappedLine = doorLineMap[b.id] || b.line;
+        const speedText = `${b.s || 0} km/s`;
+        const timeText = `${b.t || b.time || "-"} (${formatBusAge(b.t || b.time, b.a)})`;
+        const opText = b.op || "İETT";
+
+        if (window.innerWidth <= 768) {
+          // Open mobile bottom inspector sheet
+          el("insp-title").textContent = `Araç: ${b.id} ${b.p ? `(${b.p})` : ""}`;
+          el("insp-line").innerHTML = mappedLine 
+            ? `<span style="color:#38bdf8;font-weight:800;font-size:14px">${mappedLine}</span>` 
+            : "Eşleşme yok";
+          el("insp-speed").textContent = speedText;
+          el("insp-time").textContent = timeText;
+          el("insp-op").textContent = opText;
+
+          const btnFilter = el("btn-insp-filter");
+          if (mappedLine) {
+            btnFilter.style.display = "flex";
+            btnFilter.textContent = `🔍 ${mappedLine} Hattını Filtrele`;
+            btnFilter.onclick = () => {
+              mobileInspector.style.display = "none";
+              searchLine(mappedLine);
+            };
+          } else {
+            btnFilter.style.display = "none";
+          }
+
+          mobileInspector.style.display = "block";
+        } else {
+          // Open desktop Leaflet popup
+          const lineAction = mappedLine 
+            ? `<button class="btn-popup-filter" onclick="window.filterLine('${mappedLine}')">🔍 ${mappedLine} Hattını Filtrele</button>` 
+            : "";
+
+          L.popup({ autoPanPadding: [20, 20] })
+            .setLatLng([b.lat, b.lon])
+            .setContent(`
+              <div class="popup-box">
+                <div class="popup-header">
+                  <span>🚌 ${b.id}</span>
+                  ${b.p ? `<span class="popup-badge">${b.p}</span>` : ""}
+                </div>
+                <div class="popup-details">
+                  <div><b>Hat:</b> ${mappedLine ? `<span style="color:#38bdf8;font-weight:700">${mappedLine}</span>` : "Yok"}</div>
+                  <div><b>Hız:</b> ${speedText}</div>
+                  <div><b>Zaman:</b> ${timeText}</div>
+                  <div><b>Operatör:</b> ${opText}</div>
+                </div>
+                ${lineAction}
+              </div>
+            `)
+            .openOn(map);
+        }
+      }
+
+      window.filterLine = function(code) {
+        map.closePopup();
+        searchLine(code);
+      };
+
+      // ─── FILTER A SINGLE LINE ───
+      function renderSelectedLine(preserveView = false) {
+        selectedLineLayer.clearLayers();
+        busResultsList.innerHTML = "";
+        if (!selectedLineData) return;
+
+        const buses = selectedLineData.buses || [];
+        const pts = [];
+        let listHtml = "";
+
+        bannerLineCode.textContent = selectedLineCode;
+        bannerLineTitle.textContent = `${selectedLineCode} Hattı`;
+        bannerLineSub.textContent = `${buses.length} / ${selectedLineData.assigned_count || buses.length} Canlı Araç`;
+        selectedLineBanner.style.display = "flex";
+
+        if (buses.length === 0) {
+          busResultsList.innerHTML = `<div style="padding:14px;color:#94a3b8;text-align:center;background:rgba(30,41,59,0.5);border-radius:10px;font-size:12px">Bu hatta kayıtlı araçlar var ancak şu an seferde aktif araç sinyali alınamadı.</div>`;
+          statBuses.innerHTML = `0 / ${selectedLineData.assigned_count || 0} <small>araç</small>`;
+          return;
+        }
+
+        buses.forEach((b) => {
+          const col = b.s > 15 ? "#10b981" : (b.s > 4 ? "#f59e0b" : "#64748b");
+
+          const marker = L.circleMarker([b.lat, b.lon], {
+            radius: 7,
+            weight: 2,
+            color: "#ffffff",
+            fillColor: col,
+            fillOpacity: 1
+          });
+
+          marker.bindTooltip(`<b>${b.id}</b> - ${selectedLineCode} (${b.s || 0} km/s)`, { direction: "top", offset: [0, -6] });
+          marker.on("click", (e) => {
+            L.DomEvent.stopPropagation(e);
+            inspectVehicle(b);
+          });
+
+          selectedLineLayer.addLayer(marker);
+          pts.push([b.lat, b.lon]);
+
+          listHtml += `
+            <div class="bus-card" onclick="window.panToBus(${b.lat}, ${b.lon}, '${b.id}')">
+              <div class="bus-card-left">
+                <span class="legend-dot" style="background:${col}"></span>
+                <div>
+                  <div class="bus-id">${b.id}</div>
+                  <div class="bus-plate">${b.p || "İETT"}</div>
+                </div>
+              </div>
+              <div class="bus-speed-badge">
+                <span>${b.s || 0}</span> <small style="font-size:10px;color:#94a3b8">km/s</small>
+              </div>
+            </div>
+          `;
+        });
+
+        busResultsList.innerHTML = listHtml;
+        statBuses.innerHTML = `${buses.length} / ${selectedLineData.assigned_count || buses.length} <small>araç</small>`;
+
+        if (!preserveView && pts.length > 0) {
+          map.fitBounds(pts, { padding: [60, 60], maxZoom: 15 });
+        }
+      }
+
+      window.panToBus = function (lat, lon, id) {
+        map.setView([lat, lon], 16, { animate: true });
+        const bus = (selectedLineData && selectedLineData.buses) ? selectedLineData.buses.find(x => x.id === id) : null;
+        if (bus) inspectVehicle(bus);
+      };
+
+      function searchLine(code, isSilent = false) {
+        if (!code) return;
+        code = code.toUpperCase().trim();
+        selectedLineCode = code;
+        lineInput.value = code;
+        btnSearchClear.style.display = "flex";
+        searchSuggestions.style.display = "none";
+
+        // Highlight chip if matching
+        document.querySelectorAll(".chip").forEach(c => {
+          c.classList.toggle("active", c.getAttribute("data-line") === code);
+        });
+
+        // 1. Instant local database lookup (0ms)
+        const assignedDoors = busLinesMap[code];
+        if (assignedDoors && assignedDoors.length > 0) {
+          const doorSet = new Set(assignedDoors);
+          const matched = [];
+          for (let i = 0; i < fleetBuses.length; i++) {
+            const b = fleetBuses[i];
+            if (doorSet.has(b.id)) {
+              matched.push({
+                id: b.id,
+                lat: b.lat,
+                lon: b.lon,
+                line: code,
+                s: b.s,
+                time: b.t,
+                op: b.op || "",
+                p: b.p || "",
+                a: b.a || 0
+              });
+            }
+          }
+
+          selectedLineData = {
+            code: code,
+            buses: matched,
+            assigned_count: assignedDoors.length
+          };
+
+          // Hide general fleet markers
+          busMarkerPool.forEach(marker => busesLayer.removeLayer(marker));
+          busMarkerPool.clear();
+
+          renderSelectedLine(isSilent);
+          txtStatusMsg.textContent = `${code} aktif (${matched.length} araç)`;
+          return;
+        }
+
+        // 2. Fallback to API if line code is not in precompiled map
+        txtStatusMsg.textContent = `${code} sorgulanıyor...`;
+        fetch(`/line?code=${encodeURIComponent(code)}`)
+          .then(r => r.json())
+          .then(data => {
+            if (data.buses) {
+              selectedLineData = data;
+              busMarkerPool.forEach(marker => busesLayer.removeLayer(marker));
+              busMarkerPool.clear();
+              renderSelectedLine(isSilent);
+              txtStatusMsg.textContent = `${code} aktif (${data.buses.length} araç)`;
+            } else {
+              showToast(`"${code}" hattında aktif araç bulunamadı`);
+              txtStatusMsg.textContent = "Hat bulunamadı";
+            }
+          })
+          .catch(() => {
+            showToast("Hat verisi sorgulanırken hata oluştu");
+          });
+      }
+
+      function clearSelectedLine() {
+        selectedLineCode = null;
+        selectedLineData = null;
+        selectedLineLayer.clearLayers();
+        selectedLineBanner.style.display = "none";
+        busResultsList.innerHTML = "";
+        lineInput.value = "";
+        btnSearchClear.style.display = "none";
+        searchSuggestions.style.display = "none";
+
+        document.querySelectorAll(".chip").forEach(c => {
+          c.classList.toggle("active", c.getAttribute("data-filter") === "all");
+        });
+
+        renderBuses();
+        txtStatusMsg.textContent = "Tüm filo gösteriliyor";
+      }
+
+      // ─── FETCH REFRESH ENGINE ───
+      async function fetchFleet() {
+        try {
+          const res = await fetch("/buses");
+          const data = await res.json();
+          if (data.buses && Array.isArray(data.buses)) {
+            fleetBuses = data.buses;
+            lastFleetTime = data.updated_at || Date.now();
+            txtStatusPill.textContent = "CANLI GPS";
+
+            if (selectedLineCode) {
+              searchLine(selectedLineCode, true);
+            } else {
+              renderBuses();
+            }
+
+            const secAgo = Math.max(0, Math.round((Date.now() - lastFleetTime) / 1000));
+            txtStatusMsg.textContent = `Güncellendi (${secAgo}s önce)`;
+          }
+        } catch (e) {
+          txtStatusPill.textContent = "Yenileniyor...";
+        }
+        pollCountdown = 10;
+      }
+
+      // ─── METRO NETWORK & LIVE TRAIN SIMULATOR ───
+      async function loadMetroData() {
+        try {
+          const [stnsRes, colorsRes] = await Promise.all([
+            fetch("/metro/stations"),
+            fetch("/metro/colors")
+          ]);
+          metroNetwork = await stnsRes.json();
+          metroColors = await colorsRes.json();
+          renderMetroLines();
+          initTrainSimulation();
+        } catch (e) {
+          console.warn("Metro verisi yüklenemedi:", e);
+        }
+      }
+
+      function renderMetroLines() {
+        metroRailLayer.clearLayers();
+        if (!chkMetro.checked) return;
+
+        for (const [lineCode, stations] of Object.entries(metroNetwork)) {
+          if (!stations || stations.length < 2) continue;
+          const color = metroColors[lineCode] || "#0284c7";
+          const latlngs = stations.map(s => [s.lat, s.lon]);
+
+          // Track polyline
+          const linePoly = L.polyline(latlngs, {
+            color: color,
+            weight: 3.5,
+            opacity: 0.9,
+            lineJoin: "round"
+          });
+          linePoly.bindTooltip(`<b>${lineCode} Hattı</b>`, { sticky: true });
+          metroRailLayer.addLayer(linePoly);
+
+          // Station points
+          stations.forEach(stn => {
+            const stnDot = L.circleMarker([stn.lat, stn.lon], {
+              radius: 3,
+              weight: 1.5,
+              color: "#ffffff",
+              fillColor: color,
+              fillOpacity: 1
+            });
+            stnDot.bindTooltip(`<b>${lineCode}</b> - ${stn.name}`, { direction: "top", offset: [0, -3] });
+            metroRailLayer.addLayer(stnDot);
+          });
+        }
+      }
+
+      function initTrainSimulation() {
+        activeTrains = [];
+        const lines = Object.keys(metroNetwork);
+
+        lines.forEach(lineCode => {
+          const stations = metroNetwork[lineCode];
+          if (!stations || stations.length < 2) return;
+
+          const trainCount = Math.max(2, Math.min(5, Math.floor(stations.length / 4)));
+          for (let i = 0; i < trainCount; i++) {
+            const dir = i % 2 === 0 ? 1 : -1;
+            const initialSegment = Math.floor((stations.length - 1) * (i / trainCount));
+            activeTrains.push({
+              id: `${lineCode}-${i + 1}`,
+              line: lineCode,
+              color: metroColors[lineCode] || "#ef4444",
+              stations: stations,
+              dir: dir,
+              segIdx: initialSegment,
+              progress: (i * 0.3) % 1.0,
+              speed: 55 + Math.floor(Math.random() * 15),
+              marker: null
+            });
+          }
+        });
+
+        statTrains.innerHTML = `${activeTrains.length} <small>tren</small>`;
+      }
+
+      function tickTrains() {
+        if (!chkTrains.checked) {
+          trainsLayer.clearLayers();
+          return;
+        }
+
+        activeTrains.forEach(t => {
+          const stns = t.stations;
+          if (!stns || stns.length < 2) return;
+
+          t.progress += 0.02 * (t.speed / 50);
+          if (t.progress >= 1.0) {
+            t.progress = 0;
+            t.segIdx += t.dir;
+            if (t.segIdx >= stns.length - 1) {
+              t.segIdx = stns.length - 2;
+              t.dir = -1;
+            } else if (t.segIdx < 0) {
+              t.segIdx = 0;
+              t.dir = 1;
+            }
+          }
+
+          const s1 = stns[t.segIdx];
+          const s2 = stns[t.segIdx + 1];
+          if (!s1 || !s2) return;
+
+          const curLat = s1.lat + (s2.lat - s1.lat) * t.progress;
+          const curLon = s1.lon + (s2.lon - s1.lon) * t.progress;
+          const nextStnName = t.dir === 1 ? s2.name : s1.name;
+
+          if (!t.marker) {
+            t.marker = L.circleMarker([curLat, curLon], {
+              radius: 6,
+              weight: 2,
+              color: "#ffffff",
+              fillColor: t.color,
+              fillOpacity: 1
+            });
+            t.marker.on("click", (e) => {
+              L.DomEvent.stopPropagation(e);
+              if (window.innerWidth <= 768) {
+                el("insp-icon").textContent = "🚆";
+                el("insp-title").textContent = `${t.line} Treni (${t.id})`;
+                el("insp-line").innerHTML = `<span style="color:${t.color};font-weight:800">${t.line} Metro</span>`;
+                el("insp-speed").textContent = `${t.speed} km/s`;
+                el("insp-time").textContent = `Sonraki: ${nextStnName}`;
+                el("insp-op").textContent = "Metro İstanbul";
+                el("btn-insp-filter").style.display = "none";
+                mobileInspector.style.display = "block";
+              } else {
+                L.popup()
+                  .setLatLng(t.marker.getLatLng())
+                  .setContent(`
+                    <div class="popup-box">
+                      <div class="popup-header" style="color:${t.color}">
+                        <span>🚆 ${t.line} Treni</span>
+                        <span class="popup-badge">${t.id}</span>
+                      </div>
+                      <div class="popup-details">
+                        <div><b>Hat:</b> ${t.line}</div>
+                        <div><b>Hız:</b> ${t.speed} km/s</div>
+                        <div style="grid-column: span 2"><b>Sonraki Durak:</b> ${nextStnName}</div>
+                      </div>
+                    </div>
+                  `)
+                  .openOn(map);
+              }
+            });
+            trainsLayer.addLayer(t.marker);
+          } else {
+            t.marker.setLatLng([curLat, curLon]);
+          }
+        });
+      }
+
+      // ─── AUTOCOMPLETE & SEARCH ───
+      function filterSuggestions(query) {
+        query = query.toUpperCase().trim();
+        if (!query) {
+          searchSuggestions.style.display = "none";
+          return;
+        }
+
+        const matches = allLineCodes.filter(c => c.startsWith(query) || c.includes(query)).slice(0, 8);
+        if (matches.length === 0) {
+          searchSuggestions.style.display = "none";
+          return;
+        }
+
+        searchSuggestions.innerHTML = matches.map(c => {
+          const doorCount = busLinesMap[c] ? busLinesMap[c].length : 0;
+          return `
+            <div class="suggest-item" data-code="${c}">
+              <span class="suggest-code">${c}</span>
+              <span class="suggest-desc">${doorCount > 0 ? `${doorCount} kayıtlı araç` : "Hat"}</span>
+            </div>
+          `;
+        }).join("");
+
+        searchSuggestions.style.display = "block";
+      }
+
+      // ─── USER GEOLOCATION ───
+      let userLocationMarker = null;
+      let userAccuracyCircle = null;
+
+      function locateUser() {
+        if (!navigator.geolocation) {
+          showToast("Tarayıcınız konum servisini desteklemiyor");
+          return;
+        }
+        showToast("Konumunuz alınıyor...");
+        navigator.geolocation.getCurrentPosition(
+          pos => {
+            const { latitude, longitude, accuracy } = pos.coords;
+            userLocationLayer.clearLayers();
+
+            userAccuracyCircle = L.circle([latitude, longitude], {
+              radius: accuracy,
+              color: "#38bdf8",
+              fillColor: "#38bdf8",
+              fillOpacity: 0.15,
+              weight: 1
+            }).addTo(userLocationLayer);
+
+            const icon = L.divIcon({
+              className: "user-loc-marker",
+              iconSize: [18, 18],
+              iconAnchor: [9, 9]
+            });
+
+            userLocationMarker = L.marker([latitude, longitude], { icon }).addTo(userLocationLayer);
+            userLocationMarker.bindTooltip("<b>Buradasınız</b>", { direction: "top", offset: [0, -10] });
+
+            map.setView([latitude, longitude], 15, { animate: true });
+            showToast("Konumunuz haritada işaretlendi");
+          },
+          err => {
+            showToast("Konumunuza erişilemedi: " + (err.message || "İzin verilmedi"));
+          },
+          { enableHighAccuracy: true, timeout: 8000 }
+        );
+      }
+
+      // ─── EVENT LISTENERS ───
+      lineInput.addEventListener("input", (e) => {
+        const val = e.target.value;
+        btnSearchClear.style.display = val ? "flex" : "none";
+        filterSuggestions(val);
+      });
+
+      lineInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const first = searchSuggestions.querySelector(".suggest-item");
+          const code = (first && searchSuggestions.style.display !== "none") 
+            ? first.getAttribute("data-code") 
+            : lineInput.value;
+          searchLine(code);
+        } else if (e.key === "Escape") {
+          clearSelectedLine();
+        }
+      });
+
+      searchSuggestions.addEventListener("click", (e) => {
+        const item = e.target.closest(".suggest-item");
+        if (item) {
+          const code = item.getAttribute("data-code");
+          searchLine(code);
+        }
+      });
+
+      btnSearchClear.addEventListener("click", clearSelectedLine);
+      btnBannerClear.addEventListener("click", clearSelectedLine);
+
+      // Quick Chips Click
+      document.querySelectorAll(".chip").forEach(chip => {
+        chip.addEventListener("click", () => {
+          const line = chip.getAttribute("data-line");
+          const filter = chip.getAttribute("data-filter");
+          if (filter === "all") {
+            clearSelectedLine();
+          } else if (line) {
+            searchLine(line);
+          }
+        });
+      });
+
+      // Map Action Buttons
+      el("btn-locate").addEventListener("click", locateUser);
+      el("btn-recenter").addEventListener("click", () => {
+        map.setView(ISTANBUL_CENTER, 11, { animate: true });
+        showToast("İstanbul merkezine dönüldü");
+      });
+
+      el("btn-theme").addEventListener("click", () => {
+        if (map.hasLayer(darkTile)) {
+          map.removeLayer(darkTile);
+          map.addLayer(lightTile);
+          localStorage.setItem("theme", "light");
+          showToast("Açık harita modu");
+        } else {
+          map.removeLayer(lightTile);
+          map.addLayer(darkTile);
+          localStorage.setItem("theme", "dark");
+          showToast("Koyu harita modu");
+        }
+      });
+
+      // Layer Toggles
+      chkBuses.addEventListener("change", renderBuses);
+      chkMetro.addEventListener("change", renderMetroLines);
+      chkTrains.addEventListener("change", () => {
+        if (!chkTrains.checked) trainsLayer.clearLayers();
+      });
+      chkStale.addEventListener("change", renderBuses);
+
+      // Mobile Bottom Sheet Gestures & Toggle
+      let startY = 0;
+      sheetHandle.addEventListener("touchstart", (e) => {
+        startY = e.touches[0].clientY;
+      });
+      sheetHandle.addEventListener("touchend", (e) => {
+        const endY = e.changedTouches[0].clientY;
+        const diff = endY - startY;
+        if (diff > 40) {
+          sidebar.classList.add("sheet-collapsed");
+        } else if (diff < -40) {
+          sidebar.classList.remove("sheet-collapsed");
+        }
+      });
+      sheetHandle.addEventListener("click", () => {
+        sidebar.classList.toggle("sheet-collapsed");
+      });
+
+      // Mobile Inspector Close
+      el("btn-insp-close").addEventListener("click", () => {
+        mobileInspector.style.display = "none";
+      });
+
+      // Keyboard Shortcuts
+      window.addEventListener("keydown", (e) => {
+        if (e.key === "/" && document.activeElement !== lineInput) {
+          e.preventDefault();
+          lineInput.focus();
+        }
+      });
+
+      // Close suggestions on outside click
+      document.addEventListener("click", (e) => {
+        if (!e.target.closest(".search-wrapper")) {
+          searchSuggestions.style.display = "none";
+        }
+      });
+
+      // ─── INITIALIZATION ───
+      async function init() {
+        // Load bus lines mapping
+        try {
+          const res = await fetch("/lines/map");
+          const data = await res.json();
+          if (data && typeof data === "object") {
+            busLinesMap = data;
+            doorLineMap = {};
+            allLineCodes = Object.keys(busLinesMap).sort();
+            for (const line of allLineCodes) {
+              const doors = busLinesMap[line];
+              if (Array.isArray(doors)) {
+                for (const d of doors) {
+                  doorLineMap[d] = line;
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Hat eşleşmeleri yüklenemedi:", e);
+        }
+
+        // Fetch initial fleet and metro data
+        await fetchFleet();
+        await loadMetroData();
+
+        // 10-Second Fleet Polling
+        setInterval(fetchFleet, 10000);
+
+        // 1-Second Smooth UI & Train Tick
+        setInterval(() => {
+          if (pollCountdown > 0) pollCountdown--;
+          txtTimer.textContent = `${pollCountdown}s`;
+          tickTrains();
+        }, 1000);
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>

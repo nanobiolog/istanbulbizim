@@ -1,0 +1,32 @@
+# Cloudflare Wrangler & Miniflare state
+.wrangler/
+.dev.vars
+wrangler.toml
+!wrangler.toml.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+env/
+venv/
+
+# Environment Variables & Secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Operating System & Editor Files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build & Logs
+*.log
+tmp/

@@ -1,0 +1,13 @@
+name = "istanbulbizim-live"
+main = "src/bundle.js"
+compatibility_date = "2026-10-05"
+
+# KV Namespace for live fleet storage and caching
+# Create one with: npx wrangler kv namespace create LIVE
+[[kv_namespaces]]
+binding = "LIVE"
+id = "<YOUR_KV_NAMESPACE_ID>"
+
+# Optional Cron Trigger for automated fleet polling every minute
+[triggers]
+crons = ["*/1 * * * *"]
