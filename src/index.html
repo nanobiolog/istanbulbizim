@@ -983,6 +983,254 @@
       opacity: 1;
     }
 
+    /* Metro Live Train Custom Markers & Kinematic Badges */
+    .metro-train-div-icon {
+      background: transparent !important;
+      border: none !important;
+    }
+    .metro-train-marker {
+      position: relative;
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transform: translate3d(0, 0, 0);
+    }
+    .train-beacon-pulse {
+      position: absolute;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      pointer-events: none;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      opacity: 0.65;
+      animation: trainPulse 2s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+    }
+    .train-beacon-pulse.acc {
+      background: rgba(16, 185, 129, 0.35);
+      box-shadow: 0 0 16px rgba(16, 185, 129, 0.8);
+    }
+    .train-beacon-pulse.dec {
+      background: rgba(239, 68, 68, 0.35);
+      box-shadow: 0 0 16px rgba(239, 68, 68, 0.8);
+    }
+    .train-beacon-pulse.cruise {
+      background: rgba(56, 189, 248, 0.25);
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
+    }
+    .train-beacon-pulse.stop {
+      background: rgba(245, 158, 11, 0.4);
+      box-shadow: 0 0 18px rgba(245, 158, 11, 0.9);
+      animation: trainPulse 1.2s ease-in-out infinite alternate;
+    }
+    @keyframes trainPulse {
+      0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0.9; }
+      100% { transform: translate(-50%, -50%) scale(2.2); opacity: 0; }
+    }
+
+    .train-pill-body {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 3px 7px;
+      border-radius: 20px;
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 11px;
+      border: 1.5px solid rgba(255, 255, 255, 0.9);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+      z-index: 2;
+      transition: transform 0.15s ease;
+      white-space: nowrap;
+    }
+    .metro-train-marker:hover .train-pill-body {
+      transform: scale(1.12);
+    }
+    .train-marker-icon {
+      font-size: 11px;
+      line-height: 1;
+    }
+    .train-marker-line {
+      letter-spacing: -0.2px;
+    }
+    .train-marker-arrow {
+      font-size: 9px;
+      font-weight: 900;
+      display: inline-flex;
+      align-items: center;
+    }
+    .train-marker-arrow.acc {
+      color: #34d399;
+      text-shadow: 0 0 4px #10b981;
+    }
+    .train-marker-arrow.dec {
+      color: #f87171;
+      text-shadow: 0 0 4px #ef4444;
+    }
+    .train-marker-arrow.cruise {
+      color: #38bdf8;
+    }
+    .train-marker-arrow.stop {
+      color: #fbbf24;
+    }
+
+    /* Floating On-Map Kinematics Tag */
+    .train-floating-tag {
+      position: absolute;
+      bottom: calc(100% + 5px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 8px;
+      padding: 3px 6px;
+      font-size: 10px;
+      line-height: 1.3;
+      white-space: nowrap;
+      pointer-events: none;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+      z-index: 10;
+      min-width: 90px;
+      text-align: center;
+    }
+    .train-tag-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .train-tag-row.stop-row {
+      margin-top: 1px;
+      padding-top: 2px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 9.5px;
+      color: #cbd5e1;
+    }
+    .tag-acc {
+      font-weight: 800;
+    }
+    .tag-acc.acc {
+      color: #34d399;
+    }
+    .tag-acc.dec {
+      color: #f87171;
+    }
+    .tag-acc.cruise {
+      color: #38bdf8;
+    }
+    .tag-acc.stop {
+      color: #fbbf24;
+    }
+    .tag-speed {
+      font-weight: 700;
+      color: #f8fafc;
+    }
+    .tag-stn {
+      font-weight: 600;
+      color: #94a3b8;
+      max-width: 65px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .tag-eta {
+      font-weight: 800;
+      color: #fef08a;
+    }
+
+    /* Map Zoom Clutter Reduction */
+    .map-zoomed-out .train-floating-tag {
+      display: none;
+    }
+    .map-zoomed-out .metro-train-marker:hover .train-floating-tag {
+      display: block !important;
+    }
+
+    /* Metro Live Train Leaflet Popup Styling */
+    .metro-popup-status-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 11.5px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .metro-popup-status-banner.acc {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: rgba(16, 185, 129, 0.4);
+      color: #34d399;
+    }
+    .metro-popup-status-banner.dec {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: rgba(239, 68, 68, 0.4);
+      color: #f87171;
+    }
+    .metro-popup-status-banner.cruise {
+      background: rgba(2, 132, 199, 0.15);
+      border-color: rgba(2, 132, 199, 0.4);
+      color: #38bdf8;
+    }
+    .metro-popup-status-banner.stop {
+      background: rgba(245, 158, 11, 0.15);
+      border-color: rgba(245, 158, 11, 0.4);
+      color: #fbbf24;
+    }
+    .status-acc-badge {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.3);
+    }
+    .metro-progress-wrap {
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .metro-progress-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: #94a3b8;
+      margin-bottom: 3px;
+    }
+    .metro-progress-bar {
+      width: 100%;
+      height: 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.12);
+      overflow: hidden;
+    }
+    .metro-progress-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.15s linear;
+    }
+    .metro-tooltip {
+      background: rgba(15, 23, 42, 0.95) !important;
+      backdrop-filter: blur(12px) !important;
+      -webkit-backdrop-filter: blur(12px) !important;
+      border: 1px solid rgba(255, 255, 255, 0.2) !important;
+      color: #f8fafc !important;
+      border-radius: 10px !important;
+      padding: 6px 10px !important;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.6) !important;
+      font-size: 11px !important;
+      line-height: 1.4 !important;
+    }
+    .metro-tooltip::before {
+      border-top-color: rgba(15, 23, 42, 0.95) !important;
+    }
+
     /* Floating Mobile Brand Pill */
     .mobile-brand-pill {
       display: none;
@@ -2053,34 +2301,11 @@
             }
           }
 
-          // 60 FPS Metro Train Simulation Glide
+          // 60 FPS Metro Train Simulation & Live Kinematics
           if (chkTrains && chkTrains.checked && activeTrains.length > 0) {
             const trainDt = Math.min(0.1, (now - (lastTrainFrameTime || now)) / 1000);
             lastTrainFrameTime = now;
-            for (let i = 0; i < activeTrains.length; i++) {
-              const t = activeTrains[i];
-              const stns = t.stations;
-              if (!stns || stns.length < 2) continue;
-              t.progress += trainDt * (t.speed / 600);
-              if (t.progress >= 1.0) {
-                t.progress = 0;
-                t.segIdx += t.dir;
-                if (t.segIdx >= stns.length - 1) {
-                  t.segIdx = stns.length - 2;
-                  t.dir = -1;
-                } else if (t.segIdx < 0) {
-                  t.segIdx = 0;
-                  t.dir = 1;
-                }
-              }
-              const s1 = stns[t.segIdx];
-              const s2 = stns[t.segIdx + 1];
-              if (s1 && s2 && t.marker) {
-                const curLat = s1.lat + (s2.lat - s1.lat) * t.progress;
-                const curLon = s1.lon + (s2.lon - s1.lon) * t.progress;
-                t.marker.setLatLng([curLat, curLon]);
-              }
-            }
+            stepTrains(trainDt, now);
           }
 
           requestAnimationFrame(animateFrame);
@@ -2091,6 +2316,8 @@
 
       // ─── VEHICLE INSPECTOR (DESKTOP POPUP + MOBILE BOTTOM CARD) ───
       let activeInspectedBus = null;
+      let activeInspectedTrain = null;
+      let activeTrainPopup = null;
 
       function findFreshBus(id) {
         if (!id) return null;
@@ -2124,6 +2351,12 @@
             mobTimeEl.textContent = fullTimeText;
             el("insp-speed").textContent = `${activeInspectedBus.s || 0} km/s`;
           }
+        }
+
+        if (activeInspectedTrain) {
+          const p = getTrainDisplayProps(activeInspectedTrain);
+          updateInspectedTrainMobile(activeInspectedTrain, p);
+          if (activeTrainPopup) updateActiveTrainPopup(activeInspectedTrain);
         }
 
         // 2. Live update visible sidebar bus cards
@@ -2942,7 +3175,409 @@
         }
       }
 
+      // ─── METRO LIVE TRAIN KINEMATICS & ESTIMATED STOP TIME ENGINE ───
+      function getTrainDisplayProps(t) {
+        let accClass = "cruise";
+        let arrowIcon = "●";
+        let statusTitle = "Seyir Halinde";
+        let statusIcon = "⚡";
+        let accDisplay = "0.00 m/s²";
+
+        if (t.state === "ACCELERATING") {
+          accClass = "acc";
+          arrowIcon = "▲";
+          statusTitle = "Hızlanıyor";
+          statusIcon = "🚀";
+          const a = t.currentAcc > 0 ? t.currentAcc : 0.95;
+          accDisplay = `+${a.toFixed(2)} m/s²`;
+        } else if (t.state === "DECELERATING") {
+          accClass = "dec";
+          arrowIcon = "▼";
+          statusTitle = "Yavaşlıyor / Fren";
+          statusIcon = "🛑";
+          const d = t.currentAcc < 0 ? t.currentAcc : -1.10;
+          accDisplay = `${d.toFixed(2)} m/s²`;
+        } else if (t.state === "AT_STATION") {
+          accClass = "stop";
+          arrowIcon = "⏸";
+          statusTitle = "Durakta (Yolcu)";
+          statusIcon = "⏸️";
+          accDisplay = "DURAKTA";
+        }
+
+        let etaShort = "";
+        let etaFull = "";
+        if (t.state === "AT_STATION") {
+          etaShort = `${t.etaSec || 0}s`;
+          etaFull = `Kalkışa ${t.etaSec || 0} sn`;
+        } else {
+          const sec = Math.max(1, t.etaSec || 1);
+          if (sec < 60) {
+            etaShort = `${sec}s`;
+            etaFull = `${sec} sn sonra`;
+          } else {
+            const m = Math.floor(sec / 60);
+            const s = sec % 60;
+            etaShort = `${m}d ${s}s`;
+            etaFull = `${m} dk ${s} sn sonra`;
+          }
+        }
+
+        const arrivalDate = new Date(Date.now() + (t.etaSec || 0) * 1000);
+        const arrivalClock = arrivalDate.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+        return {
+          accClass,
+          arrowIcon,
+          statusTitle,
+          statusIcon,
+          accDisplay,
+          etaShort,
+          etaFull,
+          arrivalClock
+        };
+      }
+
+      function createTrainMarkerHtml(t) {
+        const p = getTrainDisplayProps(t);
+        const shortStn = (t.targetStnName || "").replace(/\s*-\s*/g, " ").slice(0, 10);
+        return `
+          <div class="metro-train-marker" data-train-id="${t.id}">
+            <div class="train-beacon-pulse ${p.accClass}"></div>
+            <div class="train-pill-body" style="background:${t.color}; box-shadow: 0 0 10px ${t.color}88">
+              <span class="train-marker-icon">🚆</span>
+              <span class="train-marker-line">${t.line}</span>
+              <span class="train-marker-arrow ${p.accClass}">${p.arrowIcon}</span>
+            </div>
+            <div class="train-floating-tag">
+              <div class="train-tag-row">
+                <span class="tag-acc ${p.accClass}">${p.arrowIcon} ${p.accDisplay}</span>
+                <span class="tag-speed">${Math.round(t.currentSpeed)} km/s</span>
+              </div>
+              <div class="train-tag-row stop-row">
+                <span class="tag-stn" title="${t.targetStnName}">${shortStn}</span>
+                <span class="tag-eta">⏱️ ${p.etaShort}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      function updateTrainMarkerDom(t, p) {
+        if (!t.marker) return;
+        const el = t.marker.getElement();
+        if (!el) return;
+
+        if (!t._domCached) {
+          t._domArrow = el.querySelector(".train-marker-arrow");
+          t._domPulse = el.querySelector(".train-beacon-pulse");
+          t._domAcc = el.querySelector(".tag-acc");
+          t._domSpeed = el.querySelector(".tag-speed");
+          t._domStn = el.querySelector(".tag-stn");
+          t._domEta = el.querySelector(".tag-eta");
+          t._domCached = true;
+        }
+
+        if (t._domArrow) {
+          t._domArrow.textContent = p.arrowIcon;
+          t._domArrow.className = "train-marker-arrow " + p.accClass;
+        }
+        if (t._domPulse) {
+          t._domPulse.className = "train-beacon-pulse " + p.accClass;
+        }
+        if (t._domAcc) {
+          t._domAcc.textContent = `${p.arrowIcon} ${p.accDisplay}`;
+          t._domAcc.className = "tag-acc " + p.accClass;
+        }
+        if (t._domSpeed) {
+          t._domSpeed.textContent = `${Math.round(t.currentSpeed)} km/s`;
+        }
+        if (t._domStn) {
+          t._domStn.textContent = (t.targetStnName || "").replace(/\s*-\s*/g, " ").slice(0, 10);
+        }
+        if (t._domEta) {
+          t._domEta.textContent = `⏱️ ${p.etaShort}`;
+        }
+      }
+
+      function getTrainTooltipHtml(t) {
+        const p = getTrainDisplayProps(t);
+        return `
+          <div style="font-size:11px;line-height:1.4">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+              <span style="background:${t.color};color:#fff;padding:1px 5px;border-radius:4px;font-weight:800">${t.line}</span>
+              <b style="color:#fff">${t.id}</b>
+              <span class="tag-acc ${p.accClass}" style="margin-left:auto;font-weight:700">${p.statusIcon} ${p.statusTitle}</span>
+            </div>
+            <div>⚡ <b>Hız:</b> ${Math.round(t.currentSpeed)} km/s • <b>İvme:</b> <span class="tag-acc ${p.accClass}">${p.accDisplay}</span></div>
+            <div>📍 <b>Sonraki:</b> ${t.targetStnName}</div>
+            <div>⏱️ <b>Tahmini Duruş:</b> <span style="color:#fef08a;font-weight:700">${p.etaFull}</span> <small style="color:#94a3b8">(${p.arrivalClock})</small></div>
+          </div>
+        `;
+      }
+
+      function openTrainPopup(t) {
+        const p = getTrainDisplayProps(t);
+        const latlng = t.marker ? t.marker.getLatLng() : [stations[0].lat, stations[0].lon];
+
+        const html = `
+          <div class="popup-box metro-train-popup">
+            <div class="popup-header" style="color:${t.color}">
+              <span>🚆 ${t.line} Metro Treni</span>
+              <span class="popup-badge" style="background:${t.color}">${t.id}</span>
+            </div>
+            <div id="mt-pop-banner" class="metro-popup-status-banner ${p.accClass}">
+              <div style="display:flex;align-items:center;gap:5px">
+                <span id="mt-pop-icon">${p.statusIcon}</span>
+                <span id="mt-pop-status">${p.statusTitle}</span>
+              </div>
+              <span id="mt-pop-acc-badge" class="status-acc-badge ${p.accClass}">${p.accDisplay}</span>
+            </div>
+            <div class="popup-details">
+              <div><b>Hat:</b> <span style="color:${t.color};font-weight:700">${t.line}</span></div>
+              <div><b>Anlık Hız:</b> <span id="mt-pop-speed" style="font-weight:700">${Math.round(t.currentSpeed)} km/s</span></div>
+              <div><b>İvme / Fren:</b> <span id="mt-pop-acc" class="tag-acc ${p.accClass}">${p.accDisplay}</span></div>
+              <div><b>Kalan Mesafe:</b> <span id="mt-pop-dist">${Math.round(t.remainingMeters || 0)} m</span></div>
+              <div style="grid-column: span 2">
+                <b>Sonraki Durak:</b> <span id="mt-pop-next" style="color:#38bdf8;font-weight:700">${t.targetStnName}</span>
+              </div>
+              <div style="grid-column: span 2">
+                <b>Tahmini Duruş / Varış:</b> <span id="mt-pop-eta" style="color:#fef08a;font-weight:800">${p.etaFull} (${p.arrivalClock})</span>
+              </div>
+            </div>
+            <div class="metro-progress-wrap">
+              <div class="metro-progress-labels">
+                <span>${t.prevStnName || ""}</span>
+                <span id="mt-pop-pct">${Math.round(t.progress * 100)}%</span>
+                <span>${t.targetStnName || ""}</span>
+              </div>
+              <div class="metro-progress-bar">
+                <div id="mt-pop-bar" class="metro-progress-fill" style="width: ${Math.round(t.progress * 100)}%; background:${t.color}"></div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        if (activeTrainPopup) {
+          map.closePopup(activeTrainPopup);
+        }
+
+        activeTrainPopup = L.popup({ autoPanPadding: [20, 20], maxWidth: 320 })
+          .setLatLng(latlng)
+          .setContent(html)
+          .openOn(map);
+
+        activeTrainPopup.trainId = t.id;
+      }
+
+      function updateActiveTrainPopup(t) {
+        if (!activeTrainPopup || activeTrainPopup.trainId !== t.id || !t.marker) return;
+        const p = getTrainDisplayProps(t);
+
+        activeTrainPopup.setLatLng(t.marker.getLatLng());
+
+        const spdEl = document.getElementById("mt-pop-speed");
+        if (spdEl) spdEl.textContent = `${Math.round(t.currentSpeed)} km/s`;
+
+        const accEl = document.getElementById("mt-pop-acc");
+        if (accEl) {
+          accEl.textContent = p.accDisplay;
+          accEl.className = "tag-acc " + p.accClass;
+        }
+
+        const bannerEl = document.getElementById("mt-pop-banner");
+        if (bannerEl) bannerEl.className = "metro-popup-status-banner " + p.accClass;
+
+        const iconEl = document.getElementById("mt-pop-icon");
+        if (iconEl) iconEl.textContent = p.statusIcon;
+
+        const statusEl = document.getElementById("mt-pop-status");
+        if (statusEl) statusEl.textContent = p.statusTitle;
+
+        const accBadgeEl = document.getElementById("mt-pop-acc-badge");
+        if (accBadgeEl) {
+          accBadgeEl.textContent = p.accDisplay;
+          accBadgeEl.className = "status-acc-badge " + p.accClass;
+        }
+
+        const distEl = document.getElementById("mt-pop-dist");
+        if (distEl) distEl.textContent = `${Math.round(t.remainingMeters || 0)} m`;
+
+        const nextEl = document.getElementById("mt-pop-next");
+        if (nextEl) nextEl.textContent = t.targetStnName;
+
+        const etaEl = document.getElementById("mt-pop-eta");
+        if (etaEl) etaEl.textContent = `${p.etaFull} (${p.arrivalClock})`;
+
+        const pctEl = document.getElementById("mt-pop-pct");
+        if (pctEl) pctEl.textContent = `${Math.round(t.progress * 100)}%`;
+
+        const barEl = document.getElementById("mt-pop-bar");
+        if (barEl) barEl.style.width = `${Math.round(t.progress * 100)}%`;
+      }
+
+      function updateInspectedTrainMobile(t, p) {
+        if (!mobileInspector || mobileInspector.style.display === "none") return;
+        el("insp-speed").textContent = `${Math.round(t.currentSpeed)} km/s • ${p.accDisplay}`;
+        el("insp-time").textContent = `Sonraki: ${t.targetStnName} (${p.etaFull} - ${p.arrivalClock})`;
+        el("insp-op").innerHTML = `Metro İstanbul • <span class="tag-acc ${p.accClass}">${p.statusTitle}</span>`;
+      }
+
+      function inspectTrain(t) {
+        activeInspectedTrain = t;
+        activeInspectedBus = null;
+        const p = getTrainDisplayProps(t);
+
+        if (window.innerWidth <= 768) {
+          el("insp-icon").textContent = "🚆";
+          el("insp-title").textContent = `${t.line} Treni (${t.id})`;
+          el("insp-line").innerHTML = `<span style="color:${t.color};font-weight:800">${t.line} Metro</span> <small style="color:#94a3b8">(${t.dir === 1 ? 'İleri Yön' : 'Dönüş Yönü'})</small>`;
+          el("insp-speed").textContent = `${Math.round(t.currentSpeed)} km/s • ${p.accDisplay}`;
+          el("insp-time").textContent = `Sonraki: ${t.targetStnName} (Tahmini: ${p.etaFull})`;
+          el("insp-op").innerHTML = `Metro İstanbul • <span class="tag-acc ${p.accClass}">${p.statusTitle}</span>`;
+          el("btn-insp-filter").style.display = "none";
+          mobileInspector.style.display = "block";
+        } else {
+          openTrainPopup(t);
+        }
+      }
+
+      function stepTrains(dt, now) {
+        for (let i = 0; i < activeTrains.length; i++) {
+          const t = activeTrains[i];
+          const stns = t.stations;
+          if (!stns || stns.length < 2) continue;
+
+          // Resolve departure and target stations for the current segment
+          const sFrom = t.dir === 1 ? stns[t.segIdx] : stns[t.segIdx + 1];
+          const sTo   = t.dir === 1 ? stns[t.segIdx + 1] : stns[t.segIdx];
+          if (!sFrom || !sTo) continue;
+
+          t.prevStnName = sFrom.name;
+          t.targetStnName = sTo.name;
+
+          const segKey = `${t.segIdx}_${t.dir}`;
+          if (!t.segDistM || t._cachedSegKey !== segKey) {
+            t.segDistM = Math.max(350, geoDistanceMeters(sFrom.lat, sFrom.lon, sTo.lat, sTo.lon));
+            t._cachedSegKey = segKey;
+          }
+          const D = t.segDistM;
+
+          let curLat, curLon;
+
+          if (t.state === "AT_STATION") {
+            t.dwellRemaining -= dt;
+            t.currentSpeed = 0;
+            t.currentAcc = 0.0;
+            t.remainingMeters = 0;
+            t.etaSec = Math.max(0, Math.ceil(t.dwellRemaining));
+            curLat = sTo.lat;
+            curLon = sTo.lon;
+
+            if (t.dwellRemaining <= 0) {
+              // Station stop complete, depart towards next segment
+              if (t.dir === 1) {
+                if (t.segIdx >= stns.length - 2) {
+                  t.dir = -1;
+                  t.segIdx = stns.length - 2;
+                } else {
+                  t.segIdx += 1;
+                }
+              } else {
+                if (t.segIdx <= 0) {
+                  t.dir = 1;
+                  t.segIdx = 0;
+                } else {
+                  t.segIdx -= 1;
+                }
+              }
+              t.progress = 0;
+              t.state = "ACCELERATING";
+              t._cachedSegKey = null;
+            }
+          } else {
+            // Kinematic physics calculation
+            const maxSpeedMs = t.maxSpeed / 3.6;
+            const dAcc = (maxSpeedMs * maxSpeedMs) / (2 * t.accRate);
+            const dDec = (maxSpeedMs * maxSpeedMs) / (2 * t.decRate);
+            const rAcc = Math.min(0.35, dAcc / D);
+            const rDec = Math.min(0.35, dDec / D);
+
+            let vMs = 0;
+            if (t.progress < rAcc) {
+              t.state = "ACCELERATING";
+              const u = Math.max(0.04, t.progress / rAcc);
+              vMs = Math.max(2.8, maxSpeedMs * Math.sqrt(u));
+              t.currentSpeed = vMs * 3.6;
+              t.currentAcc = Math.round((t.accRate * (1 - 0.22 * u)) * 100) / 100;
+            } else if (t.progress <= (1 - rDec)) {
+              t.state = "CRUISING";
+              t.currentSpeed = t.maxSpeed + Math.sin(t.progress * 30) * 1.5;
+              vMs = t.currentSpeed / 3.6;
+              t.currentAcc = 0.0;
+            } else {
+              t.state = "DECELERATING";
+              const uRem = Math.max(0.015, (1 - t.progress) / rDec);
+              vMs = Math.max(2.2, maxSpeedMs * Math.sqrt(uRem));
+              t.currentSpeed = vMs * 3.6;
+              t.currentAcc = -Math.round((t.decRate * (0.85 + 0.2 * (1 - uRem))) * 100) / 100;
+            }
+
+            // Advance train along segment (with natural simulation pace)
+            const distCovered = vMs * dt * 1.2;
+            t.progress += distCovered / D;
+            t.remainingMeters = Math.max(0, D * (1 - t.progress));
+
+            // Calculate Estimated Stop Time (ETA) to the target station
+            if (t.state === "DECELERATING") {
+              t.etaSec = Math.max(1, Math.round(t.remainingMeters / Math.max(2.0, vMs / 2)));
+            } else if (t.state === "CRUISING") {
+              const cruiseRemDist = Math.max(0, t.remainingMeters - dDec);
+              t.etaSec = Math.max(2, Math.round(cruiseRemDist / maxSpeedMs + dDec / (maxSpeedMs / 2)));
+            } else {
+              t.etaSec = Math.max(3, Math.round(t.remainingMeters / (maxSpeedMs * 0.72)));
+            }
+
+            if (t.progress >= 1.0) {
+              // Train reaches destination platform
+              t.progress = 1.0;
+              t.state = "AT_STATION";
+              t.currentSpeed = 0;
+              t.currentAcc = 0.0;
+              t.remainingMeters = 0;
+              const isTerminal = (t.dir === 1 && t.segIdx >= stns.length - 2) || (t.dir === -1 && t.segIdx <= 0);
+              t.dwellTotal = isTerminal ? 20 : 12;
+              t.dwellRemaining = t.dwellTotal;
+              t.etaSec = t.dwellTotal;
+              curLat = sTo.lat;
+              curLon = sTo.lon;
+            } else {
+              curLat = sFrom.lat + (sTo.lat - sFrom.lat) * t.progress;
+              curLon = sFrom.lon + (sTo.lon - sFrom.lon) * t.progress;
+            }
+          }
+
+          if (t.marker) {
+            t.marker.setLatLng([curLat, curLon]);
+          }
+
+          // Throttle on-map tag and popup DOM updates to ~120ms for buttery-smooth 60fps performance
+          if (!t._lastDomUpdate || now - t._lastDomUpdate > 120) {
+            t._lastDomUpdate = now;
+            const p = getTrainDisplayProps(t);
+            updateTrainMarkerDom(t, p);
+            if (activeTrainPopup && activeTrainPopup.trainId === t.id) {
+              updateActiveTrainPopup(t);
+            }
+            if (activeInspectedTrain && activeInspectedTrain.id === t.id) {
+              updateInspectedTrainMobile(t, p);
+            }
+          }
+        }
+      }
+
       function initTrainSimulation() {
+        trainsLayer.clearLayers();
         activeTrains = [];
         const lines = Object.keys(metroNetwork);
 
@@ -2954,17 +3589,71 @@
           for (let i = 0; i < trainCount; i++) {
             const dir = i % 2 === 0 ? 1 : -1;
             const initialSegment = Math.floor((stations.length - 1) * (i / trainCount));
-            activeTrains.push({
+
+            const maxSpd = lineCode.startsWith("T")
+              ? (48 + Math.floor(Math.random() * 8))
+              : (lineCode.startsWith("F") || lineCode.startsWith("TF"))
+                ? (32 + Math.floor(Math.random() * 6))
+                : (72 + Math.floor(Math.random() * 10));
+
+            const sFrom = dir === 1 ? stations[initialSegment] : stations[initialSegment + 1];
+            const sTo   = dir === 1 ? stations[initialSegment + 1] : stations[initialSegment];
+            const initialProgress = ((i * 0.33) % 0.9);
+
+            const curLat = sFrom && sTo ? sFrom.lat + (sTo.lat - sFrom.lat) * initialProgress : stations[0].lat;
+            const curLon = sFrom && sTo ? sFrom.lon + (sTo.lon - sFrom.lon) * initialProgress : stations[0].lon;
+
+            const t = {
               id: `${lineCode}-${i + 1}`,
               line: lineCode,
-              color: metroColors[lineCode] || "#ef4444",
+              color: metroColors[lineCode] || "#0284c7",
               stations: stations,
               dir: dir,
               segIdx: initialSegment,
-              progress: (i * 0.3) % 1.0,
-              speed: 55 + Math.floor(Math.random() * 15),
-              marker: null
+              progress: initialProgress,
+              maxSpeed: maxSpd,
+              currentSpeed: maxSpd * 0.85,
+              accRate: 1.05,
+              decRate: 1.15,
+              currentAcc: 0.0,
+              state: "CRUISING",
+              dwellTotal: 12,
+              dwellRemaining: 0,
+              etaSec: 35,
+              remainingMeters: 450,
+              prevStnName: sFrom ? sFrom.name : "",
+              targetStnName: sTo ? sTo.name : "",
+              marker: null,
+              _domCached: false
+            };
+
+            const icon = L.divIcon({
+              className: "metro-train-div-icon",
+              iconSize: [44, 24],
+              iconAnchor: [22, 12],
+              html: createTrainMarkerHtml(t)
             });
+
+            t.marker = L.marker([curLat, curLon], {
+              icon: icon,
+              zIndexOffset: 600
+            });
+
+            t.marker.bindTooltip(() => getTrainTooltipHtml(t), {
+              direction: "top",
+              offset: [0, -18],
+              className: "metro-tooltip"
+            });
+
+            t.marker.on("click", (e) => {
+              L.DomEvent.stopPropagation(e);
+              inspectTrain(t);
+            });
+
+            if (chkTrains.checked) {
+              trainsLayer.addLayer(t.marker);
+            }
+            activeTrains.push(t);
           }
         });
 
@@ -2981,72 +3670,10 @@
           return;
         }
 
+        // Ensure all active train markers are present on map
         activeTrains.forEach(t => {
-          const stns = t.stations;
-          if (!stns || stns.length < 2) return;
-
-          t.progress += 0.02 * (t.speed / 50);
-          if (t.progress >= 1.0) {
-            t.progress = 0;
-            t.segIdx += t.dir;
-            if (t.segIdx >= stns.length - 1) {
-              t.segIdx = stns.length - 2;
-              t.dir = -1;
-            } else if (t.segIdx < 0) {
-              t.segIdx = 0;
-              t.dir = 1;
-            }
-          }
-
-          const s1 = stns[t.segIdx];
-          const s2 = stns[t.segIdx + 1];
-          if (!s1 || !s2) return;
-
-          const curLat = s1.lat + (s2.lat - s1.lat) * t.progress;
-          const curLon = s1.lon + (s2.lon - s1.lon) * t.progress;
-          const nextStnName = t.dir === 1 ? s2.name : s1.name;
-
-          if (!t.marker) {
-            t.marker = L.circleMarker([curLat, curLon], {
-              radius: 6,
-              weight: 2,
-              color: "#ffffff",
-              fillColor: t.color,
-              fillOpacity: 1
-            });
-            t.marker.on("click", (e) => {
-              L.DomEvent.stopPropagation(e);
-              if (window.innerWidth <= 768) {
-                el("insp-icon").textContent = "🚆";
-                el("insp-title").textContent = `${t.line} Treni (${t.id})`;
-                el("insp-line").innerHTML = `<span style="color:${t.color};font-weight:800">${t.line} Metro</span>`;
-                el("insp-speed").textContent = `${t.speed} km/s`;
-                el("insp-time").textContent = `Sonraki: ${nextStnName}`;
-                el("insp-op").textContent = "Metro İstanbul";
-                el("btn-insp-filter").style.display = "none";
-                mobileInspector.style.display = "block";
-              } else {
-                L.popup()
-                  .setLatLng(t.marker.getLatLng())
-                  .setContent(`
-                    <div class="popup-box">
-                      <div class="popup-header" style="color:${t.color}">
-                        <span>🚆 ${t.line} Treni</span>
-                        <span class="popup-badge">${t.id}</span>
-                      </div>
-                      <div class="popup-details">
-                        <div><b>Hat:</b> ${t.line}</div>
-                        <div><b>Hız:</b> ${t.speed} km/s</div>
-                        <div style="grid-column: span 2"><b>Sonraki Durak:</b> ${nextStnName}</div>
-                      </div>
-                    </div>
-                  `)
-                  .openOn(map);
-              }
-            });
+          if (t.marker && !trainsLayer.hasLayer(t.marker)) {
             trainsLayer.addLayer(t.marker);
-          } else {
-            t.marker.setLatLng([curLat, curLon]);
           }
         });
       }
@@ -3201,7 +3828,19 @@
       syncCheckboxes(chkBuses, chkBusesModal, renderBuses);
       syncCheckboxes(chkMetro, chkMetroModal, renderMetroLines);
       syncCheckboxes(chkTrains, chkTrainsModal, () => {
-        if (!chkTrains.checked) trainsLayer.clearLayers();
+        if (!chkTrains.checked) {
+          trainsLayer.clearLayers();
+          if (activeTrainPopup) {
+            map.closePopup(activeTrainPopup);
+            activeTrainPopup = null;
+          }
+        } else {
+          activeTrains.forEach(t => {
+            if (t.marker && !trainsLayer.hasLayer(t.marker)) {
+              trainsLayer.addLayer(t.marker);
+            }
+          });
+        }
       });
       syncCheckboxes(chkStale, chkStaleModal, renderBuses);
 
@@ -3292,13 +3931,33 @@
       el("btn-insp-close").addEventListener("click", () => {
         mobileInspector.style.display = "none";
         activeInspectedBus = null;
+        activeInspectedTrain = null;
       });
 
-      map.on("popupclose", () => {
+      map.on("popupclose", (e) => {
+        if (activeTrainPopup && e.popup === activeTrainPopup) {
+          activeTrainPopup = null;
+          if (window.innerWidth > 768) {
+            activeInspectedTrain = null;
+          }
+        }
         if (window.innerWidth > 768) {
           activeInspectedBus = null;
         }
       });
+
+      // Map Zoom Clutter Control for Metro Train On-Map Tags
+      function updateMapZoomClass() {
+        const mapEl = el("map");
+        if (!mapEl) return;
+        if (map.getZoom() < 12) {
+          mapEl.classList.add("map-zoomed-out");
+        } else {
+          mapEl.classList.remove("map-zoomed-out");
+        }
+      }
+      map.on("zoomend", updateMapZoomClass);
+      updateMapZoomClass();
 
       // Keyboard Shortcuts
       window.addEventListener("keydown", (e) => {
