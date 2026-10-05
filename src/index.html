@@ -1827,7 +1827,7 @@
                   <span class="legend-dot" style="background:${col}"></span>
                   <div>
                     <div class="bus-id">${b.id} ${b.p ? `<span class="bus-plate">(${b.p})</span>` : ""}</div>
-                    <div class="bus-plate">${b.stop ? `🚏 ${b.stop}` : (b.op || "İETT")}</div>
+                    <div class="bus-plate">${b.stop ? `🚏 ${b.stop}` : (b.op || "İETT")} • <span class="bus-card-age" data-bus-time="${b.t || b.time || ''}">${formatBusAge(b.t || b.time, b.a)}</span></div>
                   </div>
                 </div>
                 <div class="bus-speed-badge">
@@ -2424,9 +2424,16 @@
         sidebar.classList.toggle("sheet-collapsed");
       });
 
-      // Mobile Inspector Close
+      // Mobile Inspector Close & Popup Cleanup
       el("btn-insp-close").addEventListener("click", () => {
         mobileInspector.style.display = "none";
+        activeInspectedBus = null;
+      });
+
+      map.on("popupclose", () => {
+        if (window.innerWidth > 768) {
+          activeInspectedBus = null;
+        }
       });
 
       // Keyboard Shortcuts
@@ -2474,9 +2481,10 @@
         // 2.5-Second Fast Edge Polling with ETag / 304 Not Modified
         setInterval(fetchFleet, POLL_INTERVAL_MS);
 
-        // 1-Second Smooth UI & Train Tick
+        // 1-Second Smooth UI, Live Bus Ages & Train Tick
         setInterval(() => {
           updateFleetAgeDisplay();
+          updateLiveAges();
           tickTrains();
         }, 1000);
       }
