@@ -3208,22 +3208,25 @@
         let etaShort = "";
         let etaFull = "";
         if (t.state === "AT_STATION") {
-          etaShort = `${t.etaSec || 0}s`;
-          etaFull = `Kalkışa ${t.etaSec || 0} sn`;
+          const s = Math.max(0, Math.ceil(t.dwellRemaining || 0));
+          etaShort = `${s}s`;
+          etaFull = `Kalkışa ${s} sn`;
         } else {
-          const sec = Math.max(1, t.etaSec || 1);
+          const sec = Math.max(1, Math.ceil(t.etaSec || 1));
           if (sec < 60) {
             etaShort = `${sec}s`;
             etaFull = `${sec} sn sonra`;
           } else {
             const m = Math.floor(sec / 60);
             const s = sec % 60;
-            etaShort = `${m}d ${s}s`;
-            etaFull = `${m} dk ${s} sn sonra`;
+            const sPadded = s < 10 ? `0${s}` : `${s}`;
+            etaShort = `${m}d ${sPadded}s`;
+            etaFull = `${m} dk ${sPadded} sn sonra`;
           }
         }
 
-        const arrivalDate = new Date(Date.now() + (t.etaSec || 0) * 1000);
+        const arrivalSec = t.state === "AT_STATION" ? Math.max(0, Math.ceil(t.dwellRemaining || 0)) : Math.max(1, Math.ceil(t.etaSec || 1));
+        const arrivalDate = new Date(Date.now() + arrivalSec * 1000);
         const arrivalClock = arrivalDate.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
         return {
@@ -3268,35 +3271,54 @@
         const el = t.marker.getElement();
         if (!el) return;
 
-        if (!t._domCached) {
-          t._domArrow = el.querySelector(".train-marker-arrow");
-          t._domPulse = el.querySelector(".train-beacon-pulse");
-          t._domAcc = el.querySelector(".tag-acc");
-          t._domSpeed = el.querySelector(".tag-speed");
-          t._domStn = el.querySelector(".tag-stn");
-          t._domEta = el.querySelector(".tag-eta");
-          t._domCached = true;
+        let arrEl = t._domArrow;
+        let plsEl = t._domPulse;
+        let accEl = t._domAcc;
+        let spdEl = t._domSpeed;
+        let stnEl = t._domStn;
+        let etaEl = t._domEta;
+
+        // Re-find elements if not cached or if detached by map zoom / layer redraw
+        if (!etaEl || !el.contains(etaEl)) {
+          arrEl = el.querySelector(".train-marker-arrow");
+          plsEl = el.querySelector(".train-beacon-pulse");
+          accEl = el.querySelector(".tag-acc");
+          spdEl = el.querySelector(".tag-speed");
+          stnEl = el.querySelector(".tag-stn");
+          etaEl = el.querySelector(".tag-eta");
+
+          t._domArrow = arrEl;
+          t._domPulse = plsEl;
+          t._domAcc = accEl;
+          t._domSpeed = spdEl;
+          t._domStn = stnEl;
+          t._domEta = etaEl;
         }
 
-        if (t._domArrow) {
-          t._domArrow.textContent = p.arrowIcon;
-          t._domArrow.className = "train-marker-arrow " + p.accClass;
+        if (arrEl) {
+          arrEl.textContent = p.arrowIcon;
+          arrEl.className = "train-marker-arrow " + p.accClass;
         }
-        if (t._domPulse) {
-          t._domPulse.className = "train-beacon-pulse " + p.accClass;
+        if (plsEl) {
+          plsEl.className = "train-beacon-pulse " + p.accClass;
         }
-        if (t._domAcc) {
-          t._domAcc.textContent = `${p.arrowIcon} ${p.accDisplay}`;
-          t._domAcc.className = "tag-acc " + p.accClass;
+        if (accEl) {
+          accEl.textContent = `${p.arrowIcon} ${p.accDisplay}`;
+          accEl.className = "tag-acc " + p.accClass;
         }
-        if (t._domSpeed) {
-          t._domSpeed.textContent = `${Math.round(t.currentSpeed)} km/s`;
+        if (spdEl) {
+          spdEl.textContent = `${Math.round(t.currentSpeed)} km/s`;
         }
-        if (t._domStn) {
-          t._domStn.textContent = (t.targetStnName || "").replace(/\s*-\s*/g, " ").slice(0, 10);
+        if (stnEl) {
+          stnEl.textContent = (t.targetStnName || "").replace(/\s*-\s*/g, " ").slice(0, 10);
         }
-        if (t._domEta) {
-          t._domEta.textContent = `⏱️ ${p.etaShort}`;
+        if (etaEl) {
+          etaEl.textContent = `⏱️ ${p.etaShort}`;
+        }
+
+        // Live update tooltip if currently hovered / open
+        if (t.marker.isTooltipOpen && t.marker.isTooltipOpen()) {
+          t.marker.setTooltipContent(getTrainTooltipHtml(t));
         }
       }
 
@@ -3316,11 +3338,8 @@
         `;
       }
 
-      function openTrainPopup(t) {
-        const p = getTrainDisplayProps(t);
-        const latlng = t.marker ? t.marker.getLatLng() : [stations[0].lat, stations[0].lon];
-
-        const html = `
+      function getTrainPopupHtml(t, p) {
+        return `
           <div class="popup-box metro-train-popup">
             <div class="popup-header" style="color:${t.color}">
               <span>🚆 ${t.line} Metro Treni</span>
@@ -3357,23 +3376,27 @@
             </div>
           </div>
         `;
+      }
 
-        if (activeTrainPopup) {
-          map.closePopup(activeTrainPopup);
-        }
+      function openTrainPopup(t) {
+        activeInspectedTrain = t;
+        const p = getTrainDisplayProps(t);
+        const latlng = t.marker ? t.marker.getLatLng() : (t.stations && t.stations[0] ? [t.stations[0].lat, t.stations[0].lon] : [41.015, 28.979]);
 
-        activeTrainPopup = L.popup({ autoPanPadding: [20, 20], maxWidth: 320 })
+        const popup = L.popup({ autoPanPadding: [20, 20], maxWidth: 320 })
           .setLatLng(latlng)
-          .setContent(html)
+          .setContent(getTrainPopupHtml(t, p))
           .openOn(map);
 
-        activeTrainPopup.trainId = t.id;
+        popup.trainId = t.id;
+        activeTrainPopup = popup;
       }
 
       function updateActiveTrainPopup(t) {
         if (!activeTrainPopup || activeTrainPopup.trainId !== t.id || !t.marker) return;
         const p = getTrainDisplayProps(t);
 
+        // Keep popup positioned at the moving train
         activeTrainPopup.setLatLng(t.marker.getLatLng());
 
         const spdEl = document.getElementById("mt-pop-speed");
@@ -3407,7 +3430,9 @@
         if (nextEl) nextEl.textContent = t.targetStnName;
 
         const etaEl = document.getElementById("mt-pop-eta");
-        if (etaEl) etaEl.textContent = `${p.etaFull} (${p.arrivalClock})`;
+        if (etaEl) {
+          etaEl.textContent = `${p.etaFull} (${p.arrivalClock})`;
+        }
 
         const pctEl = document.getElementById("mt-pop-pct");
         if (pctEl) pctEl.textContent = `${Math.round(t.progress * 100)}%`;
@@ -3456,13 +3481,6 @@
           t.prevStnName = sFrom.name;
           t.targetStnName = sTo.name;
 
-          const segKey = `${t.segIdx}_${t.dir}`;
-          if (!t.segDistM || t._cachedSegKey !== segKey) {
-            t.segDistM = Math.max(350, geoDistanceMeters(sFrom.lat, sFrom.lon, sTo.lat, sTo.lon));
-            t._cachedSegKey = segKey;
-          }
-          const D = t.segDistM;
-
           let curLat, curLon;
 
           if (t.state === "AT_STATION") {
@@ -3491,51 +3509,41 @@
                   t.segIdx -= 1;
                 }
               }
+
+              const nextFrom = t.dir === 1 ? stns[t.segIdx] : stns[t.segIdx + 1];
+              const nextTo   = t.dir === 1 ? stns[t.segIdx + 1] : stns[t.segIdx];
+              t.segDistM = Math.max(350, geoDistanceMeters(nextFrom.lat, nextFrom.lon, nextTo.lat, nextTo.lon));
+              t.segDurationSec = Math.max(25, Math.round(t.segDistM / ((t.maxSpeed / 3.6) * 0.85)));
+              t.timeInSegSec = 0;
               t.progress = 0;
+              t.etaSec = t.segDurationSec;
+              t.remainingMeters = t.segDistM;
               t.state = "ACCELERATING";
-              t._cachedSegKey = null;
             }
           } else {
-            // Kinematic physics calculation
-            const maxSpeedMs = t.maxSpeed / 3.6;
-            const dAcc = (maxSpeedMs * maxSpeedMs) / (2 * t.accRate);
-            const dDec = (maxSpeedMs * maxSpeedMs) / (2 * t.decRate);
-            const rAcc = Math.min(0.35, dAcc / D);
-            const rDec = Math.min(0.35, dDec / D);
+            // Train is moving along the track segment
+            t.timeInSegSec += dt;
+            t.progress = Math.min(1.0, t.timeInSegSec / t.segDurationSec);
+            t.remainingMeters = Math.max(0, Math.round(t.segDistM * (1 - t.progress)));
 
-            let vMs = 0;
-            if (t.progress < rAcc) {
+            // Smooth second-by-second countdown to the next station stop
+            t.etaSec = Math.max(1, Math.ceil(t.segDurationSec - t.timeInSegSec));
+
+            const u = t.progress;
+            if (u < 0.22) {
               t.state = "ACCELERATING";
-              const u = Math.max(0.04, t.progress / rAcc);
-              vMs = Math.max(2.8, maxSpeedMs * Math.sqrt(u));
-              t.currentSpeed = vMs * 3.6;
-              t.currentAcc = Math.round((t.accRate * (1 - 0.22 * u)) * 100) / 100;
-            } else if (t.progress <= (1 - rDec)) {
+              const r = Math.max(0.04, u / 0.22);
+              t.currentSpeed = Math.max(6, t.maxSpeed * Math.sqrt(r));
+              t.currentAcc = Math.round((t.accRate * (1 - 0.22 * r)) * 100) / 100;
+            } else if (u <= 0.78) {
               t.state = "CRUISING";
-              t.currentSpeed = t.maxSpeed + Math.sin(t.progress * 30) * 1.5;
-              vMs = t.currentSpeed / 3.6;
+              t.currentSpeed = t.maxSpeed + Math.sin(u * 25) * 1.2;
               t.currentAcc = 0.0;
             } else {
               t.state = "DECELERATING";
-              const uRem = Math.max(0.015, (1 - t.progress) / rDec);
-              vMs = Math.max(2.2, maxSpeedMs * Math.sqrt(uRem));
-              t.currentSpeed = vMs * 3.6;
-              t.currentAcc = -Math.round((t.decRate * (0.85 + 0.2 * (1 - uRem))) * 100) / 100;
-            }
-
-            // Advance train along segment (with natural simulation pace)
-            const distCovered = vMs * dt * 1.2;
-            t.progress += distCovered / D;
-            t.remainingMeters = Math.max(0, D * (1 - t.progress));
-
-            // Calculate Estimated Stop Time (ETA) to the target station
-            if (t.state === "DECELERATING") {
-              t.etaSec = Math.max(1, Math.round(t.remainingMeters / Math.max(2.0, vMs / 2)));
-            } else if (t.state === "CRUISING") {
-              const cruiseRemDist = Math.max(0, t.remainingMeters - dDec);
-              t.etaSec = Math.max(2, Math.round(cruiseRemDist / maxSpeedMs + dDec / (maxSpeedMs / 2)));
-            } else {
-              t.etaSec = Math.max(3, Math.round(t.remainingMeters / (maxSpeedMs * 0.72)));
+              const remR = Math.max(0.02, (1 - u) / 0.22);
+              t.currentSpeed = Math.max(4, t.maxSpeed * Math.sqrt(remR));
+              t.currentAcc = -Math.round((t.decRate * (0.85 + 0.2 * (1 - remR))) * 100) / 100;
             }
 
             if (t.progress >= 1.0) {
@@ -3561,8 +3569,8 @@
             t.marker.setLatLng([curLat, curLon]);
           }
 
-          // Throttle on-map tag and popup DOM updates to ~120ms for buttery-smooth 60fps performance
-          if (!t._lastDomUpdate || now - t._lastDomUpdate > 120) {
+          // Throttle on-map tag and popup DOM updates to ~80ms for ultra-responsive live seconds updates
+          if (!t._lastDomUpdate || now - t._lastDomUpdate > 80) {
             t._lastDomUpdate = now;
             const p = getTrainDisplayProps(t);
             updateTrainMarkerDom(t, p);
@@ -3598,7 +3606,14 @@
 
             const sFrom = dir === 1 ? stations[initialSegment] : stations[initialSegment + 1];
             const sTo   = dir === 1 ? stations[initialSegment + 1] : stations[initialSegment];
-            const initialProgress = ((i * 0.33) % 0.9);
+
+            const segDist = sFrom && sTo 
+              ? Math.max(350, geoDistanceMeters(sFrom.lat, sFrom.lon, sTo.lat, sTo.lon))
+              : 1000;
+            const segDuration = Math.max(25, Math.round(segDist / ((maxSpd / 3.6) * 0.85)));
+            const initialProgress = ((i * 0.33) % 0.88) + 0.05;
+            const timeInSeg = segDuration * initialProgress;
+            const initialEta = Math.max(1, Math.ceil(segDuration - timeInSeg));
 
             const curLat = sFrom && sTo ? sFrom.lat + (sTo.lat - sFrom.lat) * initialProgress : stations[0].lat;
             const curLon = sFrom && sTo ? sFrom.lon + (sTo.lon - sFrom.lon) * initialProgress : stations[0].lon;
@@ -3611,6 +3626,9 @@
               dir: dir,
               segIdx: initialSegment,
               progress: initialProgress,
+              segDistM: segDist,
+              segDurationSec: segDuration,
+              timeInSegSec: timeInSeg,
               maxSpeed: maxSpd,
               currentSpeed: maxSpd * 0.85,
               accRate: 1.05,
@@ -3619,12 +3637,11 @@
               state: "CRUISING",
               dwellTotal: 12,
               dwellRemaining: 0,
-              etaSec: 35,
-              remainingMeters: 450,
+              etaSec: initialEta,
+              remainingMeters: Math.max(0, Math.round(segDist * (1 - initialProgress))),
               prevStnName: sFrom ? sFrom.name : "",
               targetStnName: sTo ? sTo.name : "",
-              marker: null,
-              _domCached: false
+              marker: null
             };
 
             const icon = L.divIcon({
