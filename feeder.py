@@ -128,9 +128,9 @@ def push_to_worker(buses):
         ctx = ssl._create_unverified_context()
         with urllib.request.urlopen(req, context=ctx, timeout=15) as res:
             result = json.loads(res.read().decode("utf-8"))
-            print(f"[{time.strftime('%X')}] Successfully pushed {result.get('count')} buses to Cloudflare Worker.")
+            print(f"[{time.strftime('%X')}] Successfully pushed {result.get('count')} buses to Cloudflare Worker.", flush=True)
     except Exception as e:
-        print(f"Error pushing to Worker: {e}")
+        print(f"Error pushing to Worker: {e}", flush=True)
 
 def main():
     import sys
@@ -138,15 +138,15 @@ def main():
         sync_mapping(days=5)
         return
 
-    print("Starting IstanbulBizim Fleet Feeder (polling every 40s to respect 90 req/hr)...")
+    print("Starting IstanbulBizim Fleet Feeder (polling every 40s to respect 90 req/hr)...", flush=True)
     while True:
         try:
             buses = fetch_iett_fleet()
             if buses:
                 push_to_worker(buses)
         except Exception as err:
-            print(f"[{time.strftime('%X')}] Error in feeder: {err}")
-        time.sleep(40)
+            print(f"[{time.strftime('%X')}] Error in feeder: {err}", flush=True)
+        time.sleep(40.0)
 
 if __name__ == "__main__":
     main()

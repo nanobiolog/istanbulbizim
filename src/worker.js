@@ -499,7 +499,7 @@ async function handleLines(env) {
     c = [];
     try {
       const q = await quota(env);
-      if (q.n < 90) {
+      if (q.n < 99) {
         await spend(env, q);
         const rows = await soapWithRetry(ROUTES, "GetHat_json", { HatKodu: "" }, env);
         for (const row of rows) {

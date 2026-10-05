@@ -1,0 +1,10 @@
+name = "istanbulbizim-live"
+main = "src/bundle.js"
+compatibility_date = "2026-10-05"
+
+[[kv_namespaces]]
+binding = "LIVE"
+id = "3c69b4e4e6264a52909affe5116b373c"
+
+[triggers]
+crons = ["*/1 * * * *"]

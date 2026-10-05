@@ -44,12 +44,30 @@ export default {
     }
     if (path === "/buses") return handleBuses(env);
     if (path === "/line") return handleLine(env, url);
+    if (path === "/line/route") return handleLineRoute(env, url);
     if (path === "/lines") return handleLines(env);
     if (path === "/lines/map") return handleLinesMap(env);
     if (path === "/metro/stations") return json(METRO_STATIONS, 200, { "cache-control": "public, max-age=86400" });
     if (path === "/metro/colors") return json(METRO_COLORS, 200, { "cache-control": "public, max-age=86400" });
     if (path === "/feed/buses") return handleFeed(request, env);
     if (path === "/feed/mapping") return handleFeedMapping(request, env);
+    if (path === "/debug/iett") {
+      try {
+        const apiKey = env.IBB_API_KEY || "";
+        const body = `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><GetFiloAracKonum_json xmlns="http://tempuri.org/" /></soap:Body></soap:Envelope>`;
+        const headers = {
+          "Content-Type": "text/xml; charset=utf-8",
+          "SOAPAction": '"http://tempuri.org/GetFiloAracKonum_json"',
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          "X-Api-Key": apiKey
+        };
+        const res = await fetch("https://api.ibb.gov.tr/iett/FiloDurum/SeferGerceklesme.asmx", { method: "POST", headers, body });
+        const text = await res.text();
+        return json({ hasKey: Boolean(apiKey), status: res.status, text: text.slice(0, 1000) });
+      } catch (e) {
+        return json({ error: String(e) }, 500);
+      }
+    }
     if (path === "/status") {
       const q = await quota(env);
       const meta = await env.LIVE.get("meta", "json");
@@ -60,13 +78,13 @@ export default {
         meta,
         mapped_lines_count: mappedLinesCount,
         iett_quota_used_this_hour: q.n,
-        iett_quota_max: 100,
+        iett_quota_max: 99,
         has_api_key: Boolean(env.IBB_API_KEY || env.IBB_SECRET),
         has_carto_key: Boolean(env.CARTO_API_KEY)
       });
     }
 
-    return json({ error: "Not found", routes: ["/", "/buses", "/line?code=15B", "/lines", "/lines/map", "/metro/stations", "/metro/colors", "/status"] }, 404);
+    return json({ error: "Not found", routes: ["/", "/buses", "/line?code=15B", "/line/route?code=15B", "/lines", "/lines/map", "/metro/stations", "/metro/colors", "/status"] }, 404);
   },
 
   async scheduled(event, env, ctx) {

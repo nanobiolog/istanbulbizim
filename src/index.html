@@ -452,6 +452,130 @@
       border-color: rgba(239, 68, 68, 0.5);
     }
 
+    /* Direction Tabs for Filtered Line */
+    .dir-tabs-wrapper {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+    .dir-tab {
+      flex: 1;
+      min-width: 75px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(15, 23, 42, 0.7);
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: center;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .dir-tab:hover {
+      background: rgba(30, 41, 59, 0.9);
+      color: #ffffff;
+    }
+    .dir-tab.active {
+      background: rgba(2, 132, 199, 0.35);
+      border-color: #38bdf8;
+      color: #ffffff;
+    }
+    .dir-tab-d.active {
+      background: rgba(6, 182, 212, 0.3);
+      border-color: #06b6d4;
+      color: #22d3ee;
+    }
+    .dir-tab-g.active {
+      background: rgba(168, 85, 247, 0.3);
+      border-color: #a855f7;
+      color: #c084fc;
+    }
+
+    /* Bus Animated Directional Markers */
+    .bus-anim-marker {
+      position: relative;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      cursor: pointer;
+    }
+    .bus-radar-pulse {
+      position: absolute;
+      inset: -6px;
+      border-radius: 50%;
+      background: var(--marker-color, #0284c7);
+      opacity: 0.35;
+      animation: markerRadar 2s ease-out infinite;
+      pointer-events: none;
+    }
+    @keyframes markerRadar {
+      0% { transform: scale(0.6); opacity: 0.8; }
+      100% { transform: scale(2.2); opacity: 0; }
+    }
+    .bus-dir-arrow {
+      width: 26px;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.25s linear;
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+    }
+    .bus-badge-label {
+      position: absolute;
+      bottom: -14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 4px;
+      border-radius: 4px;
+      white-space: nowrap;
+      pointer-events: none;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    }
+    .bus-stopped .bus-stop-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 2px solid #ffffff;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Direction Group Headers in Bus List */
+    .dir-group-header {
+      padding: 6px 10px;
+      margin-top: 6px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #ffffff;
+    }
+    .dir-group-header.dir-d {
+      background: rgba(6, 182, 212, 0.18);
+      border: 1px solid rgba(6, 182, 212, 0.35);
+      color: #22d3ee;
+    }
+    .dir-group-header.dir-g {
+      background: rgba(168, 85, 247, 0.18);
+      border: 1px solid rgba(168, 85, 247, 0.35);
+      color: #c084fc;
+    }
+
     /* Toggles & Options */
     .collapsible-section {
       border-top: 1px solid rgba(255, 255, 255, 0.08);
@@ -946,6 +1070,11 @@
       </div>
       <button class="btn-clear-line" id="btn-banner-clear">✕ Tümüne Dön</button>
     </div>
+    <div id="dir-tabs-wrapper" class="dir-tabs-wrapper" style="display:none">
+      <button class="dir-tab active" data-dir="ALL" id="tab-dir-all">Tüm Yönler</button>
+      <button class="dir-tab dir-tab-d" data-dir="D" id="tab-dir-d">➔ Dönüş</button>
+      <button class="dir-tab dir-tab-g" data-dir="G" id="tab-dir-g">➔ Gidiş</button>
+    </div>
 
     <!-- Statistics Overview -->
     <div class="stats-grid">
@@ -1084,14 +1213,16 @@
       }
 
       // ─── LAYER GROUPS ───
+      const routeLayer = L.layerGroup().addTo(map);
       const busesLayer = L.layerGroup().addTo(map);
       const selectedLineLayer = L.layerGroup().addTo(map);
       const metroRailLayer = L.layerGroup().addTo(map);
       const trainsLayer = L.layerGroup().addTo(map);
       const userLocationLayer = L.layerGroup().addTo(map);
 
-      // Marker Pool for zero-flicker 60fps rendering
-      const busMarkerPool = new Map();
+      // Marker Pool & Animation Map for 60fps continuous gliding
+      const busAnimMap = new Map();
+      const lineRouteCache = new Map();
 
       // ─── APPLICATION STATE ───
       let fleetBuses = [];
@@ -1100,11 +1231,13 @@
       let allLineCodes = [];
       let selectedLineCode = null;
       let selectedLineData = null;
+      let activeDirectionFilter = "ALL"; // "ALL", "D", or "G"
       let metroNetwork = {};
       let metroColors = {};
       let activeTrains = [];
       let lastFleetTime = 0;
-      let pollCountdown = 10;
+      const POLL_INTERVAL_MS = 5000;
+      let pollCountdown = 5;
       let isSheetExpanded = false;
 
       // ─── DOM SELECTORS ───
@@ -1124,6 +1257,10 @@
       const bannerLineTitle = el("banner-line-title");
       const bannerLineSub = el("banner-line-sub");
       const btnBannerClear = el("btn-banner-clear");
+      const dirTabsWrapper = el("dir-tabs-wrapper");
+      const tabDirAll = el("tab-dir-all");
+      const tabDirD = el("tab-dir-d");
+      const tabDirG = el("tab-dir-g");
       const busResultsList = el("bus-results-list");
       const chkBuses = el("chk-buses");
       const chkMetro = el("chk-metro");
@@ -1142,6 +1279,16 @@
         if (speed >= 15) return "#10b981"; // Green (Flowing)
         if (speed >= 5) return "#f59e0b";  // Amber (Heavy traffic)
         return "#64748b";                  // Gray (Stopped / Idle)
+      }
+
+      function calculateBearing(lat1, lon1, lat2, lon2) {
+        if (lat1 === lat2 && lon1 === lon2) return 0;
+        const dLon = (lon2 - lon1) * (Math.PI / 180);
+        const rLat1 = lat1 * (Math.PI / 180);
+        const rLat2 = lat2 * (Math.PI / 180);
+        const y = Math.sin(dLon) * Math.cos(rLat2);
+        const x = Math.cos(rLat1) * Math.sin(rLat2) - Math.sin(rLat1) * Math.cos(rLat2) * Math.cos(dLon);
+        return (Math.atan2(y, x) * (180 / Math.PI) + 360) % 360;
       }
 
       function formatBusAge(saat, fallbackAge) {
@@ -1175,86 +1322,61 @@
         return diff > 43200 ? 0 : diff;
       }
 
-      // ─── HIGH PERFORMANCE VEHICLE RENDERING (DIFF / POOLING) ───
-      function renderBuses() {
-        if (!chkBuses.checked || selectedLineCode) {
-          busMarkerPool.forEach(marker => busesLayer.removeLayer(marker));
-          busMarkerPool.clear();
-          return;
-        }
+      // ─── 60 FPS CONTINUOUS VEHICLE ANIMATION ENGINE ───
+      let animLoopRunning = false;
+      function startAnimationLoop() {
+        if (animLoopRunning) return;
+        animLoopRunning = true;
 
-        const showStale = chkStale.checked;
-        const currentIds = new Set();
-        let renderedCount = 0;
+        function animateFrame(now) {
+          for (const [id, item] of busAnimMap.entries()) {
+            if (!item.marker) continue;
 
-        for (let i = 0; i < fleetBuses.length; i++) {
-          const b = fleetBuses[i];
-          const age = getBusAgeSec(b.t, b.a);
-          if (!showStale && age > 600) continue;
+            const elapsed = now - item.startTime;
+            const progress = Math.min(1, Math.max(0, elapsed / item.duration));
 
-          currentIds.add(b.id);
-          renderedCount++;
-          const col = getBusColor(b.s);
+            // Smooth linear coordinate glide
+            const lat = item.fromLat + (item.targetLat - item.fromLat) * progress;
+            const lon = item.fromLon + (item.targetLon - item.fromLon) * progress;
+            item.currentLat = lat;
+            item.currentLon = lon;
 
-          let marker = busMarkerPool.get(b.id);
-          if (!marker) {
-            // Create circle marker
-            marker = L.circleMarker([b.lat, b.lon], {
-              radius: 4,
-              weight: 1,
-              color: "#ffffff",
-              fillColor: col,
-              fillOpacity: 0.85
-            });
+            item.marker.setLatLng([lat, lon]);
 
-            marker.on("click", (e) => {
-              L.DomEvent.stopPropagation(e);
-              inspectVehicle(b);
-            });
-
-            busMarkerPool.set(b.id, marker);
-            busesLayer.addLayer(marker);
-          } else {
-            // Update in-place without rebuilding DOM
-            marker.setLatLng([b.lat, b.lon]);
-            if (marker.options.fillColor !== col) {
-              marker.setStyle({ fillColor: col });
+            if (item.arrowEl && item.bearing != null) {
+              item.arrowEl.style.transform = `rotate(${item.bearing}deg)`;
             }
           }
+
+          requestAnimationFrame(animateFrame);
         }
 
-        // Cleanup removed vehicles
-        for (const [id, marker] of busMarkerPool.entries()) {
-          if (!currentIds.has(id)) {
-            busesLayer.removeLayer(marker);
-            busMarkerPool.delete(id);
-          }
-        }
-
-        statBuses.innerHTML = `${renderedCount.toLocaleString("tr-TR")} <small>araç</small>`;
+        requestAnimationFrame(animateFrame);
       }
 
       // ─── VEHICLE INSPECTOR (DESKTOP POPUP + MOBILE BOTTOM CARD) ───
       function inspectVehicle(b) {
-        const mappedLine = doorLineMap[b.id] || b.line;
+        const mappedLine = b.line || doorLineMap[b.id];
+        const lineTitle = b.name ? `${mappedLine} - ${b.name}` : mappedLine;
         const speedText = `${b.s || 0} km/s`;
         const timeText = `${b.t || b.time || "-"} (${formatBusAge(b.t || b.time, b.a)})`;
         const opText = b.op || "İETT";
+        const dirText = b.dir_name ? `➔ ${b.dir_name}` : (b.dir === "G" ? "➔ Gidiş Yönü" : (b.dir === "D" ? "➔ Dönüş Yönü" : "-"));
+        const stopText = b.stop || "-";
 
         if (window.innerWidth <= 768) {
-          // Open mobile bottom inspector sheet
           el("insp-title").textContent = `Araç: ${b.id} ${b.p ? `(${b.p})` : ""}`;
           el("insp-line").innerHTML = mappedLine 
-            ? `<span style="color:#38bdf8;font-weight:800;font-size:14px">${mappedLine}</span>` 
+            ? `<span style="color:#38bdf8;font-weight:800;font-size:14px">${mappedLine}</span> <small style="color:#94a3b8">(${dirText})</small>` 
             : "Eşleşme yok";
           el("insp-speed").textContent = speedText;
           el("insp-time").textContent = timeText;
-          el("insp-op").textContent = opText;
+          el("insp-op").innerHTML = `${opText} <br><small style="color:#94a3b8">Durak: ${stopText}</small>`;
 
           const btnFilter = el("btn-insp-filter");
           if (mappedLine) {
             btnFilter.style.display = "flex";
-            btnFilter.textContent = `🔍 ${mappedLine} Hattını Filtrele`;
+            btnFilter.textContent = `🔍 ${mappedLine} Hattı ve Güzergahını Gör`;
             btnFilter.onclick = () => {
               mobileInspector.style.display = "none";
               searchLine(mappedLine);
@@ -1265,9 +1387,8 @@
 
           mobileInspector.style.display = "block";
         } else {
-          // Open desktop Leaflet popup
           const lineAction = mappedLine 
-            ? `<button class="btn-popup-filter" onclick="window.filterLine('${mappedLine}')">🔍 ${mappedLine} Hattını Filtrele</button>` 
+            ? `<button class="btn-popup-filter" onclick="window.filterLine('${mappedLine}')">🔍 ${mappedLine} Hattı ve Güzergahını Gör</button>` 
             : "";
 
           L.popup({ autoPanPadding: [20, 20] })
@@ -1280,6 +1401,8 @@
                 </div>
                 <div class="popup-details">
                   <div><b>Hat:</b> ${mappedLine ? `<span style="color:#38bdf8;font-weight:700">${mappedLine}</span>` : "Yok"}</div>
+                  <div><b>Gittiği Yön:</b> <span style="color:#f59e0b;font-weight:600">${dirText}</span></div>
+                  <div><b>Yakın Durak:</b> <span>${stopText}</span></div>
                   <div><b>Hız:</b> ${speedText}</div>
                   <div><b>Zaman:</b> ${timeText}</div>
                   <div><b>Operatör:</b> ${opText}</div>
@@ -1296,39 +1419,244 @@
         searchLine(code);
       };
 
-      // ─── FILTER A SINGLE LINE ───
+      // ─── DRAW ROUTE PATHS AND STOPS ON THE MAP ───
+      function drawRoute(directions) {
+        routeLayer.clearLayers();
+        if (!directions) return [];
+
+        const allCoords = [];
+        const dirKeys = Object.keys(directions);
+
+        dirKeys.forEach(k => {
+          const dir = directions[k];
+          if (!dir || !dir.stops || dir.stops.length < 2) return;
+
+          const isVisible = (activeDirectionFilter === "ALL" || activeDirectionFilter === k);
+          const color = dir.color || (k === "G" ? "#a855f7" : "#06b6d4");
+          const opacity = isVisible ? 0.92 : 0.15;
+          const glowOpacity = isVisible ? 0.35 : 0.05;
+
+          const coords = dir.stops.map(s => [s.lat, s.lon]);
+          coords.forEach(pt => allCoords.push(pt));
+
+          // Outer glowing route outline
+          const glowPoly = L.polyline(coords, {
+            color: color,
+            weight: 8,
+            opacity: glowOpacity,
+            lineJoin: "round",
+            interactive: false
+          });
+          routeLayer.addLayer(glowPoly);
+
+          // Inner crisp route polyline
+          const routePoly = L.polyline(coords, {
+            color: color,
+            weight: 4,
+            opacity: opacity,
+            lineJoin: "round",
+            dashArray: k === "G" ? "6, 6" : null
+          });
+          routePoly.bindTooltip(`<b>${dir.headsign || dir.name}</b> (${dir.stops.length} durak)`, { sticky: true });
+          routeLayer.addLayer(routePoly);
+
+          // Render stops along this direction
+          dir.stops.forEach((s, idx) => {
+            const isTerminal = (idx === 0 || idx === dir.stops.length - 1);
+            const stopDot = L.circleMarker([s.lat, s.lon], {
+              radius: isTerminal ? 6 : 3,
+              weight: isTerminal ? 2.5 : 1,
+              color: "#ffffff",
+              fillColor: color,
+              fillOpacity: isVisible ? 1 : 0.25
+            });
+
+            const label = isTerminal 
+              ? `<b>🚩 ${idx === 0 ? "Başlangıç Durağı" : "Son Durak"}</b><br>${s.name}` 
+              : `<b>🚏 ${s.seq}. ${s.name}</b>${s.district ? `<br><small style="color:#94a3b8">${s.district}</small>` : ""}`;
+            stopDot.bindTooltip(label, { direction: "top", offset: [0, -4] });
+            routeLayer.addLayer(stopDot);
+          });
+        });
+
+        return allCoords;
+      }
+
+      // ─── RENDER ALL BUSES (FULL FLEET) ───
+      function renderBuses() {
+        if (!chkBuses.checked || selectedLineCode) {
+          for (const [id, item] of busAnimMap.entries()) {
+            if (item.marker) busesLayer.removeLayer(item.marker);
+          }
+          busAnimMap.clear();
+          return;
+        }
+
+        const showStale = chkStale.checked;
+        const currentIds = new Set();
+        let renderedCount = 0;
+        const now = performance.now();
+
+        for (let i = 0; i < fleetBuses.length; i++) {
+          const b = fleetBuses[i];
+          const age = getBusAgeSec(b.t, b.a);
+          if (!showStale && age > 600) continue;
+
+          currentIds.add(b.id);
+          renderedCount++;
+          const col = getBusColor(b.s);
+
+          let item = busAnimMap.get(b.id);
+          if (!item) {
+            const marker = L.circleMarker([b.lat, b.lon], {
+              radius: 4,
+              weight: 1,
+              color: "#ffffff",
+              fillColor: col,
+              fillOpacity: 0.85
+            });
+
+            marker.on("click", (e) => {
+              L.DomEvent.stopPropagation(e);
+              inspectVehicle(b);
+            });
+
+            item = {
+              marker,
+              fromLat: b.lat,
+              fromLon: b.lon,
+              targetLat: b.lat,
+              targetLon: b.lon,
+              currentLat: b.lat,
+              currentLon: b.lon,
+              bearing: 0,
+              startTime: now,
+              duration: POLL_INTERVAL_MS,
+              data: b
+            };
+
+            busAnimMap.set(b.id, item);
+            busesLayer.addLayer(marker);
+          } else {
+            // Update target for smooth glide interpolation
+            if (b.lat !== item.targetLat || b.lon !== item.targetLon) {
+              item.fromLat = item.currentLat;
+              item.fromLon = item.currentLon;
+              item.targetLat = b.lat;
+              item.targetLon = b.lon;
+              item.bearing = calculateBearing(item.fromLat, item.fromLon, b.lat, b.lon);
+              item.startTime = now;
+              item.duration = POLL_INTERVAL_MS;
+            }
+            item.data = b;
+            if (item.marker.options.fillColor !== col) {
+              item.marker.setStyle({ fillColor: col });
+            }
+          }
+        }
+
+        // Cleanup stale markers
+        for (const [id, item] of busAnimMap.entries()) {
+          if (!currentIds.has(id)) {
+            if (item.marker) busesLayer.removeLayer(item.marker);
+            busAnimMap.delete(id);
+          }
+        }
+
+        statBuses.innerHTML = `${renderedCount.toLocaleString("tr-TR")} <small>araç</small>`;
+        startAnimationLoop();
+      }
+
+      // ─── RENDER FILTERED LINE WITH ROUTE, DIRECTIONS & SMOOTH BUSES ───
       function renderSelectedLine(preserveView = false) {
         selectedLineLayer.clearLayers();
         busResultsList.innerHTML = "";
         if (!selectedLineData) return;
 
         const buses = selectedLineData.buses || [];
-        const pts = [];
-        let listHtml = "";
+        const directions = selectedLineData.directions || {};
+        const dirD = directions.D || null;
+        const dirG = directions.G || null;
 
-        bannerLineCode.textContent = selectedLineCode;
-        bannerLineTitle.textContent = `${selectedLineCode} Hattı`;
+        // Draw Route Polylines and Stops on Map
+        const routeCoords = drawRoute(directions);
+
+        // Update Line Banner
+        bannerLineCode.textContent = selectedLineData.code;
+        const lineTitle = selectedLineData.name ? `${selectedLineData.code} - ${selectedLineData.name}` : `${selectedLineData.code} Hattı`;
+        bannerLineTitle.textContent = lineTitle;
         bannerLineSub.textContent = `${buses.length} / ${selectedLineData.assigned_count || buses.length} Canlı Araç`;
         selectedLineBanner.style.display = "flex";
 
+        // Setup Direction Tabs
+        dirTabsWrapper.style.display = "flex";
+        const countD = buses.filter(b => b.dir === "D").length;
+        const countG = buses.filter(b => b.dir === "G").length;
+
+        tabDirAll.textContent = `Tümü (${buses.length})`;
+        tabDirD.innerHTML = dirD ? `➔ ${dirD.destination.slice(0, 16)} (${countD})` : `➔ Dönüş (${countD})`;
+        tabDirG.innerHTML = dirG ? `➔ ${dirG.destination.slice(0, 16)} (${countG})` : `➔ Gidiş (${countG})`;
+
+        tabDirAll.classList.toggle("active", activeDirectionFilter === "ALL");
+        tabDirD.classList.toggle("active", activeDirectionFilter === "D");
+        tabDirG.classList.toggle("active", activeDirectionFilter === "G");
+
         if (buses.length === 0) {
-          busResultsList.innerHTML = `<div style="padding:14px;color:#94a3b8;text-align:center;background:rgba(30,41,59,0.5);border-radius:10px;font-size:12px">Bu hatta kayıtlı araçlar var ancak şu an seferde aktif araç sinyali alınamadı.</div>`;
+          busResultsList.innerHTML = `<div style="padding:14px;color:#94a3b8;text-align:center;background:rgba(30,41,59,0.5);border-radius:10px;font-size:12px">Bu hatta kayıtlı ${selectedLineData.assigned_count || 0} araç var ancak şu an seferde aktif araç sinyali alınamadı. Haritada hat güzergahı ve durakları gösteriliyor.</div>`;
           statBuses.innerHTML = `0 / ${selectedLineData.assigned_count || 0} <small>araç</small>`;
+          if (!preserveView && routeCoords.length > 0) {
+            map.fitBounds(routeCoords, { padding: [50, 50], maxZoom: 15 });
+          }
           return;
         }
 
-        buses.forEach((b) => {
-          const col = b.s > 15 ? "#10b981" : (b.s > 4 ? "#f59e0b" : "#64748b");
+        const pts = [];
+        const now = performance.now();
 
-          const marker = L.circleMarker([b.lat, b.lon], {
-            radius: 7,
-            weight: 2,
-            color: "#ffffff",
-            fillColor: col,
-            fillOpacity: 1
+        // Filter buses according to active direction tab
+        const visibleBuses = buses.filter(b => {
+          if (activeDirectionFilter === "ALL") return true;
+          return b.dir === activeDirectionFilter;
+        });
+
+        // Group buses for sidebar list
+        const busesByDir = {
+          D: buses.filter(b => b.dir === "D"),
+          G: buses.filter(b => b.dir === "G"),
+          OTHER: buses.filter(b => b.dir !== "D" && b.dir !== "G")
+        };
+
+        // Render bus markers on map
+        visibleBuses.forEach(b => {
+          const isDirG = b.dir === "G";
+          const col = b.color || (isDirG ? "#a855f7" : "#06b6d4");
+          const isMoving = (b.s || 0) > 2;
+          const bearing = b.bearing || 0;
+
+          // Custom animated SVG directional icon
+          const iconHtml = isMoving
+            ? `<div class="bus-anim-marker" style="--marker-color:${col}">
+                 <div class="bus-radar-pulse"></div>
+                 <div class="bus-dir-arrow" id="arrow-${b.id}" style="transform:rotate(${bearing}deg)">
+                   <svg viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z" fill="${col}" stroke="#ffffff" stroke-width="1.5"/></svg>
+                 </div>
+                 <div class="bus-badge-label">${b.id}</div>
+               </div>`
+            : `<div class="bus-anim-marker bus-stopped" style="--marker-color:${col}">
+                 <div class="bus-stop-dot" style="background:${col}"></div>
+                 <div class="bus-badge-label">${b.id}</div>
+               </div>`;
+
+          const busIcon = L.divIcon({
+            className: "bus-custom-div-icon",
+            html: iconHtml,
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
           });
 
-          marker.bindTooltip(`<b>${b.id}</b> - ${selectedLineCode} (${b.s || 0} km/s)`, { direction: "top", offset: [0, -6] });
+          const marker = L.marker([b.lat, b.lon], { icon: busIcon });
+          const dirLabel = b.dir_name ? `➔ ${b.dir_name}` : (isDirG ? "Gidiş Yönü" : "Dönüş Yönü");
+          marker.bindTooltip(`<b>${b.id}</b> • ${dirLabel} (${b.s || 0} km/s)`, { direction: "top", offset: [0, -14] });
           marker.on("click", (e) => {
             L.DomEvent.stopPropagation(e);
             inspectVehicle(b);
@@ -1337,36 +1665,106 @@
           selectedLineLayer.addLayer(marker);
           pts.push([b.lat, b.lon]);
 
-          listHtml += `
-            <div class="bus-card" onclick="window.panToBus(${b.lat}, ${b.lon}, '${b.id}')">
-              <div class="bus-card-left">
-                <span class="legend-dot" style="background:${col}"></span>
-                <div>
-                  <div class="bus-id">${b.id}</div>
-                  <div class="bus-plate">${b.p || "İETT"}</div>
-                </div>
-              </div>
-              <div class="bus-speed-badge">
-                <span>${b.s || 0}</span> <small style="font-size:10px;color:#94a3b8">km/s</small>
-              </div>
-            </div>
-          `;
+          // Save into animation map for smooth glide
+          let item = busAnimMap.get(b.id);
+          if (!item) {
+            item = {
+              marker,
+              arrowEl: null,
+              fromLat: b.lat,
+              fromLon: b.lon,
+              targetLat: b.lat,
+              targetLon: b.lon,
+              currentLat: b.lat,
+              currentLon: b.lon,
+              bearing,
+              startTime: now,
+              duration: POLL_INTERVAL_MS,
+              data: b
+            };
+            busAnimMap.set(b.id, item);
+          } else {
+            item.marker = marker;
+            if (b.lat !== item.targetLat || b.lon !== item.targetLon) {
+              item.fromLat = item.currentLat;
+              item.fromLon = item.currentLon;
+              item.targetLat = b.lat;
+              item.targetLon = b.lon;
+              item.bearing = calculateBearing(item.fromLat, item.fromLon, b.lat, b.lon);
+              item.startTime = now;
+              item.duration = POLL_INTERVAL_MS;
+            }
+            item.data = b;
+          }
+
+          // Link arrow element after marker is added to DOM
+          setTimeout(() => {
+            const arr = document.getElementById(`arrow-${b.id}`);
+            if (arr && item) item.arrowEl = arr;
+          }, 0);
         });
 
-        busResultsList.innerHTML = listHtml;
-        statBuses.innerHTML = `${buses.length} / ${selectedLineData.assigned_count || buses.length} <small>araç</small>`;
+        // Generate grouped sidebar list HTML
+        let listHtml = "";
 
-        if (!preserveView && pts.length > 0) {
-          map.fitBounds(pts, { padding: [60, 60], maxZoom: 15 });
+        function renderGroup(title, groupBuses, dirClass, col) {
+          if (!groupBuses || groupBuses.length === 0) return "";
+          let h = `<div class="dir-group-header ${dirClass}">
+                    <span>${title}</span>
+                    <span style="font-size:10px;opacity:0.9">${groupBuses.length} Araç</span>
+                   </div>`;
+          groupBuses.forEach(b => {
+            h += `
+              <div class="bus-card" onclick="window.panToBus(${b.lat}, ${b.lon}, '${b.id}')">
+                <div class="bus-card-left">
+                  <span class="legend-dot" style="background:${col}"></span>
+                  <div>
+                    <div class="bus-id">${b.id} ${b.p ? `<span class="bus-plate">(${b.p})</span>` : ""}</div>
+                    <div class="bus-plate">${b.stop ? `🚏 ${b.stop}` : (b.op || "İETT")}</div>
+                  </div>
+                </div>
+                <div class="bus-speed-badge">
+                  <span>${b.s || 0}</span> <small style="font-size:10px;color:#94a3b8">km/s</small>
+                </div>
+              </div>
+            `;
+          });
+          return h;
         }
+
+        const titleD = dirD ? `➔ ${dirD.destination} Yönü` : "➔ Dönüş Yönü";
+        const titleG = dirG ? `➔ ${dirG.destination} Yönü` : "➔ Gidiş Yönü";
+
+        if (activeDirectionFilter === "ALL" || activeDirectionFilter === "D") {
+          listHtml += renderGroup(titleD, busesByDir.D, "dir-d", "#06b6d4");
+        }
+        if (activeDirectionFilter === "ALL" || activeDirectionFilter === "G") {
+          listHtml += renderGroup(titleG, busesByDir.G, "dir-g", "#a855f7");
+        }
+        if (busesByDir.OTHER.length > 0 && activeDirectionFilter === "ALL") {
+          listHtml += renderGroup("Diğer Araçlar", busesByDir.OTHER, "dir-d", "#10b981");
+        }
+
+        busResultsList.innerHTML = listHtml;
+        statBuses.innerHTML = `${visibleBuses.length} / ${selectedLineData.assigned_count || buses.length} <small>araç</small>`;
+
+        if (!preserveView) {
+          const fitTarget = routeCoords.length > 0 ? routeCoords : pts;
+          if (fitTarget.length > 0) {
+            map.fitBounds(fitTarget, { padding: [60, 60], maxZoom: 15 });
+          }
+        }
+
+        startAnimationLoop();
       }
 
       window.panToBus = function (lat, lon, id) {
-        map.setView([lat, lon], 16, { animate: true });
+        map.flyTo([lat, lon], 16, { duration: 1 });
         const bus = (selectedLineData && selectedLineData.buses) ? selectedLineData.buses.find(x => x.id === id) : null;
         if (bus) inspectVehicle(bus);
       };
 
+      // ─── SEARCH / FILTER A LINE (PULLS MAP, DIRECTIONS & BUSES) ───
       function searchLine(code, isSilent = false) {
         if (!code) return;
         code = code.toUpperCase().trim();
@@ -1380,73 +1778,50 @@
           c.classList.toggle("active", c.getAttribute("data-line") === code);
         });
 
-        // 1. Instant local database lookup (0ms)
-        const assignedDoors = busLinesMap[code];
-        if (assignedDoors && assignedDoors.length > 0) {
-          const doorSet = new Set(assignedDoors);
-          const matched = [];
-          for (let i = 0; i < fleetBuses.length; i++) {
-            const b = fleetBuses[i];
-            if (doorSet.has(b.id)) {
-              matched.push({
-                id: b.id,
-                lat: b.lat,
-                lon: b.lon,
-                line: code,
-                s: b.s,
-                time: b.t,
-                op: b.op || "",
-                p: b.p || "",
-                a: b.a || 0
-              });
-            }
-          }
-
-          selectedLineData = {
-            code: code,
-            buses: matched,
-            assigned_count: assignedDoors.length
-          };
-
-          // Hide general fleet markers
-          busMarkerPool.forEach(marker => busesLayer.removeLayer(marker));
-          busMarkerPool.clear();
-
-          renderSelectedLine(isSilent);
-          txtStatusMsg.textContent = `${code} aktif (${matched.length} araç)`;
-          return;
+        // Clear general fleet animation map
+        for (const [id, item] of busAnimMap.entries()) {
+          if (item.marker) busesLayer.removeLayer(item.marker);
         }
+        busAnimMap.clear();
 
-        // 2. Fallback to API if line code is not in precompiled map
-        txtStatusMsg.textContent = `${code} sorgulanıyor...`;
+        if (!isSilent) txtStatusMsg.textContent = `${code} güzergahı ve araçları çekiliyor...`;
+
+        // Fetch complete line data (route stops, directions, real-time buses)
         fetch(`/line?code=${encodeURIComponent(code)}`)
           .then(r => r.json())
           .then(data => {
-            if (data.buses) {
+            if (data.directions || data.buses) {
               selectedLineData = data;
-              busMarkerPool.forEach(marker => busesLayer.removeLayer(marker));
-              busMarkerPool.clear();
+              lineRouteCache.set(code, data);
               renderSelectedLine(isSilent);
-              txtStatusMsg.textContent = `${code} aktif (${data.buses.length} araç)`;
+              txtStatusMsg.textContent = `${code} aktif (${(data.buses || []).length} araç)`;
             } else {
-              showToast(`"${code}" hattında aktif araç bulunamadı`);
+              showToast(`"${code}" hattı bulunamadı`);
               txtStatusMsg.textContent = "Hat bulunamadı";
             }
           })
           .catch(() => {
-            showToast("Hat verisi sorgulanırken hata oluştu");
+            showToast("Hat verisi alınırken hata oluştu");
           });
       }
 
       function clearSelectedLine() {
         selectedLineCode = null;
         selectedLineData = null;
+        activeDirectionFilter = "ALL";
+        routeLayer.clearLayers();
         selectedLineLayer.clearLayers();
         selectedLineBanner.style.display = "none";
+        dirTabsWrapper.style.display = "none";
         busResultsList.innerHTML = "";
         lineInput.value = "";
         btnSearchClear.style.display = "none";
         searchSuggestions.style.display = "none";
+
+        for (const [id, item] of busAnimMap.entries()) {
+          if (item.marker) selectedLineLayer.removeLayer(item.marker);
+        }
+        busAnimMap.clear();
 
         document.querySelectorAll(".chip").forEach(c => {
           c.classList.toggle("active", c.getAttribute("data-filter") === "all");
@@ -1456,6 +1831,20 @@
         txtStatusMsg.textContent = "Tüm filo gösteriliyor";
       }
 
+      // Direction Tab Event Listeners
+      tabDirAll.addEventListener("click", () => {
+        activeDirectionFilter = "ALL";
+        renderSelectedLine(true);
+      });
+      tabDirD.addEventListener("click", () => {
+        activeDirectionFilter = "D";
+        renderSelectedLine(true);
+      });
+      tabDirG.addEventListener("click", () => {
+        activeDirectionFilter = "G";
+        renderSelectedLine(true);
+      });
+
       // ─── FETCH REFRESH ENGINE ───
       async function fetchFleet() {
         try {
@@ -1464,7 +1853,7 @@
           if (data.buses && Array.isArray(data.buses)) {
             fleetBuses = data.buses;
             lastFleetTime = data.updated_at || Date.now();
-            txtStatusPill.textContent = "CANLI GPS";
+            txtStatusPill.innerHTML = '<span class="pulse-dot"></span><span>99 REQ/H CANLI</span>';
 
             if (selectedLineCode) {
               searchLine(selectedLineCode, true);
@@ -1476,9 +1865,9 @@
             txtStatusMsg.textContent = `Güncellendi (${secAgo}s önce)`;
           }
         } catch (e) {
-          txtStatusPill.textContent = "Yenileniyor...";
+          txtStatusPill.innerHTML = '<span>Yenileniyor...</span>';
         }
-        pollCountdown = 10;
+        pollCountdown = 5;
       }
 
       // ─── METRO NETWORK & LIVE TRAIN SIMULATOR ───
@@ -1843,8 +2232,8 @@
         await fetchFleet();
         await loadMetroData();
 
-        // 10-Second Fleet Polling
-        setInterval(fetchFleet, 10000);
+        // 5-Second Fleet Polling (Matches 99 req/hr cloud pipeline)
+        setInterval(fetchFleet, POLL_INTERVAL_MS);
 
         // 1-Second Smooth UI & Train Tick
         setInterval(() => {

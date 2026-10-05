@@ -10,24 +10,35 @@
 
 ## 🌟 Öne Çıkan Özellikler (Key Features)
 
-- **⚡ 6.500+ Canlı İETT Otobüsü (GPS Takibi):**
-  - İETT filo servisinden tüm aktif araç koordinatları, anlık hız, operatör ve plaka bilgileriyle çekilir ve Cloudflare KV üzerinde akıllı token-bucket kota korumasıyla (100 req/hr sınırı) önbelleğe alınır.
+- **⚡ 6.500+ Canlı İETT Otobüsü & 99 İstek/Saat Hızlandırılmış Senkronizasyon:**
+  - İETT filo servisinden tüm aktif araç koordinatları akıllı token-bucket kota korumasıyla saatte 99 isteğe (her 36.4 saniyede bir) optimize edilmiş aralıkla çekilir.
   - Canlı hız renk kodlaması: **Yeşil** (>15 km/s akıcı), **Sarı** (5-15 km/s yoğun/yavaş), **Gri** (duran/bekleyen araç).
-  
-- **🎯 0ms Anında Hat Eşleştirme (780+ Hat, 6.400+ Kapı Numarası):**
-  - İETT arşiv görev verileriyle derlenen yerleşik veritabanı sayesinde, arama çubuğuna bir hat kodu girildiğinde (`500T`, `15B`, `34G Metrobüs`, `16D`, `E-10`) dış API'ye gitmeden ve kota harcamadan anında haritada filtrelenir.
-  
+
+- **🗺️ Canlı Hat Güzergahı ve Çift Yön Çizimi (Gidiş & Dönüş):**
+  - Arama kutusundan veya rozetlerden bir hat seçildiğinde (örn. `15B`, `500T`, `34G Metrobüs`), İETT güzergah ve durak veritabanından hattın resmi güzergahı çekilerek harita üzerinde neon parlama efektli hat çizgileri olarak çizilir:
+    - **Dönüş Yönü (Cyan `#06b6d4`):** Başlangıçtan varış noktasına giden güzergah ve sıralı duraklar.
+    - **Gidiş Yönü (Mor `#a855f7`):** Karşı yönde hareket eden güzergah ve sıralı duraklar.
+  - Başlangıç ve son duraklar özel terminal bayraklarıyla işaretlenir, ara duraklara tıklanarak durak kodları ve sıra numaraları görüntülenebilir.
+  - Yön filtreleme butonlarıyla tek tıkla sadece istenen yöne odaklanılabilir.
+
+- **🧭 Hangi Otobüsün Hangi Yöne Gittiğini Canlı Tespit Etme:**
+  - Hattaki her bir aracın anlık rotası, sefer kodu ve durak geometrisiyle eşleştirilerek hangi yöne gittiği (`➔ KURAN KURSU`, `➔ ÜSKÜDAR CAMİİ ÖNÜ`) ve en yakın durağı tespit edilir.
+  - Araç listesi yön bazında gruplanır (`KURAN KURSU Yönü (X Araç)`, `ÜSKÜDAR Yönü (Y Araç)`).
+  - Harita üzerindeki araçlar yön renkleriyle ve aracın gittiği pusula açısına (bearing) göre dönen SVG yön oklarıyla gösterilir.
+
+- **✨ 60 FPS Pürüzsüz Araç Animasyon Motoru (Glide Animation):**
+  - Otobüsler koordinat güncellemelerinde harita üzerinde aniden sıçramaz veya kaybolup tekrar belirmez (`requestAnimationFrame` tabanlı 60 FPS sürekli enterpolasyon).
+  - Hareket halindeki araçların çevresinde canlı radar dalgası animasyonu çalışır, araçlar sokaklar boyunca akıcı bir şekilde süzülür.
+
 - **🚆 Metro İstanbul Canlı Raylı Sistem Ağı:**
   - 18 raylı sistem hattı (M1A, M1B, M2, M3, M4, M5, M6, M7, M8, M9, T1, T3, T4, T5, F1, F4, TF1, TF2) ve resmi istasyon koordinatları.
   - Sefer tarifelerine göre hat üzerinde saniye saniye hareket eden, sonraki istasyon ve hız simülasyonu yapan canlı trenler.
 
 - **📱 Mobil Uyumlu ve Modern UI/UX:**
-  - **Mobil Bottom Sheet (Çekmece):** Apple/Google Maps tarzı sürükleyip bırakılabilir, 3 kademeli (küçültülmüş, orta, tam ekran) arayüz.
+  - **Mobil Bottom Sheet (Çekmece):** Apple/Google Maps tarzı sürükleyip bırakılabilir, 3 kademeli arayüz.
   - **Konumumu Bul (GPS Geolocation):** Kullanıcının İstanbul'daki anlık konumunu bularak haritada radar animasyonuyla gösterme.
-  - **Yüksek Performanslı Canvas Havuzu:** 5.000+ aracı DOM'u silip baştan oluşturmadan pürüzsüz 60 FPS ile güncelleme (sıfır titreme, düşük bellek tüketimi).
   - **Retina (@2x) & Karanlık/Aydınlık Harita:** CARTO Dark Matter ve Voyager yüksek çözünürlüklü harita katmanları.
-  - **Hızlı Filtreleme Rozetleri:** Metrobüs ve popüler hatlara tek tıkla ulaşım.
-  - **Klavye Kısayolları:** `/` tuşuyla hızlı arama, `Esc` ile filtre temizleme.
+  - **5 Saniyede Bir Canlı Yenilenme:** İstemci tarafı her 5 saniyede bir verileri tazeleyerek canlı akışı kesintisiz sürdürür.
 
 ---
 

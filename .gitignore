@@ -1,8 +1,6 @@
-# Cloudflare Wrangler & Miniflare state
+# Cloudflare Wrangler & Miniflare local state
 .wrangler/
 .dev.vars
-wrangler.toml
-!wrangler.toml.example
 
 # Python
 __pycache__/
