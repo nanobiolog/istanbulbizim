@@ -1191,7 +1191,7 @@
 
       // Basemap Tiles (Carto Retina Dark & Light without requiring API key)
       const cartoKeyParam = "__CARTO_KEY__";
-      const keySuffix = (cartoKeyParam && cartoKeyParam !== "__CARTO_KEY__") ? `?key=${cartoKeyParam}` : "";
+      const keySuffix = (cartoKeyParam && !cartoKeyParam.startsWith("__")) ? `?key=${cartoKeyParam}` : "";
 
       const darkTile = L.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png${keySuffix}`, {
         subdomains: "abcd",

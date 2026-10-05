@@ -51,23 +51,6 @@ export default {
     if (path === "/metro/colors") return json(METRO_COLORS, 200, { "cache-control": "public, max-age=86400" });
     if (path === "/feed/buses") return handleFeed(request, env);
     if (path === "/feed/mapping") return handleFeedMapping(request, env);
-    if (path === "/debug/iett") {
-      try {
-        const apiKey = env.IBB_API_KEY || "";
-        const body = `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><GetFiloAracKonum_json xmlns="http://tempuri.org/" /></soap:Body></soap:Envelope>`;
-        const headers = {
-          "Content-Type": "text/xml; charset=utf-8",
-          "SOAPAction": '"http://tempuri.org/GetFiloAracKonum_json"',
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          "X-Api-Key": apiKey
-        };
-        const res = await fetch("https://api.ibb.gov.tr/iett/FiloDurum/SeferGerceklesme.asmx", { method: "POST", headers, body });
-        const text = await res.text();
-        return json({ hasKey: Boolean(apiKey), status: res.status, text: text.slice(0, 1000) });
-      } catch (e) {
-        return json({ error: String(e) }, 500);
-      }
-    }
     if (path === "/status") {
       const q = await quota(env);
       const meta = await env.LIVE.get("meta", "json");

@@ -11,7 +11,7 @@ import json
 import subprocess
 import urllib.request
 
-WORKER_URL = os.environ.get("WORKER_URL", "https://istanbulbizim-live.workers.dev")
+WORKER_URL = os.environ.get("WORKER_URL", "https://istanbulbizim-live.nano-carbay.workers.dev")
 WORKER_FEED_URL = os.environ.get("WORKER_FEED_URL", f"{WORKER_URL}/feed/buses")
 WORKER_MAP_URL = os.environ.get("WORKER_MAP_URL", f"{WORKER_URL}/feed/mapping")
 IETT_URL = "https://api.ibb.gov.tr/iett/FiloDurum/SeferGerceklesme.asmx"
