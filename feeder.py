@@ -121,7 +121,8 @@ def push_to_worker(buses):
         except Exception:
             continue
 
-    payload = json.dumps({"buses": cleaned}).encode("utf-8")
+    now_ms = int(time.time() * 1000)
+    payload = json.dumps({"buses": cleaned, "pushed_at": now_ms}).encode("utf-8")
     req = urllib.request.Request(WORKER_FEED_URL, data=payload, headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"})
     try:
         import ssl
@@ -138,15 +139,20 @@ def main():
         sync_mapping(days=5)
         return
 
-    print("Starting IstanbulBizim Fleet Feeder (polling every 40s to respect 90 req/hr)...", flush=True)
+    TARGET_INTERVAL = 36.5  # 3600 / 36.5 = ~98.6 req/hr, strictly within 100/hr limit
+    print(f"Starting IstanbulBizim Fleet Feeder (polling every {TARGET_INTERVAL}s cycle to respect 100 req/hr)...", flush=True)
     while True:
+        cycle_start = time.time()
         try:
             buses = fetch_iett_fleet()
             if buses:
                 push_to_worker(buses)
         except Exception as err:
             print(f"[{time.strftime('%X')}] Error in feeder: {err}", flush=True)
-        time.sleep(40.0)
+
+        elapsed = time.time() - cycle_start
+        sleep_time = max(1.0, TARGET_INTERVAL - elapsed)
+        time.sleep(sleep_time)
 
 if __name__ == "__main__":
     main()

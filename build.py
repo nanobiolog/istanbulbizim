@@ -42,7 +42,7 @@ export default {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" }
       });
     }
-    if (path === "/buses") return handleBuses(env);
+    if (path === "/buses") return handleBuses(request, env);
     if (path === "/line") return handleLine(env, url);
     if (path === "/line/route") return handleLineRoute(env, url);
     if (path === "/lines") return handleLines(env);
@@ -53,7 +53,7 @@ export default {
     if (path === "/feed/mapping") return handleFeedMapping(request, env);
     if (path === "/status") {
       const q = await quota(env);
-      const meta = await env.LIVE.get("meta", "json");
+      const meta = inMemoryMeta || (await env.LIVE.get("meta", { type: "json", cacheTtl: 30 }));
       let map = await env.LIVE.get("bus_lines_map", "json");
       const mappedLinesCount = map ? Object.keys(map).length : Object.keys(BUS_LINES_MAP).length;
       return json({

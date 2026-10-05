@@ -1232,12 +1232,18 @@
       let selectedLineCode = null;
       let selectedLineData = null;
       let activeDirectionFilter = "ALL"; // "ALL", "D", or "G"
+      let currentLineAbortController = null;
+      let currentSearchRequestId = 0;
+      let currentlyDrawnRouteCode = null;
+      let currentlyDrawnRouteDir = null;
+      let cachedRouteCoords = [];
       let metroNetwork = {};
       let metroColors = {};
       let activeTrains = [];
       let lastFleetTime = 0;
-      const POLL_INTERVAL_MS = 5000;
-      let pollCountdown = 5;
+      let lastBatchArrivalTime = 0;
+      let currentBatchDuration = 36500;
+      const POLL_INTERVAL_MS = 2500;
       let isSheetExpanded = false;
 
       // ─── DOM SELECTORS ───
@@ -1333,14 +1339,31 @@
             if (!item.marker) continue;
 
             const elapsed = now - item.startTime;
-            const progress = Math.min(1, Math.max(0, elapsed / item.duration));
+            let lat, lon;
 
-            // Smooth linear coordinate glide
-            const lat = item.fromLat + (item.targetLat - item.fromLat) * progress;
-            const lon = item.fromLon + (item.targetLon - item.fromLon) * progress;
+            if (elapsed <= item.duration) {
+              const progress = Math.min(1, Math.max(0, elapsed / item.duration));
+              lat = item.fromLat + (item.targetLat - item.fromLat) * progress;
+              lon = item.fromLon + (item.targetLon - item.fromLon) * progress;
+            } else {
+              // Beyond duration: dead-reckoning extrapolation if vehicle is moving
+              lat = item.targetLat;
+              lon = item.targetLon;
+              const speed = item.data ? (item.data.s || 0) : 0;
+              if (speed >= 5 && item.bearing != null) {
+                // Extrapolate up to 35s extra based on reported speed and bearing
+                const extraSec = Math.min(35, (elapsed - item.duration) / 1000);
+                const distM = (speed * 1000 / 3600) * extraSec;
+                const rad = item.bearing * (Math.PI / 180);
+                const dLat = (distM * Math.cos(rad)) / 111139;
+                const dLon = (distM * Math.sin(rad)) / (111139 * Math.cos(lat * Math.PI / 180));
+                lat += dLat;
+                lon += dLon;
+              }
+            }
+
             item.currentLat = lat;
             item.currentLon = lon;
-
             item.marker.setLatLng([lat, lon]);
 
             if (item.arrowEl && item.bearing != null) {
@@ -1421,9 +1444,24 @@
 
       // ─── DRAW ROUTE PATHS AND STOPS ON THE MAP ───
       function drawRoute(directions) {
-        routeLayer.clearLayers();
-        if (!directions) return [];
+        if (!directions) {
+          routeLayer.clearLayers();
+          currentlyDrawnRouteCode = null;
+          currentlyDrawnRouteDir = null;
+          cachedRouteCoords = [];
+          return [];
+        }
 
+        const lineCode = selectedLineData ? selectedLineData.code : null;
+        if (
+          currentlyDrawnRouteCode === lineCode &&
+          currentlyDrawnRouteDir === activeDirectionFilter &&
+          routeLayer.getLayers().length > 0
+        ) {
+          return cachedRouteCoords;
+        }
+
+        routeLayer.clearLayers();
         const allCoords = [];
         const dirKeys = Object.keys(directions);
 
@@ -1479,6 +1517,9 @@
           });
         });
 
+        currentlyDrawnRouteCode = lineCode;
+        currentlyDrawnRouteDir = activeDirectionFilter;
+        cachedRouteCoords = allCoords;
         return allCoords;
       }
 
@@ -1531,7 +1572,7 @@
               currentLon: b.lon,
               bearing: 0,
               startTime: now,
-              duration: POLL_INTERVAL_MS,
+              duration: currentBatchDuration,
               data: b
             };
 
@@ -1546,7 +1587,7 @@
               item.targetLon = b.lon;
               item.bearing = calculateBearing(item.fromLat, item.fromLon, b.lat, b.lon);
               item.startTime = now;
-              item.duration = POLL_INTERVAL_MS;
+              item.duration = currentBatchDuration;
             }
             item.data = b;
             if (item.marker.options.fillColor !== col) {
@@ -1569,16 +1610,17 @@
 
       // ─── RENDER FILTERED LINE WITH ROUTE, DIRECTIONS & SMOOTH BUSES ───
       function renderSelectedLine(preserveView = false) {
-        selectedLineLayer.clearLayers();
-        busResultsList.innerHTML = "";
-        if (!selectedLineData) return;
+        if (!selectedLineData || selectedLineData.code !== selectedLineCode) {
+          selectedLineLayer.clearLayers();
+          return;
+        }
 
         const buses = selectedLineData.buses || [];
         const directions = selectedLineData.directions || {};
         const dirD = directions.D || null;
         const dirG = directions.G || null;
 
-        // Draw Route Polylines and Stops on Map
+        // Draw Route Polylines and Stops on Map (cached if unchanged)
         const routeCoords = drawRoute(directions);
 
         // Update Line Banner
@@ -1604,6 +1646,11 @@
         if (buses.length === 0) {
           busResultsList.innerHTML = `<div style="padding:14px;color:#94a3b8;text-align:center;background:rgba(30,41,59,0.5);border-radius:10px;font-size:12px">Bu hatta kayıtlı ${selectedLineData.assigned_count || 0} araç var ancak şu an seferde aktif araç sinyali alınamadı. Haritada hat güzergahı ve durakları gösteriliyor.</div>`;
           statBuses.innerHTML = `0 / ${selectedLineData.assigned_count || 0} <small>araç</small>`;
+          selectedLineLayer.clearLayers();
+          for (const [id, item] of busAnimMap.entries()) {
+            if (item.marker) selectedLineLayer.removeLayer(item.marker);
+          }
+          busAnimMap.clear();
           if (!preserveView && routeCoords.length > 0) {
             map.fitBounds(routeCoords, { padding: [50, 50], maxZoom: 15 });
           }
@@ -1626,48 +1673,49 @@
           OTHER: buses.filter(b => b.dir !== "D" && b.dir !== "G")
         };
 
-        // Render bus markers on map
+        const activeBusIds = new Set();
+
+        // Reconcile and update bus markers smoothly
         visibleBuses.forEach(b => {
+          activeBusIds.add(b.id);
           const isDirG = b.dir === "G";
           const col = b.color || (isDirG ? "#a855f7" : "#06b6d4");
           const isMoving = (b.s || 0) > 2;
           const bearing = b.bearing || 0;
-
-          // Custom animated SVG directional icon
-          const iconHtml = isMoving
-            ? `<div class="bus-anim-marker" style="--marker-color:${col}">
-                 <div class="bus-radar-pulse"></div>
-                 <div class="bus-dir-arrow" id="arrow-${b.id}" style="transform:rotate(${bearing}deg)">
-                   <svg viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z" fill="${col}" stroke="#ffffff" stroke-width="1.5"/></svg>
-                 </div>
-                 <div class="bus-badge-label">${b.id}</div>
-               </div>`
-            : `<div class="bus-anim-marker bus-stopped" style="--marker-color:${col}">
-                 <div class="bus-stop-dot" style="background:${col}"></div>
-                 <div class="bus-badge-label">${b.id}</div>
-               </div>`;
-
-          const busIcon = L.divIcon({
-            className: "bus-custom-div-icon",
-            html: iconHtml,
-            iconSize: [32, 32],
-            iconAnchor: [16, 16]
-          });
-
-          const marker = L.marker([b.lat, b.lon], { icon: busIcon });
-          const dirLabel = b.dir_name ? `➔ ${b.dir_name}` : (isDirG ? "Gidiş Yönü" : "Dönüş Yönü");
-          marker.bindTooltip(`<b>${b.id}</b> • ${dirLabel} (${b.s || 0} km/s)`, { direction: "top", offset: [0, -14] });
-          marker.on("click", (e) => {
-            L.DomEvent.stopPropagation(e);
-            inspectVehicle(b);
-          });
-
-          selectedLineLayer.addLayer(marker);
           pts.push([b.lat, b.lon]);
 
-          // Save into animation map for smooth glide
           let item = busAnimMap.get(b.id);
           if (!item) {
+            const iconHtml = isMoving
+              ? `<div class="bus-anim-marker" style="--marker-color:${col}">
+                   <div class="bus-radar-pulse"></div>
+                   <div class="bus-dir-arrow" id="arrow-${b.id}" style="transform:rotate(${bearing}deg)">
+                     <svg viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z" fill="${col}" stroke="#ffffff" stroke-width="1.5"/></svg>
+                   </div>
+                   <div class="bus-badge-label">${b.id}</div>
+                 </div>`
+              : `<div class="bus-anim-marker bus-stopped" style="--marker-color:${col}">
+                   <div class="bus-stop-dot" style="background:${col}"></div>
+                   <div class="bus-badge-label">${b.id}</div>
+                 </div>`;
+
+            const busIcon = L.divIcon({
+              className: "bus-custom-div-icon",
+              html: iconHtml,
+              iconSize: [32, 32],
+              iconAnchor: [16, 16]
+            });
+
+            const marker = L.marker([b.lat, b.lon], { icon: busIcon });
+            const dirLabel = b.dir_name ? `➔ ${b.dir_name}` : (isDirG ? "Gidiş Yönü" : "Dönüş Yönü");
+            marker.bindTooltip(`<b>${b.id}</b> • ${dirLabel} (${b.s || 0} km/s)`, { direction: "top", offset: [0, -14] });
+            marker.on("click", (e) => {
+              L.DomEvent.stopPropagation(e);
+              inspectVehicle(b);
+            });
+
+            selectedLineLayer.addLayer(marker);
+
             item = {
               marker,
               arrowEl: null,
@@ -1679,12 +1727,17 @@
               currentLon: b.lon,
               bearing,
               startTime: now,
-              duration: POLL_INTERVAL_MS,
+              duration: currentBatchDuration,
               data: b
             };
             busAnimMap.set(b.id, item);
+
+            setTimeout(() => {
+              const arr = document.getElementById(`arrow-${b.id}`);
+              if (arr && item) item.arrowEl = arr;
+            }, 0);
           } else {
-            item.marker = marker;
+            // Update existing marker position smoothly
             if (b.lat !== item.targetLat || b.lon !== item.targetLon) {
               item.fromLat = item.currentLat;
               item.fromLon = item.currentLon;
@@ -1692,17 +1745,23 @@
               item.targetLon = b.lon;
               item.bearing = calculateBearing(item.fromLat, item.fromLon, b.lat, b.lon);
               item.startTime = now;
-              item.duration = POLL_INTERVAL_MS;
+              item.duration = currentBatchDuration;
             }
             item.data = b;
+            const dirLabel = b.dir_name ? `➔ ${b.dir_name}` : (isDirG ? "Gidiş Yönü" : "Dönüş Yönü");
+            if (item.marker && item.marker.getTooltip()) {
+              item.marker.setTooltipContent(`<b>${b.id}</b> • ${dirLabel} (${b.s || 0} km/s)`);
+            }
           }
-
-          // Link arrow element after marker is added to DOM
-          setTimeout(() => {
-            const arr = document.getElementById(`arrow-${b.id}`);
-            if (arr && item) item.arrowEl = arr;
-          }, 0);
         });
+
+        // Remove markers that are no longer part of visibleBuses
+        for (const [id, item] of busAnimMap.entries()) {
+          if (!activeBusIds.has(id)) {
+            if (item.marker) selectedLineLayer.removeLayer(item.marker);
+            busAnimMap.delete(id);
+          }
+        }
 
         // Generate grouped sidebar list HTML
         let listHtml = "";
@@ -1768,6 +1827,34 @@
       function searchLine(code, isSilent = false) {
         if (!code) return;
         code = code.toUpperCase().trim();
+        const isSwitchingLine = selectedLineCode !== code;
+
+        if (isSwitchingLine) {
+          // Abort previous in-flight request
+          if (currentLineAbortController) {
+            currentLineAbortController.abort();
+            currentLineAbortController = null;
+          }
+
+          // Immediately clear old line's route and bus markers from the map so it never lingers or flickers
+          routeLayer.clearLayers();
+          selectedLineLayer.clearLayers();
+          currentlyDrawnRouteCode = null;
+          currentlyDrawnRouteDir = null;
+          cachedRouteCoords = [];
+          selectedLineData = null;
+
+          for (const [id, item] of busAnimMap.entries()) {
+            if (item.marker) {
+              selectedLineLayer.removeLayer(item.marker);
+              busesLayer.removeLayer(item.marker);
+            }
+          }
+          busAnimMap.clear();
+
+          activeDirectionFilter = "ALL";
+        }
+
         selectedLineCode = code;
         lineInput.value = code;
         btnSearchClear.style.display = "flex";
@@ -1778,36 +1865,64 @@
           c.classList.toggle("active", c.getAttribute("data-line") === code);
         });
 
-        // Clear general fleet animation map
-        for (const [id, item] of busAnimMap.entries()) {
-          if (item.marker) busesLayer.removeLayer(item.marker);
+        // Ensure background fleet layer is cleared
+        busesLayer.clearLayers();
+
+        // Render from cache immediately if switching and cached
+        const cached = lineRouteCache.get(code);
+        if (cached && isSwitchingLine) {
+          selectedLineData = cached;
+          renderSelectedLine(false);
         }
-        busAnimMap.clear();
 
         if (!isSilent) txtStatusMsg.textContent = `${code} güzergahı ve araçları çekiliyor...`;
 
+        const reqId = ++currentSearchRequestId;
+        currentLineAbortController = new AbortController();
+
         // Fetch complete line data (route stops, directions, real-time buses)
-        fetch(`/line?code=${encodeURIComponent(code)}`)
+        fetch(`/line?code=${encodeURIComponent(code)}`, { signal: currentLineAbortController.signal })
           .then(r => r.json())
           .then(data => {
+            // Guard: If user navigated away, cleared selection, or switched to another line, drop response!
+            if (reqId !== currentSearchRequestId || selectedLineCode !== code) {
+              return;
+            }
+
             if (data.directions || data.buses) {
               selectedLineData = data;
               lineRouteCache.set(code, data);
               renderSelectedLine(isSilent);
               txtStatusMsg.textContent = `${code} aktif (${(data.buses || []).length} araç)`;
             } else {
-              showToast(`"${code}" hattı bulunamadı`);
+              if (!isSilent) showToast(`"${code}" hattı bulunamadı`);
               txtStatusMsg.textContent = "Hat bulunamadı";
+              routeLayer.clearLayers();
+              selectedLineLayer.clearLayers();
+              currentlyDrawnRouteCode = null;
+              currentlyDrawnRouteDir = null;
+              cachedRouteCoords = [];
+              selectedLineData = null;
             }
           })
-          .catch(() => {
-            showToast("Hat verisi alınırken hata oluştu");
+          .catch(err => {
+            if (err && err.name === "AbortError") return;
+            if (reqId !== currentSearchRequestId || selectedLineCode !== code) return;
+            if (!isSilent) showToast("Hat verisi alınırken hata oluştu");
           });
       }
 
       function clearSelectedLine() {
+        if (currentLineAbortController) {
+          currentLineAbortController.abort();
+          currentLineAbortController = null;
+        }
+        currentSearchRequestId++;
         selectedLineCode = null;
         selectedLineData = null;
+        currentlyDrawnRouteCode = null;
+        currentlyDrawnRouteDir = null;
+        cachedRouteCoords = [];
         activeDirectionFilter = "ALL";
         routeLayer.clearLayers();
         selectedLineLayer.clearLayers();
@@ -1819,7 +1934,10 @@
         searchSuggestions.style.display = "none";
 
         for (const [id, item] of busAnimMap.entries()) {
-          if (item.marker) selectedLineLayer.removeLayer(item.marker);
+          if (item.marker) {
+            selectedLineLayer.removeLayer(item.marker);
+            busesLayer.removeLayer(item.marker);
+          }
         }
         busAnimMap.clear();
 
@@ -1845,29 +1963,101 @@
         renderSelectedLine(true);
       });
 
-      // ─── FETCH REFRESH ENGINE ───
+      // ─── FETCH REFRESH ENGINE (FAST 2.5S EDGE POLLING WITH ETAG) ───
+      function updateFleetAgeDisplay() {
+        if (!lastFleetTime) return;
+        const now = Date.now();
+        const dataAge = Math.max(0, Math.round((now - lastFleetTime) / 1000));
+        const nextIn = Math.max(0, 37 - dataAge);
+        txtTimer.textContent = `${nextIn}s`;
+        txtTimer.title = `Sonraki canlı GPS paketi: ~${nextIn}s`;
+
+        if (dataAge <= 3) {
+          txtStatusMsg.textContent = "Filo verisi güncellendi";
+        } else {
+          txtStatusMsg.textContent = `Tazelendi (${dataAge}s önce)`;
+        }
+      }
+
+      function updateSelectedLineBuses() {
+        if (!selectedLineCode || !selectedLineData) return;
+        const assignedDoors = (busLinesMap && busLinesMap[selectedLineCode]) || [];
+        const doorSet = new Set(assignedDoors);
+        const matchingBuses = [];
+
+        for (const b of fleetBuses) {
+          if (doorSet.has(b.id)) {
+            matchingBuses.push({
+              id: b.id,
+              lat: b.lat,
+              lon: b.lon,
+              line: selectedLineCode,
+              name: selectedLineData.name,
+              dir: b.dir || "D",
+              dir_name: b.dir_name || "",
+              headsign: b.headsign || "",
+              color: b.color || "#06b6d4",
+              stop: b.stop || "",
+              time: b.t,
+              s: b.s,
+              op: b.op || "İETT",
+              p: b.p || "",
+              a: b.a || 0
+            });
+          }
+        }
+
+        if (matchingBuses.length > 0) {
+          selectedLineData.buses = matchingBuses;
+          selectedLineData.count = matchingBuses.length;
+          renderSelectedLine(true);
+        } else {
+          searchLine(selectedLineCode, true);
+        }
+      }
+
       async function fetchFleet() {
         try {
-          const res = await fetch("/buses");
+          const headers = {};
+          if (lastFleetTime) {
+            headers["If-None-Match"] = `"${lastFleetTime}"`;
+          }
+          const res = await fetch("/buses", { headers });
+          if (res.status === 304) {
+            updateFleetAgeDisplay();
+            return;
+          }
+          if (!res.ok) return;
+
           const data = await res.json();
           if (data.buses && Array.isArray(data.buses)) {
+            const now = Date.now();
+            const isFreshBatch = !lastFleetTime || data.updated_at > lastFleetTime;
+            if (isFreshBatch && lastFleetTime > 0) {
+              const measuredInterval = now - (lastBatchArrivalTime || (now - 36500));
+              currentBatchDuration = Math.max(15000, Math.min(45000, measuredInterval));
+            }
+            if (isFreshBatch) {
+              lastBatchArrivalTime = now;
+            }
+
             fleetBuses = data.buses;
-            lastFleetTime = data.updated_at || Date.now();
-            txtStatusPill.innerHTML = '<span class="pulse-dot"></span><span>99 REQ/H CANLI</span>';
+            lastFleetTime = data.updated_at || now;
+            txtStatusPill.innerHTML = '<span class="pulse-dot"></span><span>CANLI</span>';
 
             if (selectedLineCode) {
-              searchLine(selectedLineCode, true);
+              if (isFreshBatch) {
+                updateSelectedLineBuses();
+              }
             } else {
               renderBuses();
             }
 
-            const secAgo = Math.max(0, Math.round((Date.now() - lastFleetTime) / 1000));
-            txtStatusMsg.textContent = `Güncellendi (${secAgo}s önce)`;
+            updateFleetAgeDisplay();
           }
         } catch (e) {
-          txtStatusPill.innerHTML = '<span>Yenileniyor...</span>';
+          txtStatusPill.innerHTML = '<span>Bağlanıyor...</span>';
         }
-        pollCountdown = 5;
       }
 
       // ─── METRO NETWORK & LIVE TRAIN SIMULATOR ───
@@ -2232,13 +2422,12 @@
         await fetchFleet();
         await loadMetroData();
 
-        // 5-Second Fleet Polling (Matches 99 req/hr cloud pipeline)
+        // 2.5-Second Fast Edge Polling with ETag / 304 Not Modified
         setInterval(fetchFleet, POLL_INTERVAL_MS);
 
         // 1-Second Smooth UI & Train Tick
         setInterval(() => {
-          if (pollCountdown > 0) pollCountdown--;
-          txtTimer.textContent = `${pollCountdown}s`;
+          updateFleetAgeDisplay();
           tickTrains();
         }, 1000);
       }

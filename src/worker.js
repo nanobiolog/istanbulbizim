@@ -121,11 +121,13 @@ async function soapWithRetry(url, method, args, env, maxRetries = 2) {
   }
 }
 
-// Fleet refresh: polls IETT and caches in KV every ~36.4s (99 requests/hr max)
+// Fleet refresh: in-memory fast cache + KV with cacheTtl: 30 + IETT fallback (99 req/hr max)
+let inMemoryBusesRaw = null;
+let inMemoryMeta = null;
 const MIN_REFRESH_INTERVAL_MS = 36364; // 3600s / 99 = ~36.36s
 
 async function refreshFleet(env) {
-  const meta = await env.LIVE.get("meta", "json");
+  const meta = inMemoryMeta || (await env.LIVE.get("meta", { type: "json", cacheTtl: 30 }));
   if (meta && (Date.now() - meta.t < MIN_REFRESH_INTERVAL_MS)) {
     return meta;
   }
@@ -168,7 +170,11 @@ async function refreshFleet(env) {
     }
 
     const m = { t: Date.now(), count: out.length };
-    await env.LIVE.put("buses", JSON.stringify(out));
+    const raw = JSON.stringify(out);
+    inMemoryBusesRaw = raw;
+    inMemoryMeta = m;
+
+    await env.LIVE.put("buses", raw);
     await env.LIVE.put("meta", JSON.stringify(m));
     // Increment quota counter ONLY upon successful IETT fetch
     await spend(env, q);
@@ -181,21 +187,62 @@ async function refreshFleet(env) {
   }
 }
 
-async function handleBuses(env) {
-  let meta = await env.LIVE.get("meta", "json");
-  if (!meta || (Date.now() - meta.t >= MIN_REFRESH_INTERVAL_MS)) {
+async function handleBuses(request, env) {
+  let meta = inMemoryMeta;
+  let raw = inMemoryBusesRaw;
+
+  // 1. If memory empty or older than 30s, check KV with cacheTtl: 30
+  if (!meta || !raw || (Date.now() - meta.t >= 30000)) {
+    try {
+      const kvMeta = await env.LIVE.get("meta", { type: "json", cacheTtl: 30 });
+      if (kvMeta && (!meta || kvMeta.t > meta.t)) {
+        meta = kvMeta;
+        raw = await env.LIVE.get("buses", { cacheTtl: 30 });
+        inMemoryMeta = meta;
+        inMemoryBusesRaw = raw;
+      }
+    } catch (e) {
+      console.warn("KV read error:", String(e));
+    }
+  }
+
+  // 2. Direct IETT fetch ONLY if no feeder pushed data for 75+ seconds
+  if (!meta || (Date.now() - meta.t >= 75000)) {
     try {
       meta = (await refreshFleet(env)) || meta;
+      if (meta) {
+        raw = inMemoryBusesRaw || (await env.LIVE.get("buses", { cacheTtl: 30 }));
+      }
     } catch (e) {
       console.error("Fleet refresh error:", String(e));
     }
   }
-  const raw = await env.LIVE.get("buses");
+
   if (!raw || !meta) {
     return json({ error: "İETT verisi henüz yükleniyor, lütfen birkaç saniye sonra tekrar deneyin." }, 503);
   }
+
+  // 3. Fast ETag check: return 304 Not Modified if client is already on current batch
+  const etag = `"${meta.t}"`;
+  const ifNoneMatch = request && request.headers ? request.headers.get("if-none-match") : null;
+  if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === String(meta.t))) {
+    return new Response(null, {
+      status: 304,
+      headers: Object.assign({
+        "etag": etag,
+        "cache-control": "no-cache, no-store, must-revalidate",
+        "access-control-expose-headers": "ETag"
+      }, CORS)
+    });
+  }
+
   return new Response(`{"updated_at":${meta.t},"count":${meta.count},"source":"IBB Open Data - IETT","buses":${raw}}`, {
-    headers: Object.assign({ "content-type": "application/json; charset=utf-8", "cache-control": "public, max-age=5" }, CORS)
+    headers: Object.assign({
+      "content-type": "application/json; charset=utf-8",
+      "etag": etag,
+      "cache-control": "no-cache, no-store, must-revalidate",
+      "access-control-expose-headers": "ETag"
+    }, CORS)
   });
 }
 
@@ -420,9 +467,12 @@ async function handleLine(env, url) {
   }
 
   // 4. Enrich & merge with live fleet GPS (for accurate speed, plate, and extra fleet buses)
-  let fleet = await env.LIVE.get("buses", "json");
+  let fleet = null;
+  if (inMemoryBusesRaw) {
+    try { fleet = JSON.parse(inMemoryBusesRaw); } catch (e) {}
+  }
   if (!fleet) {
-    const raw = await env.LIVE.get("buses");
+    const raw = await env.LIVE.get("buses", { cacheTtl: 30 });
     if (raw) {
       try { fleet = JSON.parse(raw); } catch (e) {}
     }
@@ -464,7 +514,7 @@ async function handleLine(env, url) {
   }
 
   const buses = Array.from(busMap.values());
-  const meta = (await env.LIVE.get("meta", "json")) || { t: Date.now() };
+  const meta = inMemoryMeta || (await env.LIVE.get("meta", { type: "json", cacheTtl: 30 })) || { t: Date.now() };
 
   return json({
     code,
@@ -475,7 +525,7 @@ async function handleLine(env, url) {
     assigned_count: assignedDoors.length,
     updated_at: meta.t || Date.now(),
     source: "İETT Canlı GPS + Hat Güzergahı"
-  });
+  }, 200, { "cache-control": "no-cache, no-store, must-revalidate" });
 }
 
 async function handleLineRoute(env, url) {
@@ -522,8 +572,13 @@ async function handleFeed(request, env) {
     const data = await request.json();
     if (!Array.isArray(data.buses)) return json({ error: "Invalid payload: buses array required" }, 400);
 
-    const m = { t: Date.now(), count: data.buses.length };
-    await env.LIVE.put("buses", JSON.stringify(data.buses));
+    const now = (typeof data.pushed_at === "number" && data.pushed_at > 0) ? data.pushed_at : Date.now();
+    const m = { t: now, count: data.buses.length };
+    const raw = JSON.stringify(data.buses);
+    inMemoryBusesRaw = raw;
+    inMemoryMeta = m;
+
+    await env.LIVE.put("buses", raw);
     await env.LIVE.put("meta", JSON.stringify(m));
     return json({ success: true, count: m.count, updated_at: m.t });
   } catch (err) {
