@@ -8,24 +8,28 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>İstanbul Bizim - Canlı İETT Otobüs & Metro Haritası</title>
   
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
   
   <style>
     :root {
-      --bg-dark: #0b1329;
-      --card-bg: rgba(15, 23, 42, 0.88);
-      --card-border: rgba(255, 255, 255, 0.1);
-      --card-border-focus: rgba(56, 189, 248, 0.5);
-      --accent: #0284c7;
-      --accent-hover: #0369a1;
-      --accent-glow: rgba(56, 189, 248, 0.35);
-      --text: #f8fafc;
-      --text-muted: #94a3b8;
-      --text-dim: #64748b;
-      --success: #10b981;
-      --warning: #f59e0b;
-      --danger: #ef4444;
-      --metrobus: #f97316;
+      --bg-dark: #000000;
+      --card-bg: rgba(14, 14, 17, 0.92);
+      --card-border: rgba(255, 255, 255, 0.12);
+      --card-border-focus: rgba(255, 255, 255, 0.4);
+      --accent: #27272a;
+      --accent-hover: #3f3f46;
+      --accent-glow: rgba(255, 255, 255, 0.15);
+      --text: #fafafa;
+      --text-muted: #a1a1aa;
+      --text-dim: #71717a;
+      --success: #e4e4e7;
+      --warning: #d4d4d8;
+      --danger: #f43f5e;
+      --metrobus: #e4e4e7;
       --panel-width: 380px;
       --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
@@ -168,28 +172,28 @@
     .brand-icon {
       width: 34px;
       height: 34px;
-      border-radius: 10px;
-      background: linear-gradient(135deg, #0284c7, #38bdf8);
+      border-radius: 9px;
+      background: #ffffff;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.4);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
       flex-shrink: 0;
     }
     .brand-icon svg {
-      width: 20px;
-      height: 20px;
-      fill: #ffffff;
+      width: 18px;
+      height: 18px;
+      fill: #09090b;
     }
     .brand-title {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 700;
       letter-spacing: -0.02em;
       line-height: 1.2;
     }
     .brand-sub {
       font-size: 11px;
-      color: var(--text-muted);
+      color: var(--text-dim);
       font-weight: 500;
     }
 
@@ -199,25 +203,25 @@
       gap: 6px;
       padding: 4px 10px;
       border-radius: 999px;
-      background: rgba(16, 185, 129, 0.15);
-      border: 1px solid rgba(16, 185, 129, 0.3);
-      color: #34d399;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #fafafa;
       font-size: 11px;
       font-weight: 600;
       white-space: nowrap;
     }
     .pulse-dot {
-      width: 7px;
-      height: 7px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
-      background: var(--success);
-      box-shadow: 0 0 8px var(--success);
+      background: #fafafa;
+      box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
       animation: pulse 2s infinite;
     }
     @keyframes pulse {
-      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-      70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.15); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.8; }
     }
 
     /* Search Box */
@@ -236,11 +240,11 @@
     }
     #line-input {
       width: 100%;
-      height: 42px;
-      padding: 0 40px 0 38px;
+      height: 44px;
+      padding: 0 76px 0 38px;
       border-radius: 12px;
       border: 1px solid rgba(255, 255, 255, 0.12);
-      background: rgba(15, 23, 42, 0.8);
+      background: rgba(14, 14, 17, 0.9);
       color: #ffffff;
       font-size: 14px;
       font-weight: 600;
@@ -252,29 +256,66 @@
       font-weight: 500;
     }
     #line-input:focus {
-      border-color: #38bdf8;
-      box-shadow: 0 0 0 3px var(--accent-glow);
-      background: rgba(15, 23, 42, 0.95);
+      border-color: rgba(255, 255, 255, 0.4);
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.15);
+      background: rgba(24, 24, 27, 0.98);
+    }
+    .search-actions-group {
+      position: absolute;
+      right: 6px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      align-items: center;
+      gap: 4px;
     }
     .search-clear {
-      position: absolute;
-      right: 10px;
-      width: 24px;
-      height: 24px;
+      width: 32px;
+      height: 32px;
+      min-width: 32px;
+      min-height: 32px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.12);
       border: 0;
-      color: var(--text-muted);
+      color: #fafafa;
       cursor: pointer;
       display: none;
       align-items: center;
       justify-content: center;
-      font-size: 14px;
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1;
+      touch-action: manipulation;
       transition: background 0.15s, color 0.15s;
     }
-    .search-clear:hover {
-      background: rgba(255, 255, 255, 0.2);
+    .search-clear:hover, .search-clear:active {
+      background: rgba(255, 255, 255, 0.25);
       color: #ffffff;
+    }
+    .btn-search-collapse {
+      width: 32px;
+      height: 32px;
+      min-width: 32px;
+      min-height: 32px;
+      border-radius: 50%;
+      background: transparent;
+      border: 0;
+      color: var(--text-dim);
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      touch-action: manipulation;
+      transition: background 0.15s, color 0.15s;
+    }
+    .btn-search-collapse:hover, .btn-search-collapse:active {
+      background: rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+    }
+    .btn-search-collapse svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
     }
 
     /* Suggestions dropdown */
@@ -284,15 +325,15 @@
       left: 0;
       right: 0;
       max-height: 220px;
-      background: rgba(15, 23, 42, 0.98);
+      background: rgba(14, 14, 17, 0.98);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      border: 1px solid var(--card-border-focus);
+      border: 1px solid rgba(255, 255, 255, 0.2);
       border-radius: 12px;
       overflow-y: auto;
       z-index: 1100;
       display: none;
-      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.7);
     }
     .suggest-item {
       padding: 10px 14px;
@@ -304,11 +345,11 @@
       transition: background 0.12s;
     }
     .suggest-item:hover, .suggest-item.active {
-      background: rgba(56, 189, 248, 0.15);
+      background: rgba(255, 255, 255, 0.08);
     }
     .suggest-code {
       font-weight: 700;
-      color: #38bdf8;
+      color: #fafafa;
       font-size: 14px;
     }
     .suggest-desc {
@@ -329,9 +370,9 @@
     .quick-chips-wrapper::-webkit-scrollbar { display: none; }
     
     .chip {
-      padding: 5px 10px;
+      padding: 5px 11px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.05);
       border: 1px solid rgba(255, 255, 255, 0.1);
       color: var(--text-muted);
       font-size: 12px;
@@ -344,23 +385,23 @@
       gap: 4px;
     }
     .chip:hover {
-      background: rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.1);
       color: #ffffff;
       border-color: rgba(255, 255, 255, 0.2);
     }
     .chip.active {
-      background: #0284c7;
-      color: #ffffff;
-      border-color: #38bdf8;
-      box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);
+      background: #ffffff;
+      color: #09090b;
+      border-color: #ffffff;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
     }
     .chip.metrobus-chip {
-      color: #fdba74;
+      color: #e4e4e7;
     }
     .chip.metrobus-chip.active {
-      background: #ea580c;
-      color: #ffffff;
-      border-color: #fb923c;
+      background: #ffffff;
+      color: #09090b;
+      border-color: #ffffff;
     }
 
     /* Stats Grid */
@@ -848,17 +889,26 @@
       gap: 8px;
     }
     .inspector-close {
-      width: 28px;
-      height: 28px;
+      width: 36px;
+      height: 36px;
+      min-width: 36px;
+      min-height: 36px;
       border-radius: 50%;
       background: rgba(255, 255, 255, 0.1);
       border: 0;
-      color: #ffffff;
-      font-size: 16px;
+      color: #fafafa;
+      font-size: 18px;
+      font-weight: 700;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
+      touch-action: manipulation;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .inspector-close:hover, .inspector-close:active {
+      background: rgba(255, 255, 255, 0.22);
+      transform: scale(0.96);
     }
     .inspector-grid {
       display: grid;
@@ -1338,21 +1388,26 @@
       gap: 8px;
     }
     .btn-modal-close {
-      width: 28px;
-      height: 28px;
+      width: 36px;
+      height: 36px;
+      min-width: 36px;
+      min-height: 36px;
       border-radius: 50%;
       background: rgba(255, 255, 255, 0.1);
       border: 0;
-      color: #ffffff;
-      font-size: 15px;
+      color: #fafafa;
+      font-size: 18px;
+      font-weight: 700;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: background 0.15s;
+      touch-action: manipulation;
+      transition: background 0.15s, transform 0.1s;
     }
-    .btn-modal-close:hover {
-      background: rgba(255, 255, 255, 0.2);
+    .btn-modal-close:hover, .btn-modal-close:active {
+      background: rgba(255, 255, 255, 0.22);
+      transform: scale(0.96);
     }
     .layers-toggles-list {
       display: flex;
@@ -1430,6 +1485,237 @@
       background: rgba(255, 255, 255, 0.15);
     }
 
+    /* BUS STOP POPUP & LIVE ARRIVAL COUNTDOWN STYLES */
+    .stop-popup-card {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-width: 290px;
+      max-width: 360px;
+      padding: 0;
+      color: #0f172a;
+      box-sizing: border-box;
+    }
+    .stop-popup-header {
+      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+      color: #ffffff;
+      padding: 10px 14px;
+      border-radius: 8px 8px 0 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .stop-popup-title {
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .stop-popup-subtitle {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.85);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .stop-popup-body {
+      padding: 10px 12px;
+      background: #ffffff;
+      border-radius: 0 0 8px 8px;
+      max-height: 380px;
+      overflow-y: auto;
+    }
+    .stop-section-title {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #64748b;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .stop-arrivals-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .stop-arrival-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 10px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      transition: all 0.15s ease;
+      cursor: pointer;
+    }
+    .stop-arrival-row:hover {
+      background: #f1f5f9;
+      border-color: #cbd5e1;
+      transform: translateY(-1px);
+    }
+    .arrival-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .arrival-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 800;
+      color: #ffffff;
+      background: #0284c7;
+      padding: 3px 8px;
+      border-radius: 6px;
+      letter-spacing: 0.02em;
+      flex-shrink: 0;
+    }
+    .arrival-info {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .arrival-headsign {
+      font-size: 12px;
+      font-weight: 700;
+      color: #1e293b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 140px;
+    }
+    .arrival-details {
+      font-size: 10px;
+      color: #64748b;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .arrival-countdown {
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .countdown-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #ecfdf5;
+      color: #059669;
+      border: 1px solid #a7f3d0;
+      font-variant-numeric: tabular-nums;
+    }
+    .countdown-pill.approaching {
+      background: #fef3c7;
+      color: #b45309;
+      border-color: #fde68a;
+      animation: pulseAlert 1.5s infinite;
+    }
+    .countdown-pill.here {
+      background: #fee2e2;
+      color: #b91c1c;
+      border-color: #fca5a5;
+    }
+    .countdown-dist {
+      font-size: 10px;
+      color: #64748b;
+      margin-top: 2px;
+      text-align: right;
+    }
+
+    /* DISRUPTION / MALFUNCTION / ROAD CRASH CARDS */
+    .stop-disruptions-container {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .disruption-card {
+      padding: 7px 9px;
+      border-radius: 7px;
+      border-left: 4px solid;
+      background: #f8fafc;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .disruption-card.malfunction {
+      border-left-color: #ef4444;
+      background: #fef2f2;
+      color: #991b1b;
+    }
+    .disruption-card.crash {
+      border-left-color: #dc2626;
+      background: #fef2f2;
+      color: #7f1d1d;
+    }
+    .disruption-card.road_closed {
+      border-left-color: #f59e0b;
+      background: #fffbeb;
+      color: #92400e;
+    }
+    .disruption-card.traffic {
+      border-left-color: #eab308;
+      background: #fefce8;
+      color: #854d0e;
+    }
+    .disruption-card.cancel {
+      border-left-color: #8b5cf6;
+      background: #f5f3ff;
+      color: #5b21b6;
+    }
+    .disruption-card.info {
+      border-left-color: #3b82f6;
+      background: #eff6ff;
+      color: #1e40af;
+    }
+    .disruption-hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 800;
+      margin-bottom: 3px;
+      font-size: 11px;
+    }
+    .disruption-msg {
+      font-size: 10.5px;
+      opacity: 0.95;
+      word-break: break-word;
+    }
+    .disruption-time {
+      font-size: 9.5px;
+      font-weight: 600;
+      opacity: 0.75;
+    }
+
+    /* GLOBAL DISRUPTION BANNER IN SIDEBAR / HEADER */
+    .line-disruption-banner {
+      margin: 8px 14px 0 14px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    @keyframes pulseAlert {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.85; transform: scale(1.03); }
+    }
+
     /* RESPONSIVE DESIGN: MOBILE VIEW (< 768px) */
     @media (max-width: 768px) {
       :root {
@@ -1457,8 +1743,8 @@
       .mobile-brand-icon {
         width: 20px;
         height: 20px;
-        border-radius: 6px;
-        background: linear-gradient(135deg, #0284c7, #38bdf8);
+        border-radius: 5px;
+        background: #ffffff;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1467,7 +1753,7 @@
       .mobile-brand-icon svg {
         width: 12px;
         height: 12px;
-        fill: #ffffff;
+        fill: #09090b;
       }
       .mobile-brand-title {
         font-size: 13px;
@@ -1476,20 +1762,7 @@
         letter-spacing: -0.01em;
       }
       .mobile-brand-badge {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 10px;
-        color: #34d399;
-        font-weight: 600;
-        background: rgba(16, 185, 129, 0.15);
-        border: 1px solid rgba(16, 185, 129, 0.3);
-        padding: 2px 6px;
-        border-radius: 999px;
-      }
-      .mobile-brand-badge .pulse-dot {
-        width: 5px;
-        height: 5px;
+        display: none;
       }
 
       /* Quick Actions Top-Right */
@@ -1529,13 +1802,15 @@
       }
       .sheet-handle {
         display: block;
-        width: 42px;
+        width: 48px;
         height: 5px;
-        background: rgba(255, 255, 255, 0.3);
+        background: rgba(255, 255, 255, 0.35);
         border-radius: 999px;
         margin: 2px auto 6px auto;
-        cursor: grab;
+        cursor: pointer;
         flex-shrink: 0;
+        padding: 6px 0; /* Expanded touch hit area */
+        background-clip: content-box;
       }
 
       /* Hide redundant / bulky desktop elements in mobile bottom sheet */
@@ -1556,8 +1831,15 @@
       #sidebar.sheet-peek .quick-chips-wrapper,
       #sidebar.sheet-peek .dir-tabs-wrapper,
       #sidebar.sheet-peek #bus-results-list,
-      #sidebar.sheet-peek .mobile-fleet-summary {
+      #sidebar.sheet-peek .mobile-fleet-summary,
+      #sidebar.sheet-peek .btn-search-collapse {
         display: none !important;
+      }
+
+      /* State 2: HALF & FULL (Search collapse button visible on mobile) */
+      #sidebar.sheet-half .btn-search-collapse,
+      #sidebar.sheet-full .btn-search-collapse {
+        display: inline-flex !important;
       }
 
       /* State 2: HALF (Default when line selected or chips expanded) */
@@ -1611,12 +1893,23 @@
         text-overflow: ellipsis;
       }
       .btn-clear-line {
-        padding: 5px 9px;
-        font-size: 11px;
-        border-radius: 6px;
+        padding: 7px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        border-radius: 8px;
+        min-height: 36px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        touch-action: manipulation;
       }
       .btn-sheet-chevron {
         display: flex;
+        width: 36px;
+        height: 36px;
+        min-width: 36px;
+        min-height: 36px;
+        touch-action: manipulation;
       }
       #sidebar.sheet-peek .btn-sheet-chevron {
         transform: rotate(0deg);
@@ -1644,6 +1937,205 @@
         max-height: 40vh;
       }
     }
+
+    /* PWA Install UI Elements */
+    .btn-install-header {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      background: #ffffff;
+      color: #09090b;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 5px 12px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      transition: all 0.2s ease;
+    }
+    .btn-install-header:hover {
+      background: #e4e4e7;
+      transform: translateY(-1px);
+    }
+    .btn-install-header svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
+    }
+
+    /* Floating Install Toast / Banner */
+    .pwa-install-banner {
+      position: fixed;
+      bottom: calc(var(--safe-bottom) + 20px);
+      left: 50%;
+      transform: translateX(-50%) translateY(120px);
+      background: rgba(14, 14, 17, 0.96);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-radius: 16px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.7);
+      z-index: 9999;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      max-width: 92vw;
+      width: 380px;
+    }
+    .pwa-install-banner.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .pwa-banner-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      flex-shrink: 0;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .pwa-banner-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .pwa-banner-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fafafa;
+      line-height: 1.2;
+    }
+    .pwa-banner-desc {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+    .pwa-banner-btn {
+      background: #ffffff;
+      color: #09090b;
+      border: none;
+      padding: 7px 14px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s ease;
+    }
+    .pwa-banner-btn:hover {
+      background: #e4e4e7;
+    }
+    .pwa-banner-close {
+      width: 32px;
+      height: 32px;
+      min-width: 32px;
+      min-height: 32px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.08);
+      border: none;
+      color: var(--text-dim);
+      font-size: 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      touch-action: manipulation;
+      transition: background 0.15s, color 0.15s;
+    }
+    .pwa-banner-close:hover, .pwa-banner-close:active {
+      background: rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+    }
+
+    /* iOS Share Sheet Instructions Modal */
+    .ios-install-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      z-index: 10000;
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    .ios-install-modal-backdrop.show {
+      display: flex;
+      opacity: 1;
+    }
+    .ios-install-content {
+      background: #0e0e11;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 20px 20px 0 0;
+      padding: 24px 20px calc(24px + var(--safe-bottom));
+      width: 100%;
+      max-width: 440px;
+      box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.7);
+      transform: translateY(100%);
+      transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      position: relative;
+    }
+    .ios-install-modal-backdrop.show .ios-install-content {
+      transform: translateY(0);
+    }
+    .ios-step {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 12px;
+      margin-bottom: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .ios-step-num {
+      width: 26px;
+      height: 26px;
+      background: #ffffff;
+      color: #09090b;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+    .ios-step-text {
+      font-size: 13px;
+      color: #e4e4e7;
+      line-height: 1.4;
+    }
+    .ios-icon-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 3px 6px;
+      border-radius: 6px;
+      vertical-align: middle;
+      margin: 0 3px;
+    }
+    .ios-pointer-down {
+      text-align: center;
+      margin-top: 14px;
+      color: #fafafa;
+      font-size: 20px;
+      animation: bounceDown 1.5s infinite;
+    }
+    @keyframes bounceDown {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(6px); }
+    }
   </style>
 </head>
 <body>
@@ -1660,10 +2152,6 @@
       </svg>
     </div>
     <span class="mobile-brand-title">İstanbul Bizim</span>
-    <div class="mobile-brand-badge">
-      <span class="pulse-dot"></span>
-      <span>CANLI</span>
-    </div>
   </div>
 
   <!-- Floating Quick Actions (Top Right) -->
@@ -1707,12 +2195,18 @@
         </div>
         <div>
           <h1 class="brand-title">İstanbul Bizim</h1>
-          <div class="brand-sub">Canlı İETT & Metro Takip Ağı</div>
+          <div class="brand-sub">İETT & Metro Takip Ağı</div>
         </div>
       </div>
-      <div class="status-pill" id="status-pill">
-        <span class="pulse-dot"></span>
-        <span id="txt-status-pill">Canlı GPS</span>
+      <div class="header-actions" style="display:flex;align-items:center;gap:8px;">
+        <button id="pwa-install-btn" class="btn-install-header" type="button" title="Uygulamayı Yükle">
+          <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          <span>Yükle</span>
+        </button>
+        <div class="status-pill" id="status-pill">
+          <span class="pulse-dot"></span>
+          <span id="txt-status-pill">GPS Aktif</span>
+        </div>
       </div>
     </header>
 
@@ -1722,7 +2216,12 @@
         <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
       </svg>
       <input id="line-input" type="search" placeholder="Hat Ara: 500T, 15B, 34G, 16D..." autocomplete="off" spellcheck="false" enterkeyhint="search">
-      <button class="search-clear" id="btn-search-clear" title="Temizle">✕</button>
+      <div class="search-actions-group">
+        <button class="search-clear" id="btn-search-clear" title="Temizle" aria-label="Aramayı Temizle">✕</button>
+        <button class="btn-search-collapse" id="btn-search-collapse" title="Haritaya Dön" aria-label="Haritaya Dön">
+          <svg viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
+        </button>
+      </div>
       <div id="search-suggestions"></div>
     </div>
 
@@ -1809,6 +2308,13 @@
         </div>
       </label>
       <label class="toggle-row">
+        <span>🚏 Otobüs Durakları</span>
+        <div class="switch">
+          <input type="checkbox" id="chk-stops" checked>
+          <span class="slider"></span>
+        </div>
+      </label>
+      <label class="toggle-row">
         <span>🕒 Durağan / Garaj Araçları (+10 dk)</span>
         <div class="switch">
           <input type="checkbox" id="chk-stale">
@@ -1865,6 +2371,7 @@
     </div>
     <div class="inspector-actions">
       <button class="btn-inspector-action" id="btn-insp-filter">🔍 Bu Hattaki Tüm Araçları Gör</button>
+      <a class="btn-inspector-action" id="btn-insp-directions" href="#" target="_blank" rel="noopener noreferrer" style="text-decoration:none;background:#2563eb">📍 Yol Tarifi Al</a>
     </div>
   </div>
 
@@ -1905,6 +2412,13 @@
           </div>
         </label>
         <label class="toggle-row">
+          <span>🚏 Otobüs Durakları</span>
+          <div class="switch">
+            <input type="checkbox" id="chk-stops-modal" checked>
+            <span class="slider"></span>
+          </div>
+        </label>
+        <label class="toggle-row">
           <span>🕒 Durağan / Garaj Araçları (+10 dk)</span>
           <div class="switch">
             <input type="checkbox" id="chk-stale-modal">
@@ -1934,6 +2448,68 @@
           <div class="legend-item"><span class="legend-dot" style="background:#64748b"></span> Duran (0-5)</div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- PWA Floating Prompt Banner (For Android, Chrome, Edge) -->
+  <aside id="pwa-install-banner" class="pwa-install-banner" aria-label="Uygulamayı Ana Ekrana Ekle">
+    <img src="/icon-192.png" alt="İstanbul Bizim" class="pwa-banner-icon">
+    <div class="pwa-banner-info">
+      <div class="pwa-banner-title">İstanbul Bizim</div>
+      <div class="pwa-banner-desc">Canlı otobüs ve metrolara ana ekranınızdan tek tıkla ulaşın!</div>
+    </div>
+    <button id="pwa-banner-install-btn" class="pwa-banner-btn" type="button">Yükle</button>
+    <button id="pwa-banner-close-btn" class="pwa-banner-close" type="button" aria-label="Kapat">✕</button>
+  </aside>
+
+  <!-- iOS Manual Add to Home Screen Instructions Modal -->
+  <div id="ios-install-modal" class="ios-install-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="ios-modal-title">
+    <div class="ios-install-content">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <img src="/icon-192.png" alt="İstanbul Bizim" style="width:40px;height:40px;border-radius:10px;">
+          <div>
+            <div id="ios-modal-title" style="font-size:15px;font-weight:700;color:#f8fafc;">Ana Ekrana Ekle</div>
+            <div style="font-size:12px;color:#94a3b8;">iOS Safari İçin Kolay Kurulum</div>
+          </div>
+        </div>
+        <button id="btn-ios-close" class="btn-modal-close" style="width:36px;height:36px;font-size:18px;" aria-label="Kapat">✕</button>
+      </div>
+
+      <div class="ios-step">
+        <div class="ios-step-num">1</div>
+        <div class="ios-step-text">
+          Safari'nin alt araç çubuğundaki <span class="ios-icon-badge">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+              <polyline points="16 6 12 2 8 6"></polyline>
+              <line x1="12" y1="2" x2="12" y2="15"></line>
+            </svg>
+          </span> <b>Paylaş</b> butonuna dokunun.
+        </div>
+      </div>
+
+      <div class="ios-step">
+        <div class="ios-step-num">2</div>
+        <div class="ios-step-text">
+          Menüyü aşağı kaydırıp <span class="ios-icon-badge">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f8fafc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="12" y1="8" x2="12" y2="16"></line>
+              <line x1="8" y1="12" x2="16" y2="12"></line>
+            </svg>
+          </span> <b>Ana Ekrana Ekle</b> seçeneğini seçin.
+        </div>
+      </div>
+
+      <div class="ios-step">
+        <div class="ios-step-num">3</div>
+        <div class="ios-step-text">
+          Sağ üst köşedeki <b>Ekle</b> butonuna dokunarak kurulumu tamamlayın.
+        </div>
+      </div>
+
+      <div class="ios-pointer-down">↓</div>
     </div>
   </div>
 
@@ -1980,6 +2556,7 @@
 
       // ─── LAYER GROUPS ───
       const routeLayer = L.layerGroup().addTo(map);
+      const allStopsLayer = L.layerGroup().addTo(map);
       const busesLayer = L.layerGroup().addTo(map);
       const selectedLineLayer = L.layerGroup().addTo(map);
       const metroRailLayer = L.layerGroup().addTo(map);
@@ -2338,6 +2915,11 @@
       let busLinesMap = {};
       let doorLineMap = {};
       let allLineCodes = [];
+      let allBusStops = [];
+      let disruptionsData = { disruptions: [], by_line: {} };
+      let activeStopPopup = null;
+      let activeStopPopupData = null;
+      let activeStopCountdownTimer = null;
       let selectedLineCode = null;
       let selectedLineData = null;
       let activeDirectionFilter = "ALL"; // "ALL", "D", or "G"
@@ -2361,6 +2943,7 @@
       const sheetHandle = el("sheet-handle");
       const lineInput = el("line-input");
       const btnSearchClear = el("btn-search-clear");
+      const btnSearchCollapse = el("btn-search-collapse");
       const searchSuggestions = el("search-suggestions");
       const statBuses = el("stat-buses");
       const statTrains = el("stat-trains");
@@ -2381,6 +2964,7 @@
       const chkBuses = el("chk-buses");
       const chkMetro = el("chk-metro");
       const chkTrains = el("chk-trains");
+      const chkStops = el("chk-stops");
       const chkStale = el("chk-stale");
       const toastMsg = el("toast-msg");
       const mobileInspector = el("mobile-vehicle-inspector");
@@ -2393,6 +2977,7 @@
       const chkBusesModal = el("chk-buses-modal");
       const chkMetroModal = el("chk-metro-modal");
       const chkTrainsModal = el("chk-trains-modal");
+      const chkStopsModal = el("chk-stops-modal");
       const chkStaleModal = el("chk-stale-modal");
       const modalStatBuses = el("modal-stat-buses");
       const modalStatTrains = el("modal-stat-trains");
@@ -2522,6 +3107,16 @@
       function matchBusesForLine(code, routeData) {
         const assignedDoors = (busLinesMap && busLinesMap[code]) || [];
         const doorSet = new Set(assignedDoors);
+
+        // Also include any door assigned to this line in doorLineMap
+        if (doorLineMap && typeof doorLineMap === "object") {
+          for (const [doorId, mapped] of Object.entries(doorLineMap)) {
+            if (mapped === code || (Array.isArray(mapped) && mapped.includes(code))) {
+              doorSet.add(doorId);
+            }
+          }
+        }
+
         const buses = [];
         const dirs = routeData ? routeData.directions : null;
 
@@ -2632,10 +3227,18 @@
               }
             }
 
-            item.currentLat = lat;
-            item.currentLon = lon;
-            item.marker.setLatLng([lat, lon]);
+            if (typeof lat === "number" && !isNaN(lat) && typeof lon === "number" && !isNaN(lon)) {
+              item.currentLat = lat;
+              item.currentLon = lon;
+              try {
+                item.marker.setLatLng([lat, lon]);
+              } catch (_) {}
+            }
 
+            if (!item.arrowEl || !item.arrowEl.isConnected) {
+              const el = item.marker ? item.marker.getElement() : null;
+              item.arrowEl = el ? el.querySelector('.bus-dir-arrow') : document.getElementById(`arrow-${id}`);
+            }
             if (item.arrowEl && item.bearing != null) {
               if (item.displayBearing == null) item.displayBearing = item.bearing;
               item.displayBearing = lerpAngle(item.displayBearing, item.bearing, 0.15);
@@ -2748,9 +3351,13 @@
           el("insp-op").innerHTML = `${opText} <br><small style="color:#94a3b8">Durak: ${stopText} ${stopDistanceNote}</small>`;
 
           const btnFilter = el("btn-insp-filter");
+          const btnDirections = el("btn-insp-directions");
+          if (btnDirections) {
+            btnDirections.href = `https://www.google.com/maps/dir/?api=1&destination=${b.lat},${b.lon}`;
+          }
           if (mappedLine) {
             btnFilter.style.display = "flex";
-            btnFilter.textContent = `🔍 ${mappedLine} Hattı ve Güzergahını Gör`;
+            btnFilter.textContent = `🔍 ${mappedLine} Hattı`;
             btnFilter.onclick = () => {
               mobileInspector.style.display = "none";
               searchLine(mappedLine);
@@ -2764,6 +3371,7 @@
           const lineAction = mappedLine 
             ? `<button class="btn-popup-filter" onclick="window.filterLine('${mappedLine}')">🔍 ${mappedLine} Hattı ve Güzergahını Gör</button>` 
             : "";
+          const directionsAction = `<a class="btn-popup-filter" href="https://www.google.com/maps/dir/?api=1&destination=${b.lat},${b.lon}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;background:#2563eb;margin-top:4px">📍 Yol Tarifi Al (Google Maps)</a>`;
 
           L.popup({ autoPanPadding: [20, 20] })
             .setLatLng([b.lat, b.lon])
@@ -2783,9 +3391,335 @@
                   <div><b>Operatör:</b> ${opText}</div>
                 </div>
                 ${lineAction}
+                ${directionsAction}
               </div>
             `)
             .openOn(map);
+        }
+      }
+
+      // ─── ACCURATE BUS STOP ARRIVAL & REAL COUNTDOWN ENGINE ───
+      function calculateArrivalsForStop(stop) {
+        if (!stop || !Array.isArray(fleetBuses) || fleetBuses.length === 0) return [];
+
+        const arrivals = [];
+        const MAX_SEARCH_RADIUS_METERS = 5000; // Search incoming buses within 5km of stop
+        const stopLat = stop.lat;
+        const stopLon = stop.lon;
+
+        for (let i = 0; i < fleetBuses.length; i++) {
+          const b = fleetBuses[i];
+          const distM = geoDistanceMeters(b.lat, b.lon, stopLat, stopLon);
+          if (distM > MAX_SEARCH_RADIUS_METERS) continue;
+
+          // Determine lines mapped to this bus
+          const lines = (b.line ? [b.line] : (doorLineMap[b.id] ? [doorLineMap[b.id]] : []));
+          if (lines.length === 0) continue;
+
+          for (const lineCode of lines) {
+            // Check if this line actually stops at this stop
+            const cachedRoute = getStoredRoute(lineCode);
+            let dirMatch = null;
+            let stopIdx = -1;
+            let dirStops = [];
+
+            if (cachedRoute && cachedRoute.directions) {
+              for (const [dirKey, dirObj] of Object.entries(cachedRoute.directions)) {
+                if (!dirObj.stops) continue;
+                const idx = dirObj.stops.findIndex(st => {
+                  return (stop.c && (st.code === stop.c || st.c === stop.c)) ||
+                         (st.name && stop.n && st.name.trim().toLowerCase() === stop.n.trim().toLowerCase()) ||
+                         (st.name && stop.name && st.name.trim().toLowerCase() === stop.name.trim().toLowerCase()) ||
+                         geoDistanceMeters(st.lat, st.lon, stopLat, stopLon) <= 35;
+                });
+                if (idx !== -1) {
+                  dirMatch = dirObj;
+                  stopIdx = idx;
+                  dirStops = dirObj.stops;
+                  break;
+                }
+              }
+
+              // If bus has moved past this stop index on the route, skip it
+              if (dirMatch && stopIdx > 0) {
+                // Find nearest stop to current bus position along this line
+                let minBusStopDist = Infinity;
+                let busStopIdx = -1;
+                for (let si = 0; si < dirStops.length; si++) {
+                  const s = dirStops[si];
+                  const d = (s.lat - b.lat) ** 2 + (s.lon - b.lon) ** 2;
+                  if (d < minBusStopDist) {
+                    minBusStopDist = d;
+                    busStopIdx = si;
+                  }
+                }
+                // If bus is past this stop, it is traveling away
+                if (busStopIdx > stopIdx) continue;
+              }
+            }
+
+            // Estimate speed taking into account traffic and traffic light halts
+            const currentSpeedKmh = b.s || 0;
+            let effectiveSpeedKmh = 22; // Istanbul average bus operating speed (km/h)
+            if (currentSpeedKmh > 12) {
+              effectiveSpeedKmh = Math.max(16, currentSpeedKmh * 0.9);
+            } else if (currentSpeedKmh > 0) {
+              effectiveSpeedKmh = Math.max(10, currentSpeedKmh * 1.3);
+            } else {
+              effectiveSpeedKmh = 14; // Stationary / loading passengers
+            }
+
+            // Estimate route path distance: route polyline path if available, or direct distance with urban curvature factor (1.25x)
+            const estimatedRouteDistM = Math.round(distM * 1.25);
+            // Dwell time for stops between bus and target stop (approx 20 sec per stop)
+            const intermediateStopsCount = (stopIdx !== -1 && dirStops.length > 0) ? Math.max(0, stopIdx - (busStopIdx || 0)) : Math.round(distM / 400);
+            const dwellDelaySec = intermediateStopsCount * 22;
+
+            const speedMs = (effectiveSpeedKmh * 1000) / 3600;
+            let totalEstSec = Math.round(estimatedRouteDistM / speedMs) + dwellDelaySec;
+
+            // Bus is right at the stop!
+            const isAtStop = distM <= 65 && currentSpeedKmh <= 6;
+            if (isAtStop) {
+              totalEstSec = 0;
+            } else {
+              totalEstSec = Math.max(15, totalEstSec);
+            }
+
+            const headsign = dirMatch ? (dirMatch.destination || dirMatch.headsign || dirMatch.name) : "Şehir İçi";
+
+            arrivals.push({
+              line: lineCode,
+              bus_id: b.id,
+              plate: b.p || "",
+              speed: currentSpeedKmh,
+              dist_m: Math.round(distM),
+              headsign: headsign,
+              est_sec: totalEstSec,
+              target_time: Date.now() + (totalEstSec * 1000),
+              is_at_stop: isAtStop,
+              bus_data: b
+            });
+          }
+        }
+
+        // Sort by shortest arrival time, keep fastest bus per line
+        arrivals.sort((a, b) => a.est_sec - b.est_sec);
+        const seenLines = new Set();
+        const dedupedArrivals = [];
+        for (const arr of arrivals) {
+          if (!seenLines.has(arr.line)) {
+            seenLines.add(arr.line);
+            dedupedArrivals.push(arr);
+          }
+        }
+
+        return dedupedArrivals.slice(0, 8);
+      }
+
+      function getDisruptionsForStop(stop, arrivals) {
+        if (!disruptionsData || !disruptionsData.disruptions) return [];
+        const relevant = [];
+        const stopName = (stop.n || stop.name || "").toLowerCase().trim();
+        const stopCode = String(stop.c || stop.code || "").trim();
+        const arrivalLineSet = new Set((arrivals || []).map(a => a.line));
+
+        // Check selected line as well
+        if (selectedLineCode) arrivalLineSet.add(selectedLineCode);
+
+        for (const d of disruptionsData.disruptions) {
+          const dLine = d.line;
+          const msg = (d.msg || "").toLowerCase();
+          
+          let matches = false;
+          if (dLine && arrivalLineSet.has(dLine)) {
+            matches = true;
+          } else if (stopName && stopName.length >= 4 && msg.includes(stopName)) {
+            matches = true;
+          } else if (stopCode && msg.includes(stopCode)) {
+            matches = true;
+          }
+
+          if (matches) {
+            relevant.push(d);
+          }
+        }
+
+        return relevant.slice(0, 4);
+      }
+
+      function formatCountdownText(sec) {
+        if (sec <= 10) return { text: "DURAKTA", cls: "here", raw: sec };
+        if (sec < 60) return { text: `${sec} sn`, cls: "approaching", raw: sec };
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return { text: `${m} dk ${s < 10 ? '0' : ''}${s} sn`, cls: m <= 2 ? "approaching" : "", raw: sec };
+      }
+
+      function updateActiveStopPopupCountdowns() {
+        if (!activeStopPopup || !activeStopPopupData) return;
+        const now = Date.now();
+        let anyUpdated = false;
+
+        for (const arr of activeStopPopupData.arrivals) {
+          const remainingSec = Math.max(0, Math.round((arr.target_time - now) / 1000));
+          const elCount = document.getElementById(`cd-val-${arr.bus_id}`);
+          if (elCount) {
+            const formatted = formatCountdownText(remainingSec);
+            elCount.textContent = formatted.text;
+            elCount.className = `countdown-pill ${formatted.cls}`;
+            anyUpdated = true;
+          }
+        }
+
+        if (!anyUpdated && activeStopCountdownTimer) {
+          clearInterval(activeStopCountdownTimer);
+          activeStopCountdownTimer = null;
+        }
+      }
+
+      function openStopDetails(stop) {
+        const stopName = stop.n || stop.name || "İETT Durağı";
+        const stopCode = stop.c || stop.code || "";
+        const district = stop.d || stop.district || "";
+        const direction = stop.y || stop.yon || "";
+        const lat = stop.lat;
+        const lon = stop.lon;
+
+        const arrivals = calculateArrivalsForStop(stop);
+        const disruptions = getDisruptionsForStop(stop, arrivals);
+
+        let arrivalsHtml = "";
+        if (arrivals.length > 0) {
+          arrivalsHtml = arrivals.map(arr => {
+            const cd = formatCountdownText(arr.est_sec);
+            const distKm = (arr.dist_m / 1000).toFixed(1);
+            return `
+              <div class="stop-arrival-row" onclick="window.filterLine('${arr.line}')" title="${arr.line} hattını filtrele">
+                <div class="arrival-left">
+                  <div class="arrival-badge">${arr.line}</div>
+                  <div class="arrival-info">
+                    <div class="arrival-headsign">${arr.headsign}</div>
+                    <div class="arrival-details">
+                      <span>🚌 ${arr.bus_id}</span>
+                      <span>•</span>
+                      <span>${arr.speed} km/s</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="arrival-countdown">
+                  <span id="cd-val-${arr.bus_id}" class="countdown-pill ${cd.cls}">⏱️ ${cd.text}</span>
+                  <div class="countdown-dist">${distKm} km uzakta</div>
+                </div>
+              </div>
+            `;
+          }).join("");
+        } else {
+          arrivalsHtml = `
+            <div style="padding:12px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;text-align:center;color:#64748b;font-size:12px">
+              Bu durağa 5 km mesafede yaklaşan canlı otobüs tespit edilemedi veya araçlar ilk kalkış peronunda beklemede.
+            </div>
+          `;
+        }
+
+        let disruptionsHtml = "";
+        if (disruptions.length > 0) {
+          disruptionsHtml = `
+            <div class="stop-disruptions-container">
+              <div class="stop-section-title" style="color:#dc2626">
+                <span>⚠️ İBB Arıza, Kaza & Yol Kapanmaları (${disruptions.length})</span>
+              </div>
+              ${disruptions.map(d => `
+                <div class="disruption-card ${d.category}">
+                  <div class="disruption-hdr">
+                    <span>${d.category_icon} ${d.line ? `[${d.line}] ` : ""}${d.category_title}</span>
+                    <span class="disruption-time">${d.time || ""}</span>
+                  </div>
+                  <div class="disruption-msg">${d.msg}</div>
+                </div>
+              `).join("")}
+            </div>
+          `;
+        }
+
+        const popupContent = `
+          <div class="stop-popup-card">
+            <div class="stop-popup-header">
+              <div class="stop-popup-title">
+                <span>🚏</span>
+                <span>${stopName}</span>
+              </div>
+              <div class="stop-popup-subtitle">
+                ${stopCode ? `<span>Kod: <b>${stopCode}</b></span> • ` : ""}
+                <span>${district || "İstanbul"}</span>
+                ${direction ? `<span>(${direction} Yönü)</span>` : ""}
+              </div>
+            </div>
+            <div class="stop-popup-body">
+              <div class="stop-section-title">
+                <span>En Yakın Gelen Otobüsler</span>
+                <span style="font-size:10px;font-weight:600;color:#0284c7">Canlı Geri Sayım</span>
+              </div>
+              <div class="stop-arrivals-list">
+                ${arrivalsHtml}
+              </div>
+              ${disruptionsHtml}
+            </div>
+          </div>
+        `;
+
+        if (activeStopCountdownTimer) {
+          clearInterval(activeStopCountdownTimer);
+          activeStopCountdownTimer = null;
+        }
+
+        activeStopPopupData = { stop, arrivals };
+        activeStopPopup = L.popup({ autoPanPadding: [25, 25], maxWidth: 360, minWidth: 290 })
+          .setLatLng([lat, lon])
+          .setContent(popupContent)
+          .openOn(map);
+
+        activeStopCountdownTimer = setInterval(updateActiveStopPopupCountdowns, 1000);
+      }
+
+      // Render standalone citywide bus stops when zoomed in (zoom >= 14)
+      function renderAllBusStops() {
+        allStopsLayer.clearLayers();
+        if (!chkStops || !chkStops.checked || selectedLineCode) return;
+        if (!allBusStops || allBusStops.length === 0) return;
+
+        const zoom = map.getZoom();
+        if (zoom < 14) return; // Keep map performant when zoomed out
+
+        const bounds = map.getBounds().pad(0.1);
+        let renderedStopsCount = 0;
+
+        for (let i = 0; i < allBusStops.length; i++) {
+          const s = allBusStops[i];
+          if (!bounds.contains([s.lat, s.lon])) continue;
+
+          renderedStopsCount++;
+          if (renderedStopsCount > 400) break; // Limit viewport markers for 60fps
+
+          const stopMarker = L.circleMarker([s.lat, s.lon], {
+            radius: zoom >= 16 ? 5 : 3.5,
+            weight: 1.5,
+            color: "#0284c7",
+            fillColor: "#ffffff",
+            fillOpacity: 0.95
+          });
+
+          stopMarker.bindTooltip(`<b>🚏 ${s.n}</b>${s.d ? `<br><small style="color:#64748b">${s.d}</small>` : ""}`, {
+            direction: "top",
+            offset: [0, -4]
+          });
+
+          stopMarker.on("click", (e) => {
+            L.DomEvent.stopPropagation(e);
+            openStopDetails(s);
+          });
+
+          allStopsLayer.addLayer(stopMarker);
         }
       }
 
@@ -2793,6 +3727,7 @@
         map.closePopup();
         searchLine(code);
       };
+
 
       // ─── DRAW ROUTE PATHS AND STOPS ON THE MAP ───
       function drawRoute(directions) {
@@ -2875,13 +3810,18 @@
 
             let waitNotice = "";
             if (waitingBus) {
-              waitNotice = `<div style="margin-top:4px;padding:3px 6px;background:rgba(245,158,11,0.25);border:1px solid #f59e0b;border-radius:4px;color:#fef3c7;font-size:11px"><b>⏸️ Durakta Bekleyen Araç:</b> ${waitingBus.id} ${waitingBus.p ? `(${waitingBus.p})` : ""}</div>`;
+              waitNotice = `<div style="margin-top:5px;padding:3px 7px;background:#fef3c7;border:1px solid #f59e0b;border-radius:5px;color:#78350f;font-size:11px;font-weight:600;line-height:1.4"><b>⏸️ Durakta Bekleyen Araç:</b> ${waitingBus.id} ${waitingBus.p ? `(${waitingBus.p})` : ""}</div>`;
             }
 
-            const label = isTerminal 
-              ? `<b>🚩 ${idx === 0 ? "Başlangıç Durağı" : "Son Durak"}</b><br>${s.name}${waitNotice}` 
-              : `<b>🚏 ${s.seq}. ${s.name}</b>${s.district ? `<br><small style="color:#94a3b8">${s.district}</small>` : ""}${waitNotice}`;
+            const label = isTerminal
+              ? `<b>🚩 ${idx === 0 ? "Başlangıç Durağı" : "Son Durak"}</b><br>${s.name}${waitNotice}`
+              : `<b>🚏 ${s.seq || (idx + 1)}. ${s.name}</b>${s.district ? `<br><small style="color:#94a3b8">${s.district}</small>` : ""}${waitNotice}`;
+
             stopDot.bindTooltip(label, { direction: "top", offset: [0, -4] });
+            stopDot.on("click", (e) => {
+              L.DomEvent.stopPropagation(e);
+              openStopDetails(s);
+            });
             routeLayer.addLayer(stopDot);
           });
         });
@@ -3067,42 +4007,29 @@
         const activeBusIds = new Set();
 
         function buildMarkerIcon(moving, curBearing, c, bid, isWaiting) {
-          if (isWaiting) {
-            return `<div class="bus-anim-marker bus-stopped" style="--marker-color:#f59e0b">
-                 <div class="bus-waiting-pulse"></div>
-                 <div class="bus-stop-dot" style="background:#f59e0b"></div>
-                 <div class="bus-wait-badge">⏸️ DURAKTA</div>
-                 <div class="bus-badge-label">${bid}</div>
-               </div>`;
-          }
-          return moving
-            ? `<div class="bus-anim-marker" style="--marker-color:${c}">
-                 <div class="bus-radar-pulse"></div>
-                 <div class="bus-dir-arrow" id="arrow-${bid}" style="transform:rotate(${curBearing}deg)">
-                   <svg viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z" fill="${c}" stroke="#ffffff" stroke-width="1.5"/></svg>
-                 </div>
-                 <div class="bus-badge-label">${bid}</div>
-               </div>`
-            : `<div class="bus-anim-marker bus-stopped" style="--marker-color:${c}">
-                 <div class="bus-stop-dot" style="background:${c}"></div>
-                 <div class="bus-badge-label">${bid}</div>
-               </div>`;
+          const radarPulse = moving ? '<div class="bus-radar-pulse"></div>' : '';
+          const waitingPulse = isWaiting ? '<div class="bus-waiting-pulse"></div><div class="bus-wait-badge">⏸️ DURAKTA</div>' : '';
+          const markerColor = isWaiting ? '#f59e0b' : c;
+          const statusClass = isWaiting ? ' bus-waiting' : (!moving ? ' bus-stopped' : '');
+          const angle = (typeof curBearing === 'number' && !isNaN(curBearing)) ? curBearing : 0;
+          return `<div class="bus-anim-marker${statusClass}" style="--marker-color:${markerColor}">
+               ${radarPulse}
+               ${waitingPulse}
+               <div class="bus-dir-arrow" id="arrow-${bid}" style="transform:rotate(${angle}deg)">
+                 <svg viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z" fill="${markerColor}" stroke="#ffffff" stroke-width="1.5"/></svg>
+               </div>
+               <div class="bus-badge-label">${bid}</div>
+             </div>`;
         }
 
-        // Build spatial index for current line's direction road geometry for instant O(1) road snapping
-        let activeRoadIndex = null;
+        // Build spatial index per direction for accurate road snapping and directional heading
+        const roadIndicesByDir = {};
         if (selectedLineData && selectedLineData.directions) {
-          const targetDir = activeDirectionFilter !== "ALL" ? selectedLineData.directions[activeDirectionFilter] : null;
-          if (targetDir && Array.isArray(targetDir.coordinates) && targetDir.coordinates.length >= 2) {
-            activeRoadIndex = getOrBuildSpatialIndex(targetDir.coordinates);
-          } else {
-            // If ALL directions visible, combine or choose coordinates from available directions
-            const allCoordsList = [];
-            Object.values(selectedLineData.directions).forEach(d => {
-              if (Array.isArray(d.coordinates)) allCoordsList.push(...d.coordinates);
-            });
-            if (allCoordsList.length >= 2) activeRoadIndex = getOrBuildSpatialIndex(allCoordsList);
-          }
+          Object.entries(selectedLineData.directions).forEach(([dKey, dObj]) => {
+            if (dObj && Array.isArray(dObj.coordinates) && dObj.coordinates.length >= 2) {
+              roadIndicesByDir[dKey] = getOrBuildSpatialIndex(dObj.coordinates);
+            }
+          });
         }
 
         // Reconcile and update bus markers smoothly
@@ -3149,8 +4076,9 @@
           let targetLat = kLat;
           let targetLon = kLon;
           let roadBearing = null;
-          if (activeRoadIndex) {
-            const snapped = snapBusToRoad(kLat, kLon, activeRoadIndex, 65);
+          const roadIdx = roadIndicesByDir[b.dir] || roadIndicesByDir[activeDirectionFilter] || (selectedLineData && selectedLineData.directions && selectedLineData.directions.D && roadIndicesByDir["D"]) || roadIndicesByDir["G"];
+          if (roadIdx) {
+            const snapped = snapBusToRoad(kLat, kLon, roadIdx, 65);
             if (snapped.snapped) {
               targetLat = snapped.lat;
               targetLon = snapped.lon;
@@ -3162,14 +4090,25 @@
           const isMoving = (b.s >= 4 && distM >= 8);
           const isWaiting = Boolean(b.waiting_at_stop || ((b.s || 0) <= 6 && (b.stop_dist_m || Infinity) <= 65));
           const estBearing = item.kalman ? item.kalman.getEstimatedBearing() : null;
-          const bearing = (isMoving && roadBearing != null) ? roadBearing : (estBearing != null ? estBearing : (b.bearing || item.bearing || 0));
+          const bearing = roadBearing != null
+            ? roadBearing
+            : (isMoving && estBearing != null
+              ? estBearing
+              : ((b.bearing != null && b.bearing !== 0) ? b.bearing : (item.bearing || 0)));
           pts.push([targetLat, targetLon]);
 
           const waitTag = isWaiting ? " • ⏸️ Durakta Bekliyor" : "";
           const dirLabel = b.dir_name ? `➔ ${b.dir_name}` : (isDirG ? "Gidiş Yönü" : "Dönüş Yönü");
           const tooltipContent = `<b>${b.id}</b> • ${dirLabel} (${b.s || 0} km/s)${waitTag}`;
 
-          if (!item.marker) {
+          const isProperMarker = item.marker && (item.marker instanceof L.Marker) && typeof item.marker.setIcon === "function";
+
+          if (!isProperMarker) {
+            if (item.marker) {
+              try { selectedLineLayer.removeLayer(item.marker); } catch (_) {}
+              try { busesLayer.removeLayer(item.marker); } catch (_) {}
+            }
+
             const iconHtml = buildMarkerIcon(isMoving, bearing, col, b.id, isWaiting);
             const busIcon = L.divIcon({
               className: "bus-custom-div-icon",
@@ -3204,10 +4143,16 @@
             busAnimMap.set(b.id, item);
 
             setTimeout(() => {
-              const arr = document.getElementById(`arrow-${b.id}`);
+              const el = marker ? marker.getElement() : null;
+              const arr = el ? el.querySelector('.bus-dir-arrow') : document.getElementById(`arrow-${b.id}`);
               if (arr && item) item.arrowEl = arr;
             }, 0);
           } else {
+            // Ensure marker is attached to selectedLineLayer
+            if (!selectedLineLayer.hasLayer(item.marker)) {
+              selectedLineLayer.addLayer(item.marker);
+            }
+
             // Update icon if stopped vs moving or wait-at-stop state changed
             if (item.wasMoving !== isMoving || item.wasWaiting !== isWaiting) {
               item.wasMoving = isMoving;
@@ -3219,7 +4164,8 @@
                 iconAnchor: [16, 16]
               }));
               setTimeout(() => {
-                const arr = document.getElementById(`arrow-${b.id}`);
+                const el = item.marker ? item.marker.getElement() : null;
+                const arr = el ? el.querySelector('.bus-dir-arrow') : document.getElementById(`arrow-${b.id}`);
                 if (item) item.arrowEl = arr;
               }, 0);
             }
@@ -3230,8 +4176,12 @@
               item.fromLon = item.currentLon;
               item.targetLat = targetLat;
               item.targetLon = targetLon;
-              if (isMoving && distM >= 8) {
-                const newBearing = roadBearing != null ? roadBearing : (estBearing != null ? estBearing : calculateBearing(item.fromLat, item.fromLon, targetLat, targetLon));
+              const newBearing = roadBearing != null
+                ? roadBearing
+                : (isMoving && distM >= 8
+                  ? (estBearing != null ? estBearing : calculateBearing(item.fromLat, item.fromLon, targetLat, targetLon))
+                  : item.bearing);
+              if (newBearing != null) {
                 item.bearing = lerpAngle(item.bearing || newBearing, newBearing, 0.7);
               }
               item.startTime = now;
@@ -3298,7 +4248,29 @@
           listHtml += renderGroup("Diğer Araçlar", busesByDir.OTHER, "dir-d", "#10b981");
         }
 
-        busResultsList.innerHTML = listHtml;
+        // Check if there are active IBB disruptions or road issues for this line
+        const lineDisruptions = (disruptionsData && disruptionsData.by_line && disruptionsData.by_line[selectedLineData.code]) || [];
+        let disruptionsHtml = "";
+        if (lineDisruptions.length > 0) {
+          disruptionsHtml = `
+            <div style="margin-bottom:10px;display:flex;flex-direction:column;gap:6px">
+              <div style="font-size:11px;font-weight:800;color:#ef4444;text-transform:uppercase;letter-spacing:0.04em;display:flex;align-items:center;gap:4px">
+                <span>⚠️ İBB Duyuru, Arıza & Yol Kapanmaları (${lineDisruptions.length})</span>
+              </div>
+              ${lineDisruptions.map(d => `
+                <div class="disruption-card ${d.category}">
+                  <div class="disruption-hdr">
+                    <span>${d.category_icon} ${d.category_title}</span>
+                    <span class="disruption-time">${d.time || ""}</span>
+                  </div>
+                  <div class="disruption-msg">${d.msg}</div>
+                </div>
+              `).join("")}
+            </div>
+          `;
+        }
+
+        busResultsList.innerHTML = disruptionsHtml + listHtml;
         statBuses.innerHTML = `${visibleBuses.length} / ${selectedLineData.assigned_count || buses.length} <small>araç</small>`;
 
         if (!preserveView) {
@@ -3523,6 +4495,15 @@
         if (!selectedLineCode || !selectedLineData || selectedLineData.code !== selectedLineCode) return;
         const assignedDoors = (busLinesMap && busLinesMap[selectedLineCode]) || [];
         const doorSet = new Set(assignedDoors);
+
+        if (doorLineMap && typeof doorLineMap === "object") {
+          for (const [doorId, mapped] of Object.entries(doorLineMap)) {
+            if (mapped === selectedLineCode || (Array.isArray(mapped) && mapped.includes(selectedLineCode))) {
+              doorSet.add(doorId);
+            }
+          }
+        }
+
         const matchingBuses = [];
 
         for (const b of fleetBuses) {
@@ -4347,6 +5328,18 @@
       btnSearchClear.addEventListener("click", clearSelectedLine);
       btnBannerClear.addEventListener("click", clearSelectedLine);
 
+      if (btnSearchCollapse) {
+        btnSearchCollapse.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          lineInput.blur();
+          searchSuggestions.style.display = "none";
+          if (window.innerWidth <= 768) {
+            setSheetState("peek");
+          }
+        });
+      }
+
       // Quick Chips Click
       document.querySelectorAll(".chip").forEach(chip => {
         chip.addEventListener("click", () => {
@@ -4412,6 +5405,14 @@
         }
       });
       syncCheckboxes(chkStale, chkStaleModal, renderBuses);
+      syncCheckboxes(chkStops, chkStopsModal, renderAllBusStops);
+
+      // Re-render visible stops on map panning or zoom
+      map.on("moveend", () => {
+        if (!selectedLineCode && chkStops && chkStops.checked) {
+          renderAllBusStops();
+        }
+      });
 
       // Layers & Options Modal Controls
       if (btnLayers) {
@@ -4543,21 +5544,35 @@
         }
       });
 
-      // ─── INITIALIZATION ───
-      async function init() {
-        // Load bus lines mapping
+      async function syncLinesMap() {
         try {
-          const res = await fetch("/lines/map");
-          const data = await res.json();
-          if (data && typeof data === "object") {
-            busLinesMap = data;
-            doorLineMap = {};
-            allLineCodes = Object.keys(busLinesMap).sort();
-            for (const line of allLineCodes) {
-              const doors = busLinesMap[line];
-              if (Array.isArray(doors)) {
-                for (const d of doors) {
-                  doorLineMap[d] = line;
+          const [linesRes, doorsRes] = await Promise.allSettled([
+            fetch("/lines/map"),
+            fetch("/doors/map")
+          ]);
+
+          if (doorsRes.status === "fulfilled" && doorsRes.value.ok) {
+            const doorsData = await doorsRes.value.json();
+            if (doorsData && typeof doorsData === "object" && !Array.isArray(doorsData)) {
+              doorLineMap = doorsData;
+            }
+          }
+
+          if (linesRes.status === "fulfilled" && linesRes.value.ok) {
+            const data = await linesRes.value.json();
+            if (data && typeof data === "object") {
+              busLinesMap = data;
+              allLineCodes = Object.keys(busLinesMap).sort();
+              // If doorLineMap was not set by /doors/map, fallback to busLinesMap
+              if (Object.keys(doorLineMap).length === 0) {
+                doorLineMap = {};
+                for (const line of allLineCodes) {
+                  const doors = busLinesMap[line];
+                  if (Array.isArray(doors)) {
+                    for (const d of doors) {
+                      doorLineMap[d] = line;
+                    }
+                  }
                 }
               }
             }
@@ -4565,6 +5580,73 @@
         } catch (e) {
           console.warn("Hat eşleşmeleri yüklenemedi:", e);
         }
+      }
+
+      async function syncBusStops() {
+        try {
+          const res = await fetch("/stops");
+          if (res.ok) {
+            allBusStops = await res.json();
+            renderAllBusStops();
+          }
+        } catch (e) {
+          console.warn("Otobüs durakları yüklenemedi:", e);
+        }
+      }
+
+      async function syncDisruptions() {
+        try {
+          const res = await fetch("/disruptions");
+          if (res.ok) {
+            disruptionsData = await res.json();
+            // If stop popup is open, update disruption list
+            if (activeStopPopup && activeStopPopupData) {
+              const freshDisruptions = getDisruptionsForStop(activeStopPopupData.stop, activeStopPopupData.arrivals);
+              // Disruption container update if exists
+              const container = document.querySelector(".stop-disruptions-container");
+              if (container && freshDisruptions.length > 0) {
+                container.innerHTML = `
+                  <div class="stop-section-title" style="color:#dc2626">
+                    <span>⚠️ İBB Arıza, Kaza & Yol Kapanmaları (${freshDisruptions.length})</span>
+                  </div>
+                  ${freshDisruptions.map(d => `
+                    <div class="disruption-card ${d.category}">
+                      <div class="disruption-hdr">
+                        <span>${d.category_icon} ${d.line ? `[${d.line}] ` : ""}${d.category_title}</span>
+                        <span class="disruption-time">${d.time || ""}</span>
+                      </div>
+                      <div class="disruption-msg">${d.msg}</div>
+                    </div>
+                  `).join("")}
+                `;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Duyuru ve arıza verisi alınamadı:", e);
+        }
+      }
+
+      // ─── INITIALIZATION ───
+      async function init() {
+        // Load bus lines mapping and stop database
+        await Promise.all([syncLinesMap(), syncBusStops()]);
+
+        // Load live IBB disruptions, vehicle malfunctions & road crashes
+        syncDisruptions();
+
+        // Check date rollover (midnight local time) to automatically re-sync door-to-line assignments
+        let lastClientSyncDate = new Date().toLocaleDateString("tr-TR");
+        setInterval(() => {
+          const currentDate = new Date().toLocaleDateString("tr-TR");
+          if (currentDate !== lastClientSyncDate) {
+            lastClientSyncDate = currentDate;
+            syncLinesMap();
+          }
+        }, 60000);
+
+        // Periodically refresh IBB disruptions every 2 minutes
+        setInterval(syncDisruptions, 120000);
 
         if (window.innerWidth <= 768) {
           setSheetState("peek");
@@ -4606,6 +5688,143 @@
         }
       }
 
+      // ─── PWA & SERVICE WORKER INSTALL LOGIC ───
+      function setupPWA() {
+        // Register Service Worker
+        if ("serviceWorker" in navigator) {
+          window.addEventListener("load", () => {
+            navigator.serviceWorker.register("/sw.js").then((reg) => {
+              console.log("[PWA] Service Worker registered:", reg.scope);
+            }).catch((err) => {
+              console.warn("[PWA] Service Worker registration failed:", err);
+            });
+          });
+        }
+
+        let deferredPrompt = null;
+        const installBtn = el("pwa-install-btn");
+        const installBanner = el("pwa-install-banner");
+        const bannerInstallBtn = el("pwa-banner-install-btn");
+        const bannerCloseBtn = el("pwa-banner-close-btn");
+        const iosModal = el("ios-install-modal");
+        const iosCloseBtn = el("btn-ios-close");
+
+        // Detect if app is already running in standalone mode (installed)
+        const isStandalone = window.matchMedia("(display-mode: standalone)").matches ||
+                             window.navigator.standalone === true;
+
+        if (isStandalone) {
+          console.log("[PWA] Running in standalone mode.");
+          return;
+        }
+
+        // iOS detection
+        const userAgent = window.navigator.userAgent.toLowerCase();
+        const isIOS = /iphone|ipad|ipod/.test(userAgent) ||
+                      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+        const isSafari = /safari/.test(userAgent) && !/chrome|crios|fxios|edgios/.test(userAgent);
+
+        // Native beforeinstallprompt (Android Chrome, Samsung Internet, Edge, Desktop Chrome)
+        window.addEventListener("beforeinstallprompt", (e) => {
+          e.preventDefault();
+          deferredPrompt = e;
+
+          // Reveal install button in sidebar header
+          if (installBtn) {
+            installBtn.style.display = "inline-flex";
+          }
+
+          // Show floating install banner after 4 seconds if not dismissed previously
+          const dismissedTime = localStorage.getItem("pwa_prompt_dismissed");
+          const shouldShowBanner = !dismissedTime || (Date.now() - parseInt(dismissedTime, 10) > 3 * 86400000);
+          if (shouldShowBanner && installBanner) {
+            setTimeout(() => {
+              if (deferredPrompt && installBanner) {
+                installBanner.classList.add("show");
+              }
+            }, 4000);
+          }
+        });
+
+        // Trigger prompt when clicking either install button
+        async function triggerInstallPrompt() {
+          if (deferredPrompt) {
+            installBanner && installBanner.classList.remove("show");
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            console.log(`[PWA] User choice: ${outcome}`);
+            deferredPrompt = null;
+            if (installBtn) installBtn.style.display = "none";
+          } else if (isIOS) {
+            // Show custom iOS Add to Home Screen modal
+            if (iosModal) {
+              iosModal.style.display = "flex";
+              setTimeout(() => iosModal.classList.add("show"), 10);
+            }
+          }
+        }
+
+        if (installBtn) {
+          installBtn.addEventListener("click", triggerInstallPrompt);
+        }
+
+        if (bannerInstallBtn) {
+          bannerInstallBtn.addEventListener("click", triggerInstallPrompt);
+        }
+
+        if (bannerCloseBtn) {
+          bannerCloseBtn.addEventListener("click", () => {
+            if (installBanner) installBanner.classList.remove("show");
+            localStorage.setItem("pwa_prompt_dismissed", String(Date.now()));
+          });
+        }
+
+        // iOS Modal Close Handlers
+        if (iosCloseBtn) {
+          iosCloseBtn.addEventListener("click", () => {
+            if (iosModal) {
+              iosModal.classList.remove("show");
+              setTimeout(() => { iosModal.style.display = "none"; }, 300);
+            }
+          });
+        }
+        if (iosModal) {
+          iosModal.addEventListener("click", (e) => {
+            if (e.target === iosModal) {
+              iosModal.classList.remove("show");
+              setTimeout(() => { iosModal.style.display = "none"; }, 300);
+            }
+          });
+        }
+
+        // If iOS Safari and not standalone, show install button in header
+        if (isIOS && isSafari && !isStandalone) {
+          if (installBtn) {
+            installBtn.style.display = "inline-flex";
+          }
+          const dismissedIos = localStorage.getItem("pwa_ios_dismissed");
+          if (!dismissedIos || (Date.now() - parseInt(dismissedIos, 10) > 3 * 86400000)) {
+            setTimeout(() => {
+              if (installBanner) {
+                installBanner.classList.add("show");
+              }
+            }, 5000);
+          }
+        }
+
+        window.addEventListener("appinstalled", () => {
+          console.log("[PWA] App successfully installed.");
+          if (installBtn) installBtn.style.display = "none";
+          if (installBanner) installBanner.classList.remove("show");
+          if (iosModal) {
+            iosModal.classList.remove("show");
+            setTimeout(() => { iosModal.style.display = "none"; }, 300);
+          }
+          showToast("Uygulama başarıyla yüklendi! 🎉");
+        });
+      }
+
+      setupPWA();
       init();
     })();
   </script>

@@ -640,6 +640,14 @@ async function handleLinesMap(env) {
   return json(map || {}, 200, { "cache-control": "public, max-age=3600" });
 }
 
+async function handleDoorsMap(env) {
+  let map = await env.LIVE.get("door_lines_map", "json");
+  if (!map && typeof DOOR_LINES_MAP !== "undefined") {
+    map = DOOR_LINES_MAP;
+  }
+  return json(map || {}, 200, { "cache-control": "public, max-age=3600" });
+}
+
 async function handleLines(env) {
   let c = await env.LIVE.get("lines", "json");
   if (!c) {
@@ -683,15 +691,130 @@ async function handleFeed(request, env) {
   }
 }
 
+// IBB Disruptions, Malfunctions & Road Closures Service
+const DUYURULAR_URL = "https://api.ibb.gov.tr/iett/UlasimDinamikVeri/Duyurular.asmx";
+let inMemoryDisruptions = null;
+let inMemoryDisruptionsTime = 0;
+
+function categorizeDisruption(msg) {
+  const m = String(msg || "").toLowerCase();
+  if (m.includes("ariza") || m.includes("arıza") || m.includes("bozul") || m.includes("teknik aksak")) {
+    return { type: "malfunction", title: "Araç Arızası / Teknik Aksaklık", icon: "⚠️", color: "#ef4444" };
+  }
+  if (m.includes("kaza") || m.includes("hasar") || m.includes("çarp")) {
+    return { type: "crash", title: "Trafik Kazası / Yol Kapanması", icon: "💥", color: "#dc2626" };
+  }
+  if (m.includes("kapal") || m.includes("çalışma") || m.includes("calisma") || m.includes("onarım") || m.includes("tadilat") || m.includes("asfalt") || m.includes("iski")) {
+    return { type: "road_closed", title: "Yol / Altyapı Çalışması & Kapanma", icon: "🚧", color: "#f59e0b" };
+  }
+  if (m.includes("trafik") || m.includes("yoğun") || m.includes("yogun") || m.includes("rötar") || m.includes("rotar")) {
+    return { type: "traffic", title: "Aşırı Trafik Yoğunluğu / Rötar", icon: "🚦", color: "#eab308" };
+  }
+  if (m.includes("yapılamayacak") || m.includes("yapilamayacak") || m.includes("iptal") || m.includes("sefer")) {
+    return { type: "cancel", title: "Sefer İptali / Sefer Yapılamama", icon: "❌", color: "#8b5cf6" };
+  }
+  return { type: "info", title: "Hat Bildirimi", icon: "ℹ️", color: "#3b82f6" };
+}
+
+async function fetchDisruptions(env) {
+  const now = Date.now();
+  if (inMemoryDisruptions && (now - inMemoryDisruptionsTime < 60000)) {
+    return inMemoryDisruptions;
+  }
+
+  // Check KV cache
+  try {
+    const cached = await env.LIVE.get("disruptions", { type: "json", cacheTtl: 60 });
+    if (cached && (now - cached.updated_at < 90000)) {
+      inMemoryDisruptions = cached;
+      inMemoryDisruptionsTime = cached.updated_at;
+      return cached;
+    }
+  } catch (e) {}
+
+  // Fetch from IBB Duyurular API
+  try {
+    const rows = await soapWithRetry(DUYURULAR_URL, "GetDuyurular_json", null, env, 1);
+    if (Array.isArray(rows)) {
+      const items = [];
+      const lineDisruptions = {};
+
+      for (const r of rows) {
+        const line = norm(r.HATKODU || r.HatKodu || "");
+        const msg = String(r.MESAJ || r.Mesaj || "").trim();
+        const timeStr = String(r.GUNCELLEME_SAATI || r.GuncellemeSaati || "").replace("Kayit Saati: ", "").trim();
+        const tip = String(r.TIP || r.Tip || "Duyuru").trim();
+        const cat = categorizeDisruption(msg);
+
+        const item = {
+          line,
+          route_name: String(r.HAT || r.Hat || "").trim(),
+          tip,
+          time: timeStr,
+          msg,
+          category: cat.type,
+          category_title: cat.title,
+          category_icon: cat.icon,
+          category_color: cat.color
+        };
+        items.push(item);
+
+        if (line) {
+          if (!lineDisruptions[line]) lineDisruptions[line] = [];
+          lineDisruptions[line].push(item);
+        }
+      }
+
+      const result = {
+        updated_at: now,
+        count: items.length,
+        disruptions: items,
+        by_line: lineDisruptions
+      };
+
+      inMemoryDisruptions = result;
+      inMemoryDisruptionsTime = now;
+      await env.LIVE.put("disruptions", JSON.stringify(result), { expirationTtl: 300 }).catch(() => {});
+      return result;
+    }
+  } catch (e) {
+    console.warn("Duyurular fetch error:", String(e));
+  }
+
+  return inMemoryDisruptions || { updated_at: now, count: 0, disruptions: [], by_line: {} };
+}
+
 async function handleFeedMapping(request, env) {
   if (request.method !== "POST") return json({ error: "POST required" }, 405);
   try {
     const data = await request.json();
     if (!data || typeof data !== "object") return json({ error: "Invalid payload: mapping object required" }, 400);
-    const count = Object.keys(data).length;
-    await env.LIVE.put("bus_lines_map", JSON.stringify(data));
-    return json({ success: true, count, updated_at: Date.now() });
+    if (data.lines && data.doors) {
+      await env.LIVE.put("bus_lines_map", JSON.stringify(data.lines));
+      await env.LIVE.put("door_lines_map", JSON.stringify(data.doors));
+      return json({ success: true, lines_count: Object.keys(data.lines).length, doors_count: Object.keys(data.doors).length, updated_at: Date.now() });
+    } else {
+      await env.LIVE.put("bus_lines_map", JSON.stringify(data));
+      return json({ success: true, count: Object.keys(data).length, updated_at: Date.now() });
+    }
   } catch (err) {
     return json({ error: String(err) }, 400);
   }
 }
+
+async function handleDisruptions(env, url) {
+  const lineCode = norm(url.searchParams.get("line"));
+  const data = await fetchDisruptions(env);
+  if (lineCode) {
+    const lineItems = (data.by_line && data.by_line[lineCode]) || [];
+    return json({ line: lineCode, count: lineItems.length, disruptions: lineItems, updated_at: data.updated_at }, 200, {
+      "cache-control": "public, max-age=60"
+    });
+  }
+  return json(data, 200, {
+    "cache-control": "public, max-age=60"
+  });
+}
+
+
+

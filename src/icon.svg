@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Minimalist Matte Pitch Black Background with Smooth Curvature -->
+  <rect width="512" height="512" rx="112" fill="#09090b" />
+  <rect x="4" y="4" width="504" height="504" rx="108" fill="none" stroke="#27272a" stroke-width="2" />
+
+  <!-- Geometric Transit Rhythm: Minimalist Dual Crossing Lines (Metro & Arterial) -->
+  <path d="M 48 380 C 160 380 200 256 320 256 C 400 256 440 180 464 160" 
+        fill="none" stroke="#27272a" stroke-width="6" stroke-linecap="round" />
+  <path d="M 48 180 C 140 180 200 256 320 256 C 420 256 450 340 464 360" 
+        fill="none" stroke="#3f3f46" stroke-width="4" stroke-dasharray="10 12" stroke-linecap="round" />
+
+  <!-- Center Transit Hero Silhouette (Pure Minimalist High-Contrast Vector) -->
+  <g transform="translate(136, 126)">
+    <!-- Vehicle Body Contour -->
+    <path d="M 44,14 C 44,6 50,0 58,0 L 182,0 C 190,0 196,6 196,14 L 204,110 C 206,126 208,168 208,198 C 208,208 200,216 190,216 L 50,216 C 40,216 32,208 32,198 C 32,168 34,126 36,110 Z" 
+          fill="#ffffff" />
+
+    <!-- Destination Display / LED Sign -->
+    <rect x="62" y="16" width="116" height="24" rx="6" fill="#09090b" />
+    <rect x="76" y="25" width="40" height="6" rx="3" fill="#ffffff" />
+    <circle cx="160" cy="28" r="3" fill="#a1a1aa" />
+
+    <!-- Large Windshield Screen -->
+    <path d="M 48,50 C 48,46 51,43 55,43 L 185,43 C 189,43 192,46 192,50 L 195,120 C 195,124 192,127 188,127 L 52,127 C 48,127 45,124 45,120 Z" 
+          fill="#18181b" />
+
+    <!-- Minimalist Diagonal Screen Sheen -->
+    <path d="M 54,50 L 105,50 L 80,120 L 52,120 Z" fill="#ffffff" fill-opacity="0.12" />
+
+    <!-- Center Accent Line -->
+    <line x1="42" y1="140" x2="198" y2="140" stroke="#09090b" stroke-width="5" stroke-linecap="round" />
+
+    <!-- Minimalist Dual Headlights -->
+    <rect x="46" y="156" width="30" height="14" rx="7" fill="#09090b" />
+    <circle cx="61" cy="163" r="4" fill="#ffffff" />
+
+    <rect x="164" y="156" width="30" height="14" rx="7" fill="#09090b" />
+    <circle cx="179" cy="163" r="4" fill="#ffffff" />
+
+    <!-- Center Grille Minimalist Dots -->
+    <circle cx="112" cy="163" r="3" fill="#71717a" />
+    <circle cx="120" cy="163" r="3" fill="#09090b" />
+    <circle cx="128" cy="163" r="3" fill="#71717a" />
+
+    <!-- Lower Bumper -->
+    <rect x="42" y="186" width="156" height="20" rx="6" fill="#18181b" />
+
+    <!-- Left & Right Wheels -->
+    <rect x="34" y="214" width="26" height="22" rx="6" fill="#27272a" />
+    <rect x="180" y="214" width="26" height="22" rx="6" fill="#27272a" />
+  </g>
+
+  <!-- Clean Top GPS Location Node -->
+  <g transform="translate(256, 94)">
+    <circle cx="0" cy="0" r="5" fill="#ffffff" />
+    <path d="M -14,-7 C -5,-14 5,-14 14,-7" fill="none" stroke="#a1a1aa" stroke-width="3" stroke-linecap="round" />
+    <path d="M -24,-16 C -8,-27 8,-27 24,-16" fill="none" stroke="#52525b" stroke-width="2.5" stroke-linecap="round" />
+  </g>
+</svg>

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 build.py - Compiles worker.js, bus_lines_map.json, metro stations/colors,
-and index.html into src/bundle.js for Cloudflare Workers deployment.
+index.html, manifest.json, sw.js, and app icons into src/bundle.js for Cloudflare Workers deployment.
 """
 
+import base64
 import json
 import os
 
@@ -28,7 +29,32 @@ def main():
     with open(os.path.join(SRC_DIR, "index.html"), "r", encoding="utf-8") as f:
         html_page = f.read()
 
+    with open(os.path.join(SRC_DIR, "manifest.json"), "r", encoding="utf-8") as f:
+        manifest_json = f.read()
+
+    with open(os.path.join(SRC_DIR, "sw.js"), "r", encoding="utf-8") as f:
+        sw_code = f.read()
+
+    with open(os.path.join(SRC_DIR, "icon.svg"), "r", encoding="utf-8") as f:
+        icon_svg = f.read()
+
+    with open(os.path.join(SRC_DIR, "icon-192.png"), "rb") as f:
+        icon_192_b64 = base64.b64encode(f.read()).decode("ascii")
+
+    with open(os.path.join(SRC_DIR, "icon-512.png"), "rb") as f:
+        icon_512_b64 = base64.b64encode(f.read()).decode("ascii")
+
     export_default_block = """
+function b64ToUint8Array(b64) {
+  const bin = atob(b64);
+  const len = bin.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = bin.charCodeAt(i);
+  }
+  return bytes;
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
@@ -42,15 +68,48 @@ export default {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" }
       });
     }
+
+    // PWA Assets
+    if (path === "/manifest.json") {
+      return new Response(MANIFEST_JSON, {
+        headers: { "content-type": "application/manifest+json; charset=utf-8", "cache-control": "public, max-age=86400" }
+      });
+    }
+    if (path === "/sw.js") {
+      return new Response(SW_CODE, {
+        headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache" }
+      });
+    }
+    if (path === "/icon.svg") {
+      return new Response(ICON_SVG, {
+        headers: { "content-type": "image/svg+xml; charset=utf-8", "cache-control": "public, max-age=604800" }
+      });
+    }
+    if (path === "/icon-192.png") {
+      const bytes = b64ToUint8Array(ICON_192_B64);
+      return new Response(bytes, {
+        headers: { "content-type": "image/png", "cache-control": "public, max-age=604800" }
+      });
+    }
+    if (path === "/icon-512.png") {
+      const bytes = b64ToUint8Array(ICON_512_B64);
+      return new Response(bytes, {
+        headers: { "content-type": "image/png", "cache-control": "public, max-age=604800" }
+      });
+    }
+
     if (path === "/buses") return handleBuses(request, env);
     if (path === "/line") return handleLine(env, url);
     if (path === "/line/route") return handleLineRoute(env, url);
     if (path === "/lines") return handleLines(env);
     if (path === "/lines/map") return handleLinesMap(env);
+    if (path === "/doors/map") return handleDoorsMap(env);
     if (path === "/metro/stations") return json(METRO_STATIONS, 200, { "cache-control": "public, max-age=86400" });
     if (path === "/metro/colors") return json(METRO_COLORS, 200, { "cache-control": "public, max-age=86400" });
     if (path === "/feed/buses") return handleFeed(request, env);
     if (path === "/feed/mapping") return handleFeedMapping(request, env);
+    if (path === "/stops") return json(BUS_STOPS, 200, { "cache-control": "public, max-age=86400" });
+    if (path === "/disruptions") return handleDisruptions(env, url);
     if (path === "/status") {
       const q = await quota(env);
       const meta = inMemoryMeta || (await env.LIVE.get("meta", { type: "json", cacheTtl: 30 }));
@@ -60,6 +119,7 @@ export default {
         status: "ok",
         meta,
         mapped_lines_count: mappedLinesCount,
+        bus_stops_count: BUS_STOPS.length,
         iett_quota_used_this_hour: q.n,
         iett_quota_max: 99,
         has_api_key: Boolean(env.IBB_API_KEY || env.IBB_SECRET),
@@ -67,7 +127,7 @@ export default {
       });
     }
 
-    return json({ error: "Not found", routes: ["/", "/buses", "/line?code=15B", "/line/route?code=15B", "/lines", "/lines/map", "/metro/stations", "/metro/colors", "/status"] }, 404);
+    return json({ error: "Not found", routes: ["/", "/manifest.json", "/sw.js", "/icon.svg", "/buses", "/line?code=15B", "/line/route?code=15B", "/lines", "/lines/map", "/stops", "/disruptions", "/metro/stations", "/metro/colors", "/status"] }, 404);
   },
 
   async scheduled(event, env, ctx) {
@@ -76,13 +136,26 @@ export default {
 };
 """
 
+    with open(os.path.join(SRC_DIR, "bus_stops.json"), "r", encoding="utf-8") as f:
+        bus_stops = json.load(f)
+
+    with open(os.path.join(SRC_DIR, "door_lines_map.json"), "r", encoding="utf-8") as f:
+        door_lines_map = json.load(f)
+
     bundle_parts = [
         worker_code.strip(),
         "\n\n",
         f"const BUS_LINES_MAP = {json.dumps(bus_lines_map, ensure_ascii=False)};\n",
+        f"const DOOR_LINES_MAP = {json.dumps(door_lines_map, ensure_ascii=False)};\n",
+        f"const BUS_STOPS = {json.dumps(bus_stops, ensure_ascii=False)};\n",
         f"const METRO_STATIONS = {json.dumps(metro_stations, ensure_ascii=False)};\n",
         f"const METRO_COLORS = {json.dumps(metro_colors, ensure_ascii=False)};\n",
         f"const HTML_PAGE = {json.dumps(html_page, ensure_ascii=False)};\n",
+        f"const MANIFEST_JSON = {json.dumps(manifest_json, ensure_ascii=False)};\n",
+        f"const SW_CODE = {json.dumps(sw_code, ensure_ascii=False)};\n",
+        f"const ICON_SVG = {json.dumps(icon_svg, ensure_ascii=False)};\n",
+        f"const ICON_192_B64 = {json.dumps(icon_192_b64)};\n",
+        f"const ICON_512_B64 = {json.dumps(icon_512_b64)};\n",
         export_default_block
     ]
 
@@ -92,6 +165,7 @@ export default {
         f.write(bundle_content)
 
     print(f"Successfully generated {bundle_path} ({len(bundle_content)} bytes)")
+
 
 if __name__ == "__main__":
     main()
