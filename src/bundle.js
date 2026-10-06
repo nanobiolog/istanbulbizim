@@ -893,11 +893,49 @@ export default {
     if (path === "/feed/mapping") return handleFeedMapping(request, env);
     if (path === "/stops") return json(BUS_STOPS, 200, { "cache-control": "public, max-age=86400" });
     if (path === "/disruptions") return handleDisruptions(env, url);
+    if (path.startsWith("/tile/")) {
+      // Proxy CARTO raster tiles using CARTO_API_KEY from Cloudflare secrets
+      const parts = path.replace("/tile/", "").split("/");
+      if (parts.length >= 4) {
+        const style = parts[0]; // e.g. "voyager", "light_all", "dark_all"
+        const z = parts[1];
+        const x = parts[2];
+        const y = parts[3];
+        const sub = ["a", "b", "c", "d"][Math.abs(parseInt(x, 10) + parseInt(y, 10)) % 4] || "a";
+        const key = env.CARTO_API_KEY || env.CARTO_KEY || "";
+        const query = key ? `?key=${key}` : "";
+        const tileUrl = `https://${sub}.basemaps.cartocdn.com/rastertiles/${style}/${z}/${x}/${y}${query}`;
+        try {
+          const tileRes = await fetch(tileUrl, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              "Referer": "https://istanbulbizim-live.nano-carbay.workers.dev/"
+            }
+          });
+          const tileHeaders = new Headers(tileRes.headers);
+          tileHeaders.set("Access-Control-Allow-Origin", "*");
+          tileHeaders.set("Cache-Control", "public, max-age=604800, stale-while-revalidate=86400");
+          return new Response(tileRes.body, {
+            status: tileRes.status,
+            headers: tileHeaders
+          });
+        } catch (e) {
+          return new Response("Tile fetch error", { status: 502, headers: CORS });
+        }
+      }
+    }
+
+    if (path === "/config/carto") {
+      const key = env.CARTO_API_KEY || env.CARTO_KEY || "";
+      return json({ carto_key: key, has_key: Boolean(key) });
+    }
+
     if (path === "/status") {
       const q = await quota(env);
       const meta = inMemoryMeta || (await env.LIVE.get("meta", { type: "json", cacheTtl: 30 }));
       let map = await env.LIVE.get("bus_lines_map", "json");
       const mappedLinesCount = map ? Object.keys(map).length : Object.keys(BUS_LINES_MAP).length;
+      const key = env.CARTO_API_KEY || env.CARTO_KEY || "";
       return json({
         status: "ok",
         meta,
@@ -906,11 +944,12 @@ export default {
         iett_quota_used_this_hour: q.n,
         iett_quota_max: 99,
         has_api_key: Boolean(env.IBB_API_KEY || env.IBB_SECRET),
-        has_carto_key: Boolean(env.CARTO_API_KEY)
+        has_carto_key: Boolean(key),
+        carto_key: key
       });
     }
 
-    return json({ error: "Not found", routes: ["/", "/manifest.json", "/sw.js", "/icon.svg", "/buses", "/line?code=15B", "/line/route?code=15B", "/lines", "/lines/map", "/stops", "/disruptions", "/metro/stations", "/metro/colors", "/status"] }, 404);
+    return json({ error: "Not found", routes: ["/", "/manifest.json", "/sw.js", "/icon.svg", "/buses", "/line?code=15B", "/line/route?code=15B", "/lines", "/lines/map", "/stops", "/disruptions", "/metro/stations", "/metro/colors", "/status", "/config/carto", "/tile/voyager/{z}/{x}/{y}"] }, 404);
   },
 
   async scheduled(event, env, ctx) {

@@ -142,9 +142,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               },
             ),
             children: [
-              // High-resolution clean Street & Transit Base Map (Zero watermark, no API key required)
+              // Carto Voyager Retina Base Map identical to website, routed through Cloudflare Worker with CARTO_API_KEY
               TileLayer(
-                urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+                urlTemplate: provider.tileUrl,
                 userAgentPackageName: 'com.istanbulbizim.mobile_app',
                 maxZoom: 19,
               ),

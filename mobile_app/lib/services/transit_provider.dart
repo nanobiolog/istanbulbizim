@@ -64,6 +64,12 @@ class TransitProvider extends ChangeNotifier {
   DateTime? get lastUpdated => _lastUpdated;
   int get activeBusCount => _buses.length;
 
+  /// Map Tile Layer URL: Uses Cloudflare Worker proxy which attaches CARTO_API_KEY from Cloudflare secrets
+  String get tileUrl {
+    // If worker URL is active, fetch through Cloudflare Worker proxy with secrets attached
+    return '${TransitApiService.defaultWorkerUrl}/tile/voyager/{z}/{x}/{y}@2x.png';
+  }
+
   /// Crucial Performance Filter:
   /// When a line is selected, show that line's buses.
   /// When viewing the entire fleet, prevent crash by only rendering buses within 5 km of camera or user,
