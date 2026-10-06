@@ -26,19 +26,38 @@
   - Araç listesi yön bazında gruplanır (`KURAN KURSU Yönü (X Araç)`, `ÜSKÜDAR Yönü (Y Araç)`).
   - Harita üzerindeki araçlar yön renkleriyle ve aracın gittiği pusula açısına (bearing) göre dönen SVG yön oklarıyla gösterilir.
 
-- **✨ 60 FPS Pürüzsüz Araç Animasyon Motoru (Glide Animation):**
-  - Otobüsler koordinat güncellemelerinde harita üzerinde aniden sıçramaz veya kaybolup tekrar belirmez (`requestAnimationFrame` tabanlı 60 FPS sürekli enterpolasyon).
-  - Hareket halindeki araçların çevresinde canlı radar dalgası animasyonu çalışır, araçlar sokaklar boyunca akıcı bir şekilde süzülür.
+- **🎛️ 2D Gerçek Zamanlı Kalman Filtresi (Kalman Filter for GPS Smoothing):**
+  - Gürültülü, binalar arasında sapan (şehir kanyonları) veya seyrek aralıklarla gelen ham GPS verileri matematiksel **2 Boyutlu Kalman Filtresi** (`KalmanBusTracker`) ile filtrelenir.
+  - Durum modeli: $x = [\text{lat}, \text{lon}, v_{\text{lat}}, v_{\text{lon}}]^T$.
+  - İki veri paketi arasındaki dinamik zaman farkı ($\Delta t$) ve kentsel otobüs ivme belirsizliği ($Q = 1.2\text{ m/s}^2$, $R = 10\text{ m}$) hesaplanarak GPS sapmaları temizlenir, fizik kurallarına uygun pürüzsüz rota takibi ve anlık yön kestirimi sağlanır.
 
-- **🚆 Metro İstanbul Canlı Raylı Sistem Ağı:**
+- **🛣️ Akıllı Haritaya Kilitleme (Road Snapping & Map-Matching):**
+  - OSRM ve spatial hash grid indeksleme ile filtrelenen otobüs koordinatları en yakın karayolu/otobüs yolu segmentine kilitlenir.
+  - Araçların binaların veya denizlerin üzerinden geçmesi engellenir, sokak dönüş açıları gerçek yol geometrisiyle uyumlu hale getirilir.
+
+- **⏸️ Durakta Bekleme ve Yolcu İndirme/Bindirme Tespiti (Bus Stop Waiting Status):**
+  - Otobüsün durağa olan fiziksel mesafesi ($\le 65\text{ m}$) ve anlık hızı ($\le 6\text{ km/s}$) canlı analiz edilerek aracın durakta yolcu beklediği anında tespit edilir.
+  - Harita üzerinde durak bekleyen araçlar özel amber puls ve **`⏸️ DURAKTA`** rozetiyle gösterilir.
+  - Durak noktalarına tıklandığında durakta bekleyen aracın kapı numarası ve plakası listelenir; araç kartlarında ve popup pencerelerinde canlı durak bekleme durumu vurgulanır.
+
+- **✨ 60 FPS Pürüzsüz Araç Animasyon Motoru (Glide Animation & Smoothstep):**
+  - Otobüsler koordinat güncellemelerinde harita üzerinde aniden sıçramaz veya kaybolup tekrar belirmez (`requestAnimationFrame` tabanlı 60 FPS sürekli enterpolasyon).
+  - Smoothstep eğrisi ve decaying drift sönümlemesiyle sokaklar boyunca akıcı süzülme sağlanır.
+
+- **🚆 Metro İstanbul Canlı Raylı Sistem Ağı & Kalibre Edilmiş Kinematik Motoru:**
   - 18 raylı sistem hattı (M1A, M1B, M2, M3, M4, M5, M6, M7, M8, M9, T1, T3, T4, T5, F1, F4, TF1, TF2) ve resmi istasyon koordinatları.
-  - Sefer tarifelerine göre hat üzerinde saniye saniye hareket eden, sonraki istasyon ve hız simülasyonu yapan canlı trenler.
+  - Hat türüne göre gerçekçi ivme/fren dinamikleri:
+    - **Sürücüsüz Metro (M5, M8):** İvmelenme $1.0\text{ - }1.1\text{ m/s}^2$, Frenleme $1.1\text{ - }1.2\text{ m/s}^2$.
+    - **Hafif Metro / Tramvay (M1, T1, T4):** İvmelenme $1.0\text{ - }1.2\text{ m/s}^2$, Frenleme $1.1\text{ - }1.3\text{ m/s}^2$.
+    - **Füniküler & Teleferik (F1, F4, TF1, TF2):** İvmelenme $0.7\text{ - }0.8\text{ m/s}^2$, Frenleme $0.8\text{ - }0.9\text{ m/s}^2$.
+    - **Standart İstanbul Metrosu (M2, M4, M7 vb.):** Ort. İvme $0.89\text{ m/s}^2$, Ort. Fren $1.04\text{ m/s}^2$.
+  - Saniye saniye durak ve varış süresi geri sayımı (ETA) ve istasyon bekleme süreleri simülasyonu.
 
 - **📱 Mobil Uyumlu ve Modern UI/UX:**
   - **Mobil Bottom Sheet (Çekmece):** Apple/Google Maps tarzı sürükleyip bırakılabilir, 3 kademeli arayüz.
   - **Konumumu Bul (GPS Geolocation):** Kullanıcının İstanbul'daki anlık konumunu bularak haritada radar animasyonuyla gösterme.
   - **Retina (@2x) & Karanlık/Aydınlık Harita:** CARTO Dark Matter ve Voyager yüksek çözünürlüklü harita katmanları.
-  - **5 Saniyede Bir Canlı Yenilenme:** İstemci tarafı her 5 saniyede bir verileri tazeleyerek canlı akışı kesintisiz sürdürür.
+  - **2.5 Saniyede Bir Hızlı ETag/304 Yoklama:** İstemci tarafı bant genişliği tüketmeden en düşük gecikmeyle anlık filo güncellemelerini alır.
 
 ---
 
