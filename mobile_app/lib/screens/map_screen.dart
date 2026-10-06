@@ -115,12 +115,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<TransitProvider>();
-    final cartoKey = provider.cartoApiKey ?? '';
-
-    // Carto tile URL template: if CARTO key is known, append ?key=, otherwise use standard Carto raster
-    final tileUrl = cartoKey.isNotEmpty
-        ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png?key=$cartoKey'
-        : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png';
 
     return Scaffold(
       backgroundColor: AppTheme.background,
@@ -148,12 +142,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               },
             ),
             children: [
-              // Clean Carto Voyager Tiles
+              // High-resolution clean Street & Transit Base Map (Zero watermark, no API key required)
               TileLayer(
-                urlTemplate: tileUrl,
+                urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
                 userAgentPackageName: 'com.istanbulbizim.mobile_app',
                 maxZoom: 19,
-                subdomains: const ['a', 'b', 'c', 'd'],
               ),
 
               // Metro Line Polylines (if enabled)
