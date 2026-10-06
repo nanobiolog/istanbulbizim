@@ -498,12 +498,18 @@
       gap: 6px;
       margin-top: 6px;
       overflow-x: auto;
-      padding-bottom: 2px;
+      padding-bottom: 4px;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    .dir-tabs-wrapper::-webkit-scrollbar {
+      display: none;
     }
     .dir-tab {
-      flex: 1;
-      min-width: 75px;
-      padding: 6px 10px;
+      flex: 1 0 auto;
+      min-width: max-content;
+      max-width: 280px;
+      padding: 6px 12px;
       border-radius: 8px;
       border: 1px solid rgba(255, 255, 255, 0.12);
       background: rgba(15, 23, 42, 0.7);
@@ -513,6 +519,8 @@
       cursor: pointer;
       text-align: center;
       white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
       transition: all 0.15s;
     }
     .dir-tab:hover {
@@ -1621,10 +1629,12 @@
       .dir-tabs-wrapper {
         margin-top: 2px;
         gap: 5px;
+        padding-bottom: 4px;
       }
       .dir-tab {
-        padding: 6px 8px;
+        padding: 6px 10px;
         font-size: 11px;
+        max-width: 250px;
       }
       .bus-card {
         padding: 7px 10px;
@@ -3013,8 +3023,12 @@
         const countG = buses.filter(b => b.dir === "G").length;
 
         tabDirAll.textContent = `Tümü (${buses.length})`;
-        tabDirD.innerHTML = dirD ? `➔ ${dirD.destination.slice(0, 16)} (${countD})` : `➔ Dönüş (${countD})`;
-        tabDirG.innerHTML = dirG ? `➔ ${dirG.destination.slice(0, 16)} (${countG})` : `➔ Gidiş (${countG})`;
+        tabDirD.innerHTML = (dirD && dirD.destination) ? `➔ ${dirD.destination} (${countD})` : `➔ Dönüş (${countD})`;
+        tabDirG.innerHTML = (dirG && dirG.destination) ? `➔ ${dirG.destination} (${countG})` : `➔ Gidiş (${countG})`;
+
+        tabDirAll.title = `Tüm Araçlar (${buses.length})`;
+        tabDirD.title = (dirD && dirD.destination) ? `Dönüş: ${dirD.destination} (${countD} araç)` : `Dönüş (${countD} araç)`;
+        tabDirG.title = (dirG && dirG.destination) ? `Gidiş: ${dirG.destination} (${countG} araç)` : `Gidiş (${countG} araç)`;
 
         tabDirAll.classList.toggle("active", activeDirectionFilter === "ALL");
         tabDirD.classList.toggle("active", activeDirectionFilter === "D");
@@ -3476,14 +3490,17 @@
       tabDirAll.addEventListener("click", () => {
         activeDirectionFilter = "ALL";
         renderSelectedLine(true);
+        tabDirAll.scrollIntoView({ behavior: "smooth", inline: "nearest", block: "nearest" });
       });
       tabDirD.addEventListener("click", () => {
         activeDirectionFilter = "D";
         renderSelectedLine(true);
+        tabDirD.scrollIntoView({ behavior: "smooth", inline: "nearest", block: "nearest" });
       });
       tabDirG.addEventListener("click", () => {
         activeDirectionFilter = "G";
         renderSelectedLine(true);
+        tabDirG.scrollIntoView({ behavior: "smooth", inline: "nearest", block: "nearest" });
       });
 
       // ─── FETCH REFRESH ENGINE (FAST 2.5S EDGE POLLING WITH ETAG) ───
