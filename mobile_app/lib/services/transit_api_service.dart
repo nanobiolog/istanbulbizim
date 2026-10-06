@@ -5,7 +5,7 @@ import '../models/transit_models.dart';
 
 class TransitApiService {
   // Remote Cloudflare Worker endpoint with fallback to direct IBB
-  static const String defaultWorkerUrl = "https://istanbulbizim-live.nano-carbay.workers.dev";
+  static const String defaultWorkerUrl = "https://istanbulbizim.nano-carbay.workers.dev";
   static const String directIettFleet = "https://api.ibb.gov.tr/iett/FiloDurum/SeferGerceklesme.asmx";
   static const String directIbbRoute = "https://api.ibb.gov.tr/iett/ibb/ibb.asmx";
 

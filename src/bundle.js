@@ -909,7 +909,7 @@ export default {
           const tileRes = await fetch(tileUrl, {
             headers: {
               "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-              "Referer": "https://istanbulbizim-live.nano-carbay.workers.dev/"
+              "Referer": "https://istanbulbizim.nano-carbay.workers.dev/"
             }
           });
           const tileHeaders = new Headers(tileRes.headers);
