@@ -2371,7 +2371,6 @@
     </div>
     <div class="inspector-actions">
       <button class="btn-inspector-action" id="btn-insp-filter">🔍 Bu Hattaki Tüm Araçları Gör</button>
-      <a class="btn-inspector-action" id="btn-insp-directions" href="#" target="_blank" rel="noopener noreferrer" style="text-decoration:none;background:#2563eb">📍 Yol Tarifi Al</a>
     </div>
   </div>
 
@@ -3351,10 +3350,6 @@
           el("insp-op").innerHTML = `${opText} <br><small style="color:#94a3b8">Durak: ${stopText} ${stopDistanceNote}</small>`;
 
           const btnFilter = el("btn-insp-filter");
-          const btnDirections = el("btn-insp-directions");
-          if (btnDirections) {
-            btnDirections.href = `https://www.google.com/maps/dir/?api=1&destination=${b.lat},${b.lon}`;
-          }
           if (mappedLine) {
             btnFilter.style.display = "flex";
             btnFilter.textContent = `🔍 ${mappedLine} Hattı`;
@@ -3371,7 +3366,6 @@
           const lineAction = mappedLine 
             ? `<button class="btn-popup-filter" onclick="window.filterLine('${mappedLine}')">🔍 ${mappedLine} Hattı ve Güzergahını Gör</button>` 
             : "";
-          const directionsAction = `<a class="btn-popup-filter" href="https://www.google.com/maps/dir/?api=1&destination=${b.lat},${b.lon}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;background:#2563eb;margin-top:4px">📍 Yol Tarifi Al (Google Maps)</a>`;
 
           L.popup({ autoPanPadding: [20, 20] })
             .setLatLng([b.lat, b.lon])
@@ -3391,7 +3385,6 @@
                   <div><b>Operatör:</b> ${opText}</div>
                 </div>
                 ${lineAction}
-                ${directionsAction}
               </div>
             `)
             .openOn(map);
