@@ -15,10 +15,18 @@ class AppTheme {
   static const Color lightGray = Color(0xFFF4F4F5);
 
   // Subtle clean status dots
-  static const Color statusLive = Color(0xFF18181B);
+  static const Color statusLive = Color(0xFF10B981);
   static const Color statusGreen = Color(0xFF10B981);
-  static const Color directionCyan = Color(0xFF09090B); // High contrast black
-  static const Color directionPurple = Color(0xFF27272A); // High contrast dark charcoal
+  static const Color directionCyan = Color(0xFF06B6D4); // Vibrant Cyan for D direction
+  static const Color directionPurple = Color(0xFFA855F7); // Vibrant Purple for G direction
+  static const Color metroDefault = Color(0xFF0284C7); // Metro default Blue
+
+  // Dark Surface & Card colors matching website
+  static const Color cardDark = Color(0xFF0B132B);
+  static const Color cardBorderDark = Color(0xFF1E293B);
+  static const Color bannerCruiseDark = Color(0xFF0C2444);
+  static const Color textLight = Color(0xFFF8FAFC);
+  static const Color textMutedDark = Color(0xFF94A3B8);
 
   // Border & Dividers
   static const Color borderLight = Color(0xFFE4E4E7);

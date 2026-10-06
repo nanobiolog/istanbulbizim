@@ -1,0 +1,4067 @@
+[
+  {
+    "code": "1",
+    "desc": "Kirazlıtepe - Acıbadem / Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "2",
+    "desc": "Bostancı - Harem",
+    "type": "bus"
+  },
+  {
+    "code": "3",
+    "desc": "Burhaniye Mahallesi - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "3A",
+    "desc": "Kadıköy - Ünalan Mahallesi",
+    "type": "bus"
+  },
+  {
+    "code": "3B",
+    "desc": "Kadıköy - Ünalan Mahallesi",
+    "type": "bus"
+  },
+  {
+    "code": "4",
+    "desc": "Maltepe Sahil - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "5",
+    "desc": "Valievleri - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "6",
+    "desc": "Esatpaşa / Küçükçamlıca - Harem",
+    "type": "bus"
+  },
+  {
+    "code": "7",
+    "desc": "Topağacı Mahallesi / Ümraniye - Rasathane",
+    "type": "bus"
+  },
+  {
+    "code": "8",
+    "desc": "Valievleri - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "8A",
+    "desc": "Batı Ataşehir / Fikirtepe - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "8E",
+    "desc": "Esenevler - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "8K",
+    "desc": "Tepeüstü - Ataşehir / Kozyatağı Metro",
+    "type": "bus"
+  },
+  {
+    "code": "8Y",
+    "desc": "Soyak Yenişehir - Yenisahra Metro",
+    "type": "bus"
+  },
+  {
+    "code": "9A",
+    "desc": "Atakent - Ümraniye Metro",
+    "type": "bus"
+  },
+  {
+    "code": "9H",
+    "desc": "Cumhuriyetköy / Hüseyinli - Çekmeköy",
+    "type": "bus"
+  },
+  {
+    "code": "9KS",
+    "desc": "Kasaba Evleri / Ömerli - Necip Fazıl Metro",
+    "type": "bus"
+  },
+  {
+    "code": "9S",
+    "desc": "Yeşıltepe / Çekmeköy Metro - Atatürk Mah.",
+    "type": "bus"
+  },
+  {
+    "code": "9T",
+    "desc": "Şahinbey - Altunizade Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "9ÇN",
+    "desc": "Çekmeköy - Nişantepe / Özyeğin Üniversitesi",
+    "type": "bus"
+  },
+  {
+    "code": "10",
+    "desc": "Ü.eğt.arş.hastanesi - Ataşehir / Bostancı",
+    "type": "bus"
+  },
+  {
+    "code": "10A",
+    "desc": "Esatpaşa - Yeditepe Üniversitesi / Ferhatpaşa",
+    "type": "bus"
+  },
+  {
+    "code": "10E",
+    "desc": "Esatpaşa - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "10EK",
+    "desc": "Esatpaşa / Ataşehir - Kozyatağı Metro",
+    "type": "bus"
+  },
+  {
+    "code": "10F",
+    "desc": "Ümraniye / Finans Merkezi - Bostancı",
+    "type": "bus"
+  },
+  {
+    "code": "11",
+    "desc": "Yenidoğan - Altunizade Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "11A",
+    "desc": "Özyeğin Üniversitesi / Alemdağ - Altunizade Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "11BE",
+    "desc": "Burhaniye Mahallesi - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "11C",
+    "desc": "Burhaniye Mahallesi - Üsküdar Marmaray",
+    "type": "bus"
+  },
+  {
+    "code": "11CÜ",
+    "desc": "Burhaniye Mahallesi - Ümraniye Metro / Ring",
+    "type": "bus"
+  },
+  {
+    "code": "11D",
+    "desc": "İnkılap Mahallesi - Ümraniye Metro",
+    "type": "bus"
+  },
+  {
+    "code": "11E",
+    "desc": "Esatpaşa - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "11ES",
+    "desc": "Esenevler - Acıbadem Metrobüs / Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "11G",
+    "desc": "Yenidoğan - Necip Fazıl Metro",
+    "type": "bus"
+  },
+  {
+    "code": "11H",
+    "desc": "Ortaçeşme - Ümraniye",
+    "type": "bus"
+  },
+  {
+    "code": "11K",
+    "desc": "Kazım Karabekir Mahallesi - Ümraniye Metro",
+    "type": "bus"
+  },
+  {
+    "code": "11L",
+    "desc": "Esatpaşa / Bulgurlu - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "11M",
+    "desc": "Evtaş Blokları - Bulgurlu Metro",
+    "type": "bus"
+  },
+  {
+    "code": "11P",
+    "desc": "Emek Mahallesi - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "11R",
+    "desc": "Reşadiye - Necip Fazıl Metro",
+    "type": "bus"
+  },
+  {
+    "code": "11SA",
+    "desc": "Uğur Mumcu / Samandıra - Yenidoğan Peronlar",
+    "type": "bus"
+  },
+  {
+    "code": "11ST",
+    "desc": "Dumlupınar - Ümranıye Metro",
+    "type": "bus"
+  },
+  {
+    "code": "11T",
+    "desc": "Acarlar Sitesi - Harem",
+    "type": "bus"
+  },
+  {
+    "code": "11Y",
+    "desc": "Yavuztürk Mahallesi - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "11ÇB",
+    "desc": "Kavacık / Çavuşbaşı - Ümraniye",
+    "type": "bus"
+  },
+  {
+    "code": "11Ü",
+    "desc": "Esatpaşa / Ünalan - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "11ÜS",
+    "desc": "Sultanbeyli - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "12",
+    "desc": "Kadıköy - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "12A",
+    "desc": "Kadıköy - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "12C",
+    "desc": "Üsküdar Devlet Hastanesi - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "13",
+    "desc": "Ataşehir / Çakmak Mahallesi - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "13AB",
+    "desc": "Kısıklı - Ataşehir / Bostancı",
+    "type": "bus"
+  },
+  {
+    "code": "13B",
+    "desc": "Yenişehir - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "13FY",
+    "desc": "Batı Ataşehir / Finans Merkezi - Mevlana Metro / Ferhatpaşa",
+    "type": "bus"
+  },
+  {
+    "code": "13H",
+    "desc": "Evtaş Blokları - Ümraniye Metro / Ü.eğt.arş.hastanesi",
+    "type": "bus"
+  },
+  {
+    "code": "13M",
+    "desc": "Şerifali - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "13Y",
+    "desc": "Çakmak Mahallesi / Yenisahra - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "14A",
+    "desc": "Özyeğin Üniversitesi / Alemdağ - Uzunçayır",
+    "type": "bus"
+  },
+  {
+    "code": "14B",
+    "desc": "Adem Yavuz Mahallesi - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "14BK",
+    "desc": "Çekmeköy / Parseller Mah - Uzunçayır",
+    "type": "bus"
+  },
+  {
+    "code": "14C",
+    "desc": "Üsküdar Devlet Hastanesi - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "14CE",
+    "desc": "Çekmeköy - Dudullu Metro",
+    "type": "bus"
+  },
+  {
+    "code": "14D",
+    "desc": "Dumlupınar / Kazımkarabekir - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "14DK",
+    "desc": "İnkılap Mahallesi - Libadiye Caddesi / Uzunçayır",
+    "type": "bus"
+  },
+  {
+    "code": "14E",
+    "desc": "Kazım Karabekir - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "14ES",
+    "desc": "Esenşehir - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "14F",
+    "desc": "Küplüce - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "14FD",
+    "desc": "Ferah Mahallesi - Üsküdar Devlet Hastanesi",
+    "type": "bus"
+  },
+  {
+    "code": "14K",
+    "desc": "Kazım Karabekir - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "14KS",
+    "desc": "Sultanbeyli Gölet - Kozyatağı Metro",
+    "type": "bus"
+  },
+  {
+    "code": "14M",
+    "desc": "Kavacık Yeni Cami - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "14R",
+    "desc": "Rasathane - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "14S",
+    "desc": "Sultanbeyli - Kozyatağı Metro",
+    "type": "bus"
+  },
+  {
+    "code": "14SB",
+    "desc": "Şahinbey - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "14T",
+    "desc": "Atatürk Mah. / Taşdelen - Kozyatağı Metro",
+    "type": "bus"
+  },
+  {
+    "code": "14TM",
+    "desc": "Tepeüstü - Maltepe Metro / Cevizli Peronlar",
+    "type": "bus"
+  },
+  {
+    "code": "14Y",
+    "desc": "Yavuztürk Mahallesi - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "14YE",
+    "desc": "Yavuztürk Mahallesi / Ümraniye - Emek Mahallesi",
+    "type": "bus"
+  },
+  {
+    "code": "14YK",
+    "desc": "Yenidoğan / Şile Yolu - Ayrılık Çeşmesi",
+    "type": "bus"
+  },
+  {
+    "code": "14ŞB",
+    "desc": "Şahinbey - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "15",
+    "desc": "Beykoz - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15A",
+    "desc": "Anadolukavağı - Kavacık",
+    "type": "bus"
+  },
+  {
+    "code": "15B",
+    "desc": "Topağacı Mahallesi / Güzeltepe - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15BK",
+    "desc": "Dereseki / Beykoz - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "15C",
+    "desc": "Büyük Çamlıca Camii / Ferah Mahallesi - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15CA",
+    "desc": "Büyük Çamlıca Camii / Bulgurlu Metro - Göztepe Köprüsü",
+    "type": "bus"
+  },
+  {
+    "code": "15D",
+    "desc": "Anadolufeneri / Kaynarca / Dereseki - Sultaniye",
+    "type": "bus"
+  },
+  {
+    "code": "15E",
+    "desc": "Tekke Mevkii - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15F",
+    "desc": "Beykoz - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "15H",
+    "desc": "Hekimbaşı - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15K",
+    "desc": "Kirazlıtepe - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15KB",
+    "desc": "Kavacık - Kozyatağı Metro",
+    "type": "bus"
+  },
+  {
+    "code": "15KÇ",
+    "desc": "Karanlıkdere / Çavuşbaşı - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15M",
+    "desc": "Kavacık Yeni Cami - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15N",
+    "desc": "Arkboyu - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15P",
+    "desc": "Soğuksu Mahallesi - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15R",
+    "desc": "Rasathane - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15S",
+    "desc": "Sultanmurat - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15SD",
+    "desc": "Ortaçeşme / Sultaniye - Dudullu İmes",
+    "type": "bus"
+  },
+  {
+    "code": "15SK",
+    "desc": "Sultanmurat - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "15SN",
+    "desc": "Şenevler - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15T",
+    "desc": "Tokatköy - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15TA",
+    "desc": "Türk Alman Üniversitesi - Kavacık",
+    "type": "bus"
+  },
+  {
+    "code": "15TK",
+    "desc": "Tokatköy - Uzunçayır",
+    "type": "bus"
+  },
+  {
+    "code": "15TY",
+    "desc": "Tokatköy / Beykoz - Yenimahalle",
+    "type": "bus"
+  },
+  {
+    "code": "15U",
+    "desc": "Tufan - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15Y",
+    "desc": "Yenimahalle - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15YK",
+    "desc": "Yenimahalle - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "15Z",
+    "desc": "Güzeltepe - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "15ÇB",
+    "desc": "Kavacık - Çavuşbaşı / Çengeldere",
+    "type": "bus"
+  },
+  {
+    "code": "15ÇK",
+    "desc": "Güzeltepe - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "15ŞN",
+    "desc": "Şenevler - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "16A",
+    "desc": "Pendik - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "16D",
+    "desc": "Altkaynarca / Pendik - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "16F",
+    "desc": "Fındıklı Mahallesi - Harem",
+    "type": "bus"
+  },
+  {
+    "code": "16M",
+    "desc": "Acarlar Sitesi / Ataşehir - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "16U",
+    "desc": "Uğur Mumcu - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "16YK",
+    "desc": "Y.tepe Üniv. / Fındıklı Mahallesi - Kozyatağı Metro",
+    "type": "bus"
+  },
+  {
+    "code": "17",
+    "desc": "Pendik - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "17L",
+    "desc": "Küçükyalı Lojmanları / Marmara Üniv. - Bostancı",
+    "type": "bus"
+  },
+  {
+    "code": "17S",
+    "desc": "Uğur Mumcu - Bostancı",
+    "type": "bus"
+  },
+  {
+    "code": "18D",
+    "desc": "Sultanbeyli - Uzunçayır",
+    "type": "bus"
+  },
+  {
+    "code": "18K",
+    "desc": "Sultanbeyli - Uzunçayır",
+    "type": "bus"
+  },
+  {
+    "code": "18UK",
+    "desc": "Uzundere - Kozyatağı",
+    "type": "bus"
+  },
+  {
+    "code": "18YS",
+    "desc": "Yenidoğan - Sultanbeyli",
+    "type": "bus"
+  },
+  {
+    "code": "19",
+    "desc": "Ferhatpaşa / Yeditepe Üniversitesi - Uzunçayır",
+    "type": "bus"
+  },
+  {
+    "code": "19A",
+    "desc": "Yenidoğan - Ayrılık Çeşmesi",
+    "type": "bus"
+  },
+  {
+    "code": "19D",
+    "desc": "Ümraniye - Bostancı",
+    "type": "bus"
+  },
+  {
+    "code": "19E",
+    "desc": "Yenidoğan / Ataşehir - Kozyatağı Metro",
+    "type": "bus"
+  },
+  {
+    "code": "19EK",
+    "desc": "Yenidoğan / Ataşehir - Uzunçayır",
+    "type": "bus"
+  },
+  {
+    "code": "19F",
+    "desc": "Yeditepe Üniv. / Fındıklı Mahallesi - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "19FS",
+    "desc": "Ferhatpaşa - Soyak Yenişehir",
+    "type": "bus"
+  },
+  {
+    "code": "19K",
+    "desc": "Acarlar Sitesi / Kayışdağı - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "19M",
+    "desc": "Acarlar Sitesi / Ataşehir - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "19S",
+    "desc": "Yenidoğan / Sarıgazi - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "19SK",
+    "desc": "Yenıdoğan / Sarıgazı - Kozyatağı Metro",
+    "type": "bus"
+  },
+  {
+    "code": "19T",
+    "desc": "Ferhatpaşa - Uzunçayır",
+    "type": "bus"
+  },
+  {
+    "code": "19V",
+    "desc": "Veysel Karani / Samandıra - Kozyatağı Metro",
+    "type": "bus"
+  },
+  {
+    "code": "19Y",
+    "desc": "Ferhatpaşa - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "19YK",
+    "desc": "Yenidoğan - Kayışdağı",
+    "type": "bus"
+  },
+  {
+    "code": "20",
+    "desc": "Ortaçeşme / Kavacık - Ü.eğt.arş.hastanesi",
+    "type": "bus"
+  },
+  {
+    "code": "20D",
+    "desc": "Sarıgazi / Yenişehir - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "20E",
+    "desc": "Esatpaşa - Uzunçayır",
+    "type": "bus"
+  },
+  {
+    "code": "20K",
+    "desc": "Kazım Karabekir - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "20Ü",
+    "desc": "Ümraniye Tepeüstü - Uzunçayır",
+    "type": "bus"
+  },
+  {
+    "code": "22",
+    "desc": "İstinye Dereiçi - Kabataş",
+    "type": "bus"
+  },
+  {
+    "code": "22B",
+    "desc": "Bebek - Kabataş",
+    "type": "bus"
+  },
+  {
+    "code": "22RE",
+    "desc": "Fatih Sultan Mehmet - Beşiktaş",
+    "type": "bus"
+  },
+  {
+    "code": "25",
+    "desc": "Hacıosman Metro - Havantepe",
+    "type": "bus"
+  },
+  {
+    "code": "25A",
+    "desc": "Rumelikavağı - Hacıosman Metro",
+    "type": "bus"
+  },
+  {
+    "code": "25C",
+    "desc": "Tarabyaüstü / Ferahevler - İstinye",
+    "type": "bus"
+  },
+  {
+    "code": "25E",
+    "desc": "Sarıyer - Baltalimanı",
+    "type": "bus"
+  },
+  {
+    "code": "25G",
+    "desc": "Sarıyer - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "25S1",
+    "desc": "Hacıosman Metro - Sarıyer",
+    "type": "bus"
+  },
+  {
+    "code": "25S2",
+    "desc": "Hacıosman Metro - Sarıyer",
+    "type": "bus"
+  },
+  {
+    "code": "25Y",
+    "desc": "Hacıosman Metro - Yeni Uyum Sitesi",
+    "type": "bus"
+  },
+  {
+    "code": "26",
+    "desc": "Dikilitaş - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "26A",
+    "desc": "Fulya Mahallesi - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "26B",
+    "desc": "Fulya Mahallesi - Kabataş",
+    "type": "bus"
+  },
+  {
+    "code": "27E",
+    "desc": "Şirintepe - Kabataş",
+    "type": "bus"
+  },
+  {
+    "code": "27SE",
+    "desc": "Seyrantepe - Kabataş",
+    "type": "bus"
+  },
+  {
+    "code": "27T",
+    "desc": "Şirintepe - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "28",
+    "desc": "Topkapı / Edirnekapı - Beşiktaş",
+    "type": "bus"
+  },
+  {
+    "code": "28T",
+    "desc": "Topkapı - Beşiktaş",
+    "type": "bus"
+  },
+  {
+    "code": "29",
+    "desc": "İstinye Dereiçi - Zincirlikuyu Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "29A",
+    "desc": "Derbent Mahallesi - Beşiktaş",
+    "type": "bus"
+  },
+  {
+    "code": "29B",
+    "desc": "Fatih Sultan Mehmet - 4.levent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "29C",
+    "desc": "Tarabyaüstü - Kabataş",
+    "type": "bus"
+  },
+  {
+    "code": "29D",
+    "desc": "Ferahevler - Kabataş",
+    "type": "bus"
+  },
+  {
+    "code": "29E",
+    "desc": "Maslak Gazeteciler Sitesi - Beşiktaş",
+    "type": "bus"
+  },
+  {
+    "code": "29GM",
+    "desc": "Maslak Gazeteciler Sitesi - 4.levent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "29M1",
+    "desc": "Hacıosman Metro - Ferahevler / İstinye",
+    "type": "bus"
+  },
+  {
+    "code": "29M2",
+    "desc": "Hacıosman Metro - İstinye / Ferahevler",
+    "type": "bus"
+  },
+  {
+    "code": "29S",
+    "desc": "İstinye Dereiçi - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "29T",
+    "desc": "Tarabyaüstü / Darüşşafaka - İstinye",
+    "type": "bus"
+  },
+  {
+    "code": "29Ş",
+    "desc": "İstinye Dereiçi - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "30A",
+    "desc": "Beşiktaş - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "30D",
+    "desc": "Ortaköy Dereboyu - Yenikapı",
+    "type": "bus"
+  },
+  {
+    "code": "30M",
+    "desc": "Beşiktaş - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "31",
+    "desc": "Kuyumcukent - Yenikapı",
+    "type": "bus"
+  },
+  {
+    "code": "31E",
+    "desc": "Kuyumcukent - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "31Y",
+    "desc": "Toki Ayazma - Yenikapı",
+    "type": "bus"
+  },
+  {
+    "code": "32",
+    "desc": "Cevatpaşa - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "32A",
+    "desc": "Cevatpaşa - Aksaray",
+    "type": "bus"
+  },
+  {
+    "code": "32M",
+    "desc": "Cevatpaşa - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "32T",
+    "desc": "Cevatpaşa - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "33",
+    "desc": "Giyimkent / Turgutreis - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "33B",
+    "desc": "Giyimkent / Birlik Mahallesi - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "33ES",
+    "desc": "Giyimkent - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "33M",
+    "desc": "Giyimkent - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "33TE",
+    "desc": "Esenler Turgutreis - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "33TM",
+    "desc": "Giyimkent / Turgutreis - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "33Y",
+    "desc": "Giyimkent / Yüzyıl Mahallesi - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "34",
+    "desc": "Avcılar - Zincirlikuyu (Metrobüs)",
+    "type": "metrobus"
+  },
+  {
+    "code": "34A",
+    "desc": "Cevizlibağ - Söğütlüçeşme (Metrobüs)",
+    "type": "metrobus"
+  },
+  {
+    "code": "34AS",
+    "desc": "Avcılar - Söğütlüçeşme (Metrobüs)",
+    "type": "metrobus"
+  },
+  {
+    "code": "34B",
+    "desc": "Beylikdüzü - Avcılar (Metrobüs)",
+    "type": "metrobus"
+  },
+  {
+    "code": "34BZ",
+    "desc": "Beylikdüzü - Zincirlikuyu (Metrobüs)",
+    "type": "metrobus"
+  },
+  {
+    "code": "34C",
+    "desc": "Beylikdüzü - Cevizlibağ (Metrobüs)",
+    "type": "metrobus"
+  },
+  {
+    "code": "34G",
+    "desc": "Beylikdüzü - Söğütlüçeşme (Metrobüs)",
+    "type": "metrobus"
+  },
+  {
+    "code": "34T",
+    "desc": "Avcılar - Topkapı (Metrobüs)",
+    "type": "metrobus"
+  },
+  {
+    "code": "34U",
+    "desc": "Zincirlikuyu - Uzunçayır (Metrobüs)",
+    "type": "metrobus"
+  },
+  {
+    "code": "34Z",
+    "desc": "Zincirlikuyu - Söğütlüçeşme (Metrobüs)",
+    "type": "metrobus"
+  },
+  {
+    "code": "35",
+    "desc": "Kocamustafapaşa - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "35C",
+    "desc": "Kocamustafapaşa - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "35D",
+    "desc": "Kocamustafapaşa - Balat",
+    "type": "bus"
+  },
+  {
+    "code": "36",
+    "desc": "Yeni Mahalle Metro - Aksaray Ring",
+    "type": "bus"
+  },
+  {
+    "code": "36AS",
+    "desc": "Taşoluk Peron - Sefaköy Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "36AY",
+    "desc": "Arnavutköy - Yenibosna Metro",
+    "type": "bus"
+  },
+  {
+    "code": "36B",
+    "desc": "Bolluca / Boğazköy - Cebeci",
+    "type": "bus"
+  },
+  {
+    "code": "36C",
+    "desc": "Arnavutköy - Cebecı",
+    "type": "bus"
+  },
+  {
+    "code": "36CB",
+    "desc": "Cebeci Köyü - Habipler",
+    "type": "bus"
+  },
+  {
+    "code": "36D",
+    "desc": "Arnavutköy - Deliklikaya",
+    "type": "bus"
+  },
+  {
+    "code": "36ES",
+    "desc": "Sultangazi Peron - Aksaray",
+    "type": "bus"
+  },
+  {
+    "code": "36F",
+    "desc": "Cebeci - Fenertepe / Olimpiyatköy Metro",
+    "type": "bus"
+  },
+  {
+    "code": "36G",
+    "desc": "Sultangazi Peron - Beşiktaş",
+    "type": "bus"
+  },
+  {
+    "code": "36HT",
+    "desc": "Fatih Mahallesi - Haraççı - Cebeci",
+    "type": "bus"
+  },
+  {
+    "code": "36KE",
+    "desc": "Yeni Mahalle Metro - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "36L",
+    "desc": "Mescid - İ Selam - 4.levent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "36S",
+    "desc": "Habipler - Yenimahalle Metro",
+    "type": "bus"
+  },
+  {
+    "code": "36V",
+    "desc": "Yayla Mahallesi - Vezneciler",
+    "type": "bus"
+  },
+  {
+    "code": "36Y",
+    "desc": "Taşoluk Peron - Mahmutbey Metro",
+    "type": "bus"
+  },
+  {
+    "code": "36YS",
+    "desc": "Yassıören - Arnavutköy",
+    "type": "bus"
+  },
+  {
+    "code": "36Z",
+    "desc": "Cebeci - Zincirlikuyu",
+    "type": "bus"
+  },
+  {
+    "code": "38",
+    "desc": "Sultangazi Peron - Aksaray",
+    "type": "bus"
+  },
+  {
+    "code": "38B",
+    "desc": "Sultangazi Peron - Vezneciler",
+    "type": "bus"
+  },
+  {
+    "code": "38E",
+    "desc": "G.o.p. Devlet Hastanesi - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "38H",
+    "desc": "Zübeyde Hanım Mahallesi - Habibler",
+    "type": "bus"
+  },
+  {
+    "code": "38Z",
+    "desc": "Zübeyde Hanım Mahallesi - Aksaray",
+    "type": "bus"
+  },
+  {
+    "code": "40",
+    "desc": "Rumelifeneri / Garipçe - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "40B",
+    "desc": "Sarıyer - Beşiktaş",
+    "type": "bus"
+  },
+  {
+    "code": "40T",
+    "desc": "İstinye Dereiçi - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "41",
+    "desc": "Sinpaş Sitesi - 4.levent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "41A",
+    "desc": "Ayazağa - 4. Levent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "41AT",
+    "desc": "Ayazağa - Davutpaşa Y.t.ü",
+    "type": "bus"
+  },
+  {
+    "code": "41C",
+    "desc": "Ayazağa - Sarıyer",
+    "type": "bus"
+  },
+  {
+    "code": "41E",
+    "desc": "Ayazağa - Kabataş",
+    "type": "bus"
+  },
+  {
+    "code": "41N",
+    "desc": "Nişantaşı Üniversitesi - Maslak",
+    "type": "bus"
+  },
+  {
+    "code": "41SF",
+    "desc": "Sarıyer - Fatih Sultan Mehmet",
+    "type": "bus"
+  },
+  {
+    "code": "41SM",
+    "desc": "Yeni Ayazağa Mezarlığı - 4.levent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "41ST",
+    "desc": "Seyrantepe - Topkapı",
+    "type": "bus"
+  },
+  {
+    "code": "42",
+    "desc": "Bahçeköy / Ferahevler - Zincirlikuyu Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "42HM",
+    "desc": "Bahçeköy - Hacıosman Metro",
+    "type": "bus"
+  },
+  {
+    "code": "42K",
+    "desc": "Sarıyer - Kazım Karabekir",
+    "type": "bus"
+  },
+  {
+    "code": "42KT",
+    "desc": "Sarıyer - Kocataş",
+    "type": "bus"
+  },
+  {
+    "code": "42T",
+    "desc": "Bahçeköy - Baltalimanı",
+    "type": "bus"
+  },
+  {
+    "code": "42Z",
+    "desc": "Hacıosman Metro - Kazım Karabekir",
+    "type": "bus"
+  },
+  {
+    "code": "43R",
+    "desc": "Rumeli Hisarüstü - Kabataş",
+    "type": "bus"
+  },
+  {
+    "code": "46KT",
+    "desc": "Kuştepe - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "46T",
+    "desc": "Çağlayan - Topkapı",
+    "type": "bus"
+  },
+  {
+    "code": "46Ç",
+    "desc": "Kağıthane - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "48",
+    "desc": "Göktürk - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "48C",
+    "desc": "Kemerburgaz - Çiftalan Köyü",
+    "type": "bus"
+  },
+  {
+    "code": "48D",
+    "desc": "Göktürk - Hacıosman Metro",
+    "type": "bus"
+  },
+  {
+    "code": "48G",
+    "desc": "Göktürk - Mescidi Selam",
+    "type": "bus"
+  },
+  {
+    "code": "48H",
+    "desc": "Hamidiye Mahallesi - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "48K",
+    "desc": "Kemerburgaz - Ağaçlı Köyü",
+    "type": "bus"
+  },
+  {
+    "code": "48KA",
+    "desc": "Kemerburgaz - Arnavutköy",
+    "type": "bus"
+  },
+  {
+    "code": "48L",
+    "desc": "Göktürk - 4.levent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "48M",
+    "desc": "Akpınar Köyü - Arnavutköy",
+    "type": "bus"
+  },
+  {
+    "code": "48N",
+    "desc": "Emniyettepe - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "48P",
+    "desc": "Kemerburgaz - Akpınar Köyü",
+    "type": "bus"
+  },
+  {
+    "code": "48S",
+    "desc": "Sadabat Evleri - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "48T",
+    "desc": "Hamidiye Mahallesi - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "48U",
+    "desc": "Kent Orman - Kemerburgaz",
+    "type": "bus"
+  },
+  {
+    "code": "50A",
+    "desc": "Alibeyköy - Edirnekapı Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "50AT",
+    "desc": "Cebeci - Gazi - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "50B",
+    "desc": "Alibeyköy - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "50C",
+    "desc": "Alibeyköy - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "50D",
+    "desc": "Ayazağa - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "50E",
+    "desc": "Alibeyköy - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "50F",
+    "desc": "Alibeyköy - 4.levent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "50G",
+    "desc": "Göktürk - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "50H",
+    "desc": "Alibeyköy - Hacıosman Metro",
+    "type": "bus"
+  },
+  {
+    "code": "50K",
+    "desc": "Alibeyköy - Kazlıçeşme",
+    "type": "bus"
+  },
+  {
+    "code": "50L",
+    "desc": "Alibeyköy - Beşiktaş",
+    "type": "bus"
+  },
+  {
+    "code": "50M",
+    "desc": "Alibeyköy - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "50N",
+    "desc": "Alibeyköy - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "50P",
+    "desc": "Çırçır Metro - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "50R",
+    "desc": "Alibeyköy - Otogar",
+    "type": "bus"
+  },
+  {
+    "code": "50S",
+    "desc": "Alibeyköy - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "50T",
+    "desc": "Alibeyköy - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "50V",
+    "desc": "Alibeyköy - Vezneciler",
+    "type": "bus"
+  },
+  {
+    "code": "50Y",
+    "desc": "Alibeyköy - Yenikapı",
+    "type": "bus"
+  },
+  {
+    "code": "50Z",
+    "desc": "Alibeyköy - Zincirlikuyu",
+    "type": "bus"
+  },
+  {
+    "code": "54E",
+    "desc": "Okmeydanı - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "54HS",
+    "desc": "Hasköy - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "54HT",
+    "desc": "Hasköy - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "54HŞ",
+    "desc": "Hasköy - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "54K",
+    "desc": "Hasköy - Kulaksız - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "54KT",
+    "desc": "Kaptanpaşa - Dolapdere / Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "54P",
+    "desc": "Piyalepaşa Mahallesi - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "54T",
+    "desc": "Sadabat Evleri / Talatpaşa - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "54TE",
+    "desc": "Sadabat Evleri / Talatpaşa - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "54Ç",
+    "desc": "Çıksalın - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "54ÖR",
+    "desc": "Örnektepe - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "55",
+    "desc": "Gaziosmanpaşa - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "55ET",
+    "desc": "Gaziosmanpaşa - Beşiktaş",
+    "type": "bus"
+  },
+  {
+    "code": "55G",
+    "desc": "Gaziosmanpaşa - Beşiktaş",
+    "type": "bus"
+  },
+  {
+    "code": "55T",
+    "desc": "Gaziosmanpaşa - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "55Y",
+    "desc": "Kağıthane Garajı - Yenibosna Metro",
+    "type": "bus"
+  },
+  {
+    "code": "57UL",
+    "desc": "Beşiktaş - Kuruçeşmeüstü",
+    "type": "bus"
+  },
+  {
+    "code": "58A",
+    "desc": "Poligon Mahallesi - Kabataş",
+    "type": "bus"
+  },
+  {
+    "code": "58N",
+    "desc": "Fatih Sultan Mehmet - Kabataş",
+    "type": "bus"
+  },
+  {
+    "code": "58S",
+    "desc": "Levazım Mahallesi - Kabataş",
+    "type": "bus"
+  },
+  {
+    "code": "58UL",
+    "desc": "Ulus Mahallesi - Kabataş",
+    "type": "bus"
+  },
+  {
+    "code": "59A",
+    "desc": "İstinye Dereiçi - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "59CH",
+    "desc": "Arnavutköy - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "59HS",
+    "desc": "Hacıosman Metro - Sarıtepe Kampüsü",
+    "type": "bus"
+  },
+  {
+    "code": "59K",
+    "desc": "Karayolları / Etiler - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "59N",
+    "desc": "Fatih Sultan Mehmet - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "59R",
+    "desc": "Rumeli Hisarüstü - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "59RH",
+    "desc": "Rumeli Hisarüstü - Hacıosman Metro",
+    "type": "bus"
+  },
+  {
+    "code": "59RK",
+    "desc": "Rumeli Hisarüstü - Sarıtepe Kampüsü",
+    "type": "bus"
+  },
+  {
+    "code": "59RS",
+    "desc": "Sarıyer - Rumeli Hisarüstü",
+    "type": "bus"
+  },
+  {
+    "code": "62",
+    "desc": "Kağıthane / Gültepe - Kabataş",
+    "type": "bus"
+  },
+  {
+    "code": "62G",
+    "desc": "Emniyettepe / Hamidiye - Beşiktaş",
+    "type": "bus"
+  },
+  {
+    "code": "62H",
+    "desc": "Emniyettepe - Hacıosman Metro",
+    "type": "bus"
+  },
+  {
+    "code": "63",
+    "desc": "Kağıthane / Çeliktepe - Kabataş",
+    "type": "bus"
+  },
+  {
+    "code": "64Ç",
+    "desc": "Emniyettepe / Çeliktepe - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "65A",
+    "desc": "Seyrantepe - Kağıthane Garajı",
+    "type": "bus"
+  },
+  {
+    "code": "65G",
+    "desc": "Kağıthane / Gültepe - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "66",
+    "desc": "Gülbağ - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "66Z",
+    "desc": "Zincirlidere - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "70D",
+    "desc": "Kurtuluş / Dolapdere - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "70FE",
+    "desc": "Feriköy - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "70FY",
+    "desc": "Feriköy - Yenikapı",
+    "type": "bus"
+  },
+  {
+    "code": "70KE",
+    "desc": "Kurtuluş - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "70KY",
+    "desc": "Kurtuluş - Yenikapı",
+    "type": "bus"
+  },
+  {
+    "code": "71T",
+    "desc": "Ataköy - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "72T",
+    "desc": "Yeşilköy - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "72YT",
+    "desc": "Cerrahpaşa Tıp Fak. Murat Dilmener Acil Durum Hastanesi - Yenikapı",
+    "type": "bus"
+  },
+  {
+    "code": "73",
+    "desc": "Yenibosna Metro - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "73B",
+    "desc": "Florya - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "73F",
+    "desc": "Florya - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "73H",
+    "desc": "Cerrahpaşa Murat Dilmener Hastanesi - Yenibosna Metro",
+    "type": "bus"
+  },
+  {
+    "code": "73Y",
+    "desc": "Kuyumcukent - Yeşilköy / Akvaryum",
+    "type": "bus"
+  },
+  {
+    "code": "74",
+    "desc": "Hilton Sitesi - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "74A",
+    "desc": "Gayrettepe - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "76",
+    "desc": "Beylikdüzü - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "76A",
+    "desc": "Kiptaş Vaditepe - Yenikapı",
+    "type": "bus"
+  },
+  {
+    "code": "76BA",
+    "desc": "Büyükçekmece - Avcılar Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "76D",
+    "desc": "Bahçeşehir / Esenkent - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "76G",
+    "desc": "Gürpınar - Avcılar Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "76GM",
+    "desc": "Gürpınar - Beykent Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "76O",
+    "desc": "Avcılar Cihangir Mahallesi - Otogar",
+    "type": "bus"
+  },
+  {
+    "code": "76TM",
+    "desc": "Tepekent - Haramidere",
+    "type": "bus"
+  },
+  {
+    "code": "76V",
+    "desc": "Kiptaş Vaditepe - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "77",
+    "desc": "Yenikapı - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "77A",
+    "desc": "Vezneciler - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "77Ç",
+    "desc": "Çıksalın - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "78",
+    "desc": "Metrokent - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "78B",
+    "desc": "Fenertepe Peron / Başakşehir - Yenibosna Metro",
+    "type": "bus"
+  },
+  {
+    "code": "78C",
+    "desc": "Yunus Emre Mahallesi - Fenertepe",
+    "type": "bus"
+  },
+  {
+    "code": "78E",
+    "desc": "Fenertepe Peron / Başakşehir - Kayabaşı Kiptaş",
+    "type": "bus"
+  },
+  {
+    "code": "78F",
+    "desc": "Fenertepe - Başakşehir - Metrokent",
+    "type": "bus"
+  },
+  {
+    "code": "78G",
+    "desc": "Fenertepe Peron / Başakşehir - Kayaşehir",
+    "type": "bus"
+  },
+  {
+    "code": "78H",
+    "desc": "Fenertepe Peron / Başakşehir - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "78K",
+    "desc": "Fenertepe Peron / Başakşehır - K.s.s. Hastanesi",
+    "type": "bus"
+  },
+  {
+    "code": "78S",
+    "desc": "Fenertepe Peron / Başakşehir - Şahintepe İGTOT",
+    "type": "bus"
+  },
+  {
+    "code": "78ZB",
+    "desc": "Fenertepe Peron / Başakşehir - Zeytinburnu",
+    "type": "bus"
+  },
+  {
+    "code": "78Ş",
+    "desc": "Fenertepe Peron / Başakşehir - Şahintepe İGTOT",
+    "type": "bus"
+  },
+  {
+    "code": "79B",
+    "desc": "Kayaşehir - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "79C",
+    "desc": "Kayaşehir - Cebeci Mahallesi",
+    "type": "bus"
+  },
+  {
+    "code": "79E",
+    "desc": "Kayabaşı Kiptaş / Kayaşehir - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "79F",
+    "desc": "Kayaşehir - Yenibosna Metro",
+    "type": "bus"
+  },
+  {
+    "code": "79FY",
+    "desc": "Fenertepe - Yenibosna Metro",
+    "type": "bus"
+  },
+  {
+    "code": "79G",
+    "desc": "Kayaşehir - Zeytinburnu",
+    "type": "bus"
+  },
+  {
+    "code": "79GE",
+    "desc": "Güvercintepe / Fenertepe - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "79K",
+    "desc": "Kayaşehir - Yenibosna Metro",
+    "type": "bus"
+  },
+  {
+    "code": "79KM",
+    "desc": "Kayaşehir - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "79KT",
+    "desc": "Kayabaşı Kiptaş - Tekstilkent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "79S",
+    "desc": "Şahintepe İGTOT - İkitelli OSB",
+    "type": "bus"
+  },
+  {
+    "code": "79T",
+    "desc": "Kayabaşı Kiptaş - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "79Y",
+    "desc": "Kayabaşı Kiptaş / Kayaşehir - Yenibosna Metro",
+    "type": "bus"
+  },
+  {
+    "code": "79Ş",
+    "desc": "Şahintepe İGTOT - İkitelli OSB",
+    "type": "bus"
+  },
+  {
+    "code": "80T",
+    "desc": "Kazlıçeşme - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "82",
+    "desc": "Kuyumcukent - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "85C",
+    "desc": "Davutpaşa Ytü - Kazlıçeşme",
+    "type": "bus"
+  },
+  {
+    "code": "86V",
+    "desc": "Eyüpsultan - Vezneciler",
+    "type": "bus"
+  },
+  {
+    "code": "87",
+    "desc": "Topkapı / Edirnekapı - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "88",
+    "desc": "Sultangazi Peron - Topkapı",
+    "type": "bus"
+  },
+  {
+    "code": "88A",
+    "desc": "Sultangazi Peron - Yenikapı",
+    "type": "bus"
+  },
+  {
+    "code": "89",
+    "desc": "K.s.s. Hastanesi / Atakent - Aksaray",
+    "type": "bus"
+  },
+  {
+    "code": "89A",
+    "desc": "K.s.s. Hastanesi - Zeytinburnu",
+    "type": "bus"
+  },
+  {
+    "code": "89B",
+    "desc": "Küçükçekmece - Aksaray",
+    "type": "bus"
+  },
+  {
+    "code": "89C",
+    "desc": "İETT İkitelli Garajı - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "89F",
+    "desc": "Küçükçekmece - İstoç",
+    "type": "bus"
+  },
+  {
+    "code": "89K",
+    "desc": "K.s.s. Hastanesi - Aksaray",
+    "type": "bus"
+  },
+  {
+    "code": "89M",
+    "desc": "Mehmet Akif Mahallesi - Zeytinburnu",
+    "type": "bus"
+  },
+  {
+    "code": "89S",
+    "desc": "Söğütlüçeşme - Zeytinburnu",
+    "type": "bus"
+  },
+  {
+    "code": "89T",
+    "desc": "K.s.s. Hastanesi / Atakent - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "89YB",
+    "desc": "K.s.s. Hastanesi / Atakent - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "90",
+    "desc": "Draman - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "90B",
+    "desc": "Draman - Aksaray",
+    "type": "bus"
+  },
+  {
+    "code": "91E",
+    "desc": "Göztepe Mahallesi - Aksaray",
+    "type": "bus"
+  },
+  {
+    "code": "91M",
+    "desc": "Fatih Mahallesi Yanyol - Mecidiyeköy Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "92",
+    "desc": "Yeni Mahalle Metro - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "92B",
+    "desc": "Yeni Mahalle Metro / Ateştuğla - Aksaray",
+    "type": "bus"
+  },
+  {
+    "code": "92C",
+    "desc": "Haznedar - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "92K",
+    "desc": "Yeni Mahalle Metro / Kirazlı - Aksaray",
+    "type": "bus"
+  },
+  {
+    "code": "92M",
+    "desc": "Bağcılar Devlet Hastanesi - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "92S",
+    "desc": "Yeni Mahalle Metro - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "92T",
+    "desc": "Bağcılar Devlet Hastanesi - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "92Ş",
+    "desc": "Yeni Mahalle Metro - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "93",
+    "desc": "Zeytinburnu - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "93M",
+    "desc": "Zeytinburnu - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "93T",
+    "desc": "Zeytinburnu - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "97",
+    "desc": "15 Temmuz Mahallesi - Aksaray",
+    "type": "bus"
+  },
+  {
+    "code": "97A",
+    "desc": "Basınsitesi - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "97BT",
+    "desc": "Kocasinan İtfaiye - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "97E",
+    "desc": "Mahmutbey - Kazlıçeşme",
+    "type": "bus"
+  },
+  {
+    "code": "97G",
+    "desc": "Yeni Mahalle Metro - Aksaray",
+    "type": "bus"
+  },
+  {
+    "code": "97GE",
+    "desc": "15 Temmuz Mahallesi - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "97KZ",
+    "desc": "Kocasinan - Zeytinburnu",
+    "type": "bus"
+  },
+  {
+    "code": "97M",
+    "desc": "15 Temmuz Mahallesi - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "97T",
+    "desc": "Basınsitesi - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "98",
+    "desc": "Fenertepe / Başakşehir - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "98A",
+    "desc": "Göztepe Mahallesi - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "98AB",
+    "desc": "Atakent / Halkalı - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "98B",
+    "desc": "Kuyumcukent - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "98D",
+    "desc": "Yeni Mahalle Metro - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "98E",
+    "desc": "Güneşli Basın Tesisleri - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "98G",
+    "desc": "Giyimkent / Turgutreis - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "98H",
+    "desc": "Metrokent - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "98KM",
+    "desc": "Fenertepe - Sefaköy Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "98M",
+    "desc": "İstoç - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "98MB",
+    "desc": "Mehmet Akif Mahallesi - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "98S",
+    "desc": "K.s.s. Hastanesi - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "98T",
+    "desc": "K.s.s. Hastanesi / Atakent - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "98TB",
+    "desc": "Fatih Mahallesi - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "98Y",
+    "desc": "Giyimkent / Yüzyıl Mahallesi - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "99A",
+    "desc": "Gaziosmanpaşa - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "121A",
+    "desc": "Beykoz - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "121B",
+    "desc": "Kavacık - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "121BS",
+    "desc": "Sultaniye / Soğuksu Mahallesi - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "122C",
+    "desc": "Tepeüstü - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "122D",
+    "desc": "Atatürk Mahallesi - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "122H",
+    "desc": "S.gökçen Havalimanı / Yenişehir - 4.levent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "122M",
+    "desc": "Şahinbey - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "122V",
+    "desc": "Veysel Karani - 4.levent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "122Y",
+    "desc": "Çekmeköy - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "122ÇK",
+    "desc": "Şahinbey - Kavacık",
+    "type": "bus"
+  },
+  {
+    "code": "129L",
+    "desc": "Kozyatağı - 4.levent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "129T",
+    "desc": "Bostancı - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "130A",
+    "desc": "Deniz Harp Okulu - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "130E",
+    "desc": "Tuzla / Evora Konutları - Kartal Metro / Cevizli",
+    "type": "bus"
+  },
+  {
+    "code": "130H",
+    "desc": "Deniz Harp Okulu - Sabiha Gökçen Havalimanı",
+    "type": "bus"
+  },
+  {
+    "code": "130S",
+    "desc": "Şifa Mahallesi - Uzunçayır",
+    "type": "bus"
+  },
+  {
+    "code": "130ST",
+    "desc": "Şifa Mahallesi - Tavşantepe Metro",
+    "type": "bus"
+  },
+  {
+    "code": "130T",
+    "desc": "Aydınlı Toki Konutları - Tuzla",
+    "type": "bus"
+  },
+  {
+    "code": "130Ş",
+    "desc": "Şifa Mahallesi - Uzunçayır",
+    "type": "bus"
+  },
+  {
+    "code": "130ŞT",
+    "desc": "Şifa Mahallesi - Tavşantepe Metro",
+    "type": "bus"
+  },
+  {
+    "code": "131K",
+    "desc": "Yeşiltepe / Şahinbey - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "131SB",
+    "desc": "Sultanbeyli Merkez - Sultanbeyli Yeni Devlet Hast.",
+    "type": "bus"
+  },
+  {
+    "code": "131T",
+    "desc": "Atatürk Mah. / Taşdelen - İmes / Ümraniye",
+    "type": "bus"
+  },
+  {
+    "code": "131V",
+    "desc": "Veysel Karani - Yakacık / Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "131Y",
+    "desc": "Çekmeköy / Samandıra - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "131YS",
+    "desc": "Sultanbeyli Devlet Hastanesi - Yenidoğan - Ümraniye",
+    "type": "bus"
+  },
+  {
+    "code": "132",
+    "desc": "Akfırat / Tepeören - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "132A",
+    "desc": "Çamlık Mahallesi - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "132B",
+    "desc": "Akfırat Evleri - Kartal Metro",
+    "type": "bus"
+  },
+  {
+    "code": "132C",
+    "desc": "Sultanbeyli Gölet - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "132D",
+    "desc": "Kurtdoğmuş / Ballıca - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "132E",
+    "desc": "Emirli / Kurnaköy - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "132F",
+    "desc": "Esenler - Tavşantepe Metro / Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "132G",
+    "desc": "Gözdağı - Pendik YHT / Pendik",
+    "type": "bus"
+  },
+  {
+    "code": "132H",
+    "desc": "Pendik / Pendik YHT - Sabiha Gökçen Havalimanı",
+    "type": "bus"
+  },
+  {
+    "code": "132K",
+    "desc": "Yenişehir - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "132M",
+    "desc": "Sultanbeyli Mimarsinan - Kartal Metro / Cevizli",
+    "type": "bus"
+  },
+  {
+    "code": "132N",
+    "desc": "Özyeğin Üni. / Nişantepe / Büyükbakkalköy - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "132P",
+    "desc": "Veysel Karani / Sultanbeyli - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "132S",
+    "desc": "Yenidoğan - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "132SB",
+    "desc": "Sultanbeyli Devlet Hast. - Marmara Üniv. Başıbüyük Kampüsü",
+    "type": "bus"
+  },
+  {
+    "code": "132SP",
+    "desc": "Sultanbeyli Peronlar - Pendik YHT / Pendik",
+    "type": "bus"
+  },
+  {
+    "code": "132T",
+    "desc": "Tepeören - Kartal Metro",
+    "type": "bus"
+  },
+  {
+    "code": "132Y",
+    "desc": "Hilal Konutları / Yayalar - Kartal Metro",
+    "type": "bus"
+  },
+  {
+    "code": "132YB",
+    "desc": "Yenidoğan - Marmara Üniversitesi Başıbüyük Kampüsü",
+    "type": "bus"
+  },
+  {
+    "code": "132YM",
+    "desc": "Yeşiltepe - Marmara Eğitim Köyü",
+    "type": "bus"
+  },
+  {
+    "code": "132YS",
+    "desc": "Yenidoğan / Sultanbeyli Devlet Hast. - Sultanbeyli Peronlar",
+    "type": "bus"
+  },
+  {
+    "code": "132Z",
+    "desc": "Sultanbeyli Uzundere - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "132ÇK",
+    "desc": "Çekmeköy - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "133A",
+    "desc": "Aydınlı Bahçeler - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "133AK",
+    "desc": "Tepeören - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "133F",
+    "desc": "Acarlar Sitesi - Maltepe / Cevizli Peronlar",
+    "type": "bus"
+  },
+  {
+    "code": "133G",
+    "desc": "Gülensu Mahallesi - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "133GP",
+    "desc": "Göçbeyli - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "133K",
+    "desc": "Kurtköy Sanayi Mahallesi / Kavakpınar - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "133KT",
+    "desc": "Aydınlı Toki Konutları - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "133M",
+    "desc": "Tuzla Organize Sanayi - Kafkale Tuzla Sahil",
+    "type": "bus"
+  },
+  {
+    "code": "133N",
+    "desc": "Maltepe Üniversitesi - Maltepe Metro / Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "133P",
+    "desc": "Tepeören - Tuzla",
+    "type": "bus"
+  },
+  {
+    "code": "133S",
+    "desc": "Çağdaşkent / Şekerpınar Mah. - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "133T",
+    "desc": "Deniz Harp Okulu - Maltepe Peronlar",
+    "type": "bus"
+  },
+  {
+    "code": "133TM",
+    "desc": "Aydınlı Toki / Mimarsinan Mahallesi - Tuzla",
+    "type": "bus"
+  },
+  {
+    "code": "133Ü",
+    "desc": "Gazi Bulvarı / Orhanlı - Pendik Metro / YHT / Pendik",
+    "type": "bus"
+  },
+  {
+    "code": "133Ş",
+    "desc": "Çağdaşkent / Şekerpınar Mah. - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "134",
+    "desc": "Vıaport / Hilal Konutları - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "134CK",
+    "desc": "Şeyhli Mezarlık / Cezaevi - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "134GK",
+    "desc": "Uğur Mumcu / Gümüşpınar - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "134UK",
+    "desc": "Uğur Mumcu - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "134YK",
+    "desc": "Uğur Mumcu - Yakacık - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "135",
+    "desc": "Poyrazköy - Sultaniye",
+    "type": "bus"
+  },
+  {
+    "code": "135A",
+    "desc": "Acarkent / Görele Mahallesi - Kavacık",
+    "type": "bus"
+  },
+  {
+    "code": "135G",
+    "desc": "Tokatköy - Çavuşbaşı",
+    "type": "bus"
+  },
+  {
+    "code": "135K",
+    "desc": "Karlıtepe - Ortaçeşme",
+    "type": "bus"
+  },
+  {
+    "code": "135T",
+    "desc": "Arkboyu - Tokatköy",
+    "type": "bus"
+  },
+  {
+    "code": "136",
+    "desc": "Değirmendere - Sultaniye",
+    "type": "bus"
+  },
+  {
+    "code": "136B",
+    "desc": "Türk Alman Üniversitesi - Kavacık / Hekimbaşı",
+    "type": "bus"
+  },
+  {
+    "code": "136R",
+    "desc": "Riva - Kavacık",
+    "type": "bus"
+  },
+  {
+    "code": "136T",
+    "desc": "Toygar / Sultaniye - Kavacık",
+    "type": "bus"
+  },
+  {
+    "code": "136Z",
+    "desc": "Ali Bahadır / Zerzevat - Sultaniye",
+    "type": "bus"
+  },
+  {
+    "code": "137",
+    "desc": "Cumhuriyet Köyü / Riva - Beykoz / Sultaniye",
+    "type": "bus"
+  },
+  {
+    "code": "138",
+    "desc": "Cumhuriyet Köyü / Ömerli - Ümraniye",
+    "type": "bus"
+  },
+  {
+    "code": "138B",
+    "desc": "Göllü / Ömerli - Ümraniye",
+    "type": "bus"
+  },
+  {
+    "code": "139",
+    "desc": "Üsküdar - Şile",
+    "type": "bus"
+  },
+  {
+    "code": "139A",
+    "desc": "Üsküdar - Şile / Ağva",
+    "type": "bus"
+  },
+  {
+    "code": "139D",
+    "desc": "Necip Fazıl Metro - Darlık",
+    "type": "bus"
+  },
+  {
+    "code": "139S",
+    "desc": "Necip Fazıl Metro - Sofular Köyü",
+    "type": "bus"
+  },
+  {
+    "code": "139T",
+    "desc": "Tepeüstü - Şile",
+    "type": "bus"
+  },
+  {
+    "code": "141A",
+    "desc": "K.s.s. Hastanesi - Mehmet Akif Ersoy Cad",
+    "type": "bus"
+  },
+  {
+    "code": "141K",
+    "desc": "K.s.s. Hastanesi - Mahmutbey Metro",
+    "type": "bus"
+  },
+  {
+    "code": "141M",
+    "desc": "K.s.s. Hastanesi - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "142",
+    "desc": "Boğazköy - Avcılar Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "142A",
+    "desc": "Boğazköy - Avcılar Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "142B",
+    "desc": "K.s.s. Hastanesi - Büyükçekmece",
+    "type": "bus"
+  },
+  {
+    "code": "142E",
+    "desc": "Esenyurt Kiptaş 4. Etap - Aksaray",
+    "type": "bus"
+  },
+  {
+    "code": "142ES",
+    "desc": "İ.ü.cerrahpaşa Kampüs - Avcılar Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "142F",
+    "desc": "Yeşilkent - Avcılar Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "142K",
+    "desc": "Esenyurt Kiptaş 4.etap - Avcılar Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "142T",
+    "desc": "Tüyap Metrobüs - K.s.s Hastanesi",
+    "type": "bus"
+  },
+  {
+    "code": "143",
+    "desc": "Küçükçekmece - İstoç",
+    "type": "bus"
+  },
+  {
+    "code": "144",
+    "desc": "Boğazköy / Bahçekent - Haramidere",
+    "type": "bus"
+  },
+  {
+    "code": "144A",
+    "desc": "Deliklikaya - Avcılar Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "144B",
+    "desc": "Deliklikaya - Yeşilbayır Köyü - Su Ürünleri Hali",
+    "type": "bus"
+  },
+  {
+    "code": "144H",
+    "desc": "Heybetli Sok. / Deliklikaya - Haramidere",
+    "type": "bus"
+  },
+  {
+    "code": "144K",
+    "desc": "Ömerli Kiptaş - Esenkent",
+    "type": "bus"
+  },
+  {
+    "code": "144M",
+    "desc": "Deliklikaya - Mahmutbey Metro",
+    "type": "bus"
+  },
+  {
+    "code": "145",
+    "desc": "İhlas Marmara Evleri - Küçükçekmece Marmaray",
+    "type": "bus"
+  },
+  {
+    "code": "145M",
+    "desc": "Beykent - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "145T",
+    "desc": "Beylikdüzü - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "146",
+    "desc": "Boğazköy / Bahçeşehir - Bakırköy",
+    "type": "bus"
+  },
+  {
+    "code": "146A",
+    "desc": "Esenkent - Birlik Mahallesi",
+    "type": "bus"
+  },
+  {
+    "code": "146B",
+    "desc": "Metrokent - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "146F",
+    "desc": "Şehir Hastanesi / Esenkent - Esenyurt Devlet Hastanesi",
+    "type": "bus"
+  },
+  {
+    "code": "146M",
+    "desc": "Metrokent - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "146T",
+    "desc": "Boğazköy / Bahçeşehir - Yenikapı",
+    "type": "bus"
+  },
+  {
+    "code": "147",
+    "desc": "Şahintepe İGTOT - Avcılar Cihangir Mahallesi",
+    "type": "bus"
+  },
+  {
+    "code": "150",
+    "desc": "Hacıosman Metro - Rumelifeneri",
+    "type": "bus"
+  },
+  {
+    "code": "151",
+    "desc": "Hacıosman Metro - Kilyos / Demirciköy",
+    "type": "bus"
+  },
+  {
+    "code": "152",
+    "desc": "Hacıosman Metro - Zekeriyaköy / Kısırkaya",
+    "type": "bus"
+  },
+  {
+    "code": "153",
+    "desc": "Bahçeköy - Sarıyer",
+    "type": "bus"
+  },
+  {
+    "code": "154",
+    "desc": "Hacıosman Metro - Koç Üniversitesi",
+    "type": "bus"
+  },
+  {
+    "code": "251",
+    "desc": "Pendik - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "256",
+    "desc": "Yeditepe Üniversitesi / Ataşehir - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "300",
+    "desc": "Silivri - Tüyap",
+    "type": "bus"
+  },
+  {
+    "code": "300B",
+    "desc": "Silivri Büyükçavuşlu - Tüyap",
+    "type": "bus"
+  },
+  {
+    "code": "300C",
+    "desc": "Silivri Çanta / Sancaktepe - Tüyap",
+    "type": "bus"
+  },
+  {
+    "code": "300D",
+    "desc": "Silivri Değirmenköy - Tüyap",
+    "type": "bus"
+  },
+  {
+    "code": "300G",
+    "desc": "Silivri Gümüşyaka - Tüyap",
+    "type": "bus"
+  },
+  {
+    "code": "300M",
+    "desc": "Silivri Mimarsinan / Kavaklı - Tüyap",
+    "type": "bus"
+  },
+  {
+    "code": "303A",
+    "desc": "Silivri - Avcılar Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "303B",
+    "desc": "Marmara Cezaevi - Otogar",
+    "type": "bus"
+  },
+  {
+    "code": "319",
+    "desc": "Kayışdağı - Uzunçayır",
+    "type": "bus"
+  },
+  {
+    "code": "320",
+    "desc": "Ferhatpaşa - Ümraniye Metro / Çamlıca Camii",
+    "type": "bus"
+  },
+  {
+    "code": "320A",
+    "desc": "Sultanbeyli Mimarsinan / Samandıra - Üsküdar",
+    "type": "bus"
+  },
+  {
+    "code": "320Y",
+    "desc": "Yenidoğan - Kozyatağı Metro",
+    "type": "bus"
+  },
+  {
+    "code": "336",
+    "desc": "Arnavutköy - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "336A",
+    "desc": "Balaban Köyü - Mescidi Selam",
+    "type": "bus"
+  },
+  {
+    "code": "336E",
+    "desc": "Sultançiftliği - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "336G",
+    "desc": "Taşoluk Peron - Tekstilkent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "336H",
+    "desc": "Hadımköy - Mescidi Selam",
+    "type": "bus"
+  },
+  {
+    "code": "336K",
+    "desc": "Yeniköy / Karaburun - Mescid - İ Selam",
+    "type": "bus"
+  },
+  {
+    "code": "336M",
+    "desc": "Arnavutköy - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "336Y",
+    "desc": "Cebeci - Yenikapı Marmaray",
+    "type": "bus"
+  },
+  {
+    "code": "400A",
+    "desc": "Beykent - Haramidere",
+    "type": "bus"
+  },
+  {
+    "code": "401",
+    "desc": "Çatalca - Avcılar Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "401T",
+    "desc": "Arel Üniversitesi - Tepekent - Haramidere",
+    "type": "bus"
+  },
+  {
+    "code": "402",
+    "desc": "Binkılıç - Çatalca",
+    "type": "bus"
+  },
+  {
+    "code": "403",
+    "desc": "Çiftlikköy - Çatalca",
+    "type": "bus"
+  },
+  {
+    "code": "404",
+    "desc": "Yalıköy / Karacaköy - Çatalca",
+    "type": "bus"
+  },
+  {
+    "code": "418",
+    "desc": "Hadımköy - Haramidere",
+    "type": "bus"
+  },
+  {
+    "code": "429A",
+    "desc": "Kıraç - Avcılar Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "448",
+    "desc": "Güzelce - Haramidere",
+    "type": "bus"
+  },
+  {
+    "code": "458",
+    "desc": "Gürpınar - Avcılar Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "500L",
+    "desc": "Cevizlibağ - 4.levent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "500T",
+    "desc": "Tuzla Şifa Mahallesi - 4. Levent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "522",
+    "desc": "Özyeğin Üniversitesi / Alemdağ - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "522ST",
+    "desc": "Sultanbeyli - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "559C",
+    "desc": "Rumeli Hisarüstü - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "622",
+    "desc": "Yenidoğan - Mecidiyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "AND1A",
+    "desc": "Anadolu1 / Anadolu",
+    "type": "bus"
+  },
+  {
+    "code": "AND1S",
+    "desc": "Anadolu1 Depar / Şahinkaya",
+    "type": "bus"
+  },
+  {
+    "code": "AND1Ş",
+    "desc": "Anadolu1 Depar / Şahinkaya",
+    "type": "bus"
+  },
+  {
+    "code": "AND2K",
+    "desc": "Anadolu2 Depar / Kurtköy",
+    "type": "bus"
+  },
+  {
+    "code": "AND2S",
+    "desc": "Anadolu2 Depar / Sarıgazi",
+    "type": "bus"
+  },
+  {
+    "code": "AND2Y",
+    "desc": "Anadolu2 Depar / Yunus",
+    "type": "bus"
+  },
+  {
+    "code": "AVR1",
+    "desc": "Avrupa 1 Depar / İkitelli",
+    "type": "bus"
+  },
+  {
+    "code": "AVR2",
+    "desc": "Avrupa 2 Depar / Topkapı",
+    "type": "bus"
+  },
+  {
+    "code": "AVR3",
+    "desc": "Avrupa3 Depar",
+    "type": "bus"
+  },
+  {
+    "code": "AVR3K",
+    "desc": "Avrupa3 Depar / Kağıthane",
+    "type": "bus"
+  },
+  {
+    "code": "BA-1",
+    "desc": "Çarşı - Tepeköy - Kadıyoran",
+    "type": "bus"
+  },
+  {
+    "code": "BA-2",
+    "desc": "Çarşı - Lunapark",
+    "type": "bus"
+  },
+  {
+    "code": "BA-4",
+    "desc": "Çınar - Kumsal - Maden",
+    "type": "bus"
+  },
+  {
+    "code": "BA-5",
+    "desc": "Çarşı - Nizam",
+    "type": "bus"
+  },
+  {
+    "code": "BA-7",
+    "desc": "Büyükada Taksi",
+    "type": "bus"
+  },
+  {
+    "code": "BM4",
+    "desc": "Kavaklı - Haramidere Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "BM5",
+    "desc": "Sahil Mah. / Kavaklı - Haramidere",
+    "type": "bus"
+  },
+  {
+    "code": "BM6",
+    "desc": "Beylikdüzü - Haramidere",
+    "type": "bus"
+  },
+  {
+    "code": "BM7",
+    "desc": "Haramidere - Yakuplu - Beylikdüzü",
+    "type": "bus"
+  },
+  {
+    "code": "BM8",
+    "desc": "Gürpınar - A.kahveci Mah. - Cumhuriyet Mah. Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "BN1",
+    "desc": "Halkalı - Eminönü",
+    "type": "bus"
+  },
+  {
+    "code": "BU-1",
+    "desc": "Çarşı - Kalpazankaya",
+    "type": "bus"
+  },
+  {
+    "code": "BU-7",
+    "desc": "Burgazada Taksi",
+    "type": "bus"
+  },
+  {
+    "code": "D2",
+    "desc": "Beşiktaş - Belgrad Ormanı",
+    "type": "bus"
+  },
+  {
+    "code": "DS1",
+    "desc": "Dudullu Organize Sanayi Bölgesi - Dudullu Metro",
+    "type": "bus"
+  },
+  {
+    "code": "DS2",
+    "desc": "Dudullu Organize Sanayi Bölgesi - Dudullu Metro",
+    "type": "bus"
+  },
+  {
+    "code": "DT1",
+    "desc": "Ortaköy - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "DT2",
+    "desc": "Ortaköy - Taksim",
+    "type": "bus"
+  },
+  {
+    "code": "E-3",
+    "desc": "Sabiha Gökçen Havalimanı - 4.levent Metro",
+    "type": "express"
+  },
+  {
+    "code": "E-10",
+    "desc": "Sabiha Gökçen Havalimanı / Kurtköy - Kadıköy",
+    "type": "express"
+  },
+  {
+    "code": "E-56",
+    "desc": "Ispartakule - Taksim",
+    "type": "express"
+  },
+  {
+    "code": "E-57",
+    "desc": "Esenkent Bahçeşehir - Bakırköy",
+    "type": "express"
+  },
+  {
+    "code": "E-58",
+    "desc": "Esenkent Bahçeşehir - Mecidiyeköy",
+    "type": "express"
+  },
+  {
+    "code": "E-59",
+    "desc": "Boğazköy / Bahçeşehir - Taksim",
+    "type": "express"
+  },
+  {
+    "code": "EL2",
+    "desc": "Emirgan - 4.levent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "EM1",
+    "desc": "Eminönü - Kulaksız",
+    "type": "bus"
+  },
+  {
+    "code": "EM2",
+    "desc": "Eminönü - Kulaksız",
+    "type": "bus"
+  },
+  {
+    "code": "ER1",
+    "desc": "Kadıköy - Erenköy",
+    "type": "bus"
+  },
+  {
+    "code": "ER2",
+    "desc": "Kadıköy - Erenköy",
+    "type": "bus"
+  },
+  {
+    "code": "ES1",
+    "desc": "Esenyurt Belediyesi - Beylikdüzü Devlet Hastanesi / Beykent",
+    "type": "bus"
+  },
+  {
+    "code": "ES2",
+    "desc": "Tüyap / Kıraç - Akçaburgaz",
+    "type": "bus"
+  },
+  {
+    "code": "ES3",
+    "desc": "Esenyurt Devlet Hastanesi - Haramidere",
+    "type": "bus"
+  },
+  {
+    "code": "ES4",
+    "desc": "Esenyurt Kiptaş 4. Etap - Haramidere",
+    "type": "bus"
+  },
+  {
+    "code": "F1",
+    "desc": "Taksim - Kabataş Füniküler Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "F2",
+    "desc": "Beyoğlu - Karaköy Tünel",
+    "type": "funicular"
+  },
+  {
+    "code": "F4",
+    "desc": "Boğaziçi Üni./Hisarüstü - Aşiyan Füniküler Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "FB1",
+    "desc": "Kadıköy - Fenerbahçe",
+    "type": "bus"
+  },
+  {
+    "code": "FB2",
+    "desc": "Kadıköy - Fenerbahçe",
+    "type": "bus"
+  },
+  {
+    "code": "GZ1",
+    "desc": "Kadıköy - Göztepe",
+    "type": "bus"
+  },
+  {
+    "code": "H-1",
+    "desc": "Mahmutbey Metro - İstanbul Havalimanı",
+    "type": "express"
+  },
+  {
+    "code": "H-2",
+    "desc": "Mecidiyeköy - İstanbul Havalimanı",
+    "type": "express"
+  },
+  {
+    "code": "H-3",
+    "desc": "Halkalı Marmaray - İstanbul Havalimanı",
+    "type": "express"
+  },
+  {
+    "code": "H-6",
+    "desc": "Yunus Emre Mahallesi - İstanbul Havalimanı",
+    "type": "express"
+  },
+  {
+    "code": "H-8",
+    "desc": "Hacıosman Metro - İstanbul Havalimanı",
+    "type": "express"
+  },
+  {
+    "code": "HA-1",
+    "desc": "Çarşı - Akçakoca - İtfaiye",
+    "type": "bus"
+  },
+  {
+    "code": "HA-2",
+    "desc": "Çarşı - Çam Limanı",
+    "type": "bus"
+  },
+  {
+    "code": "HA-3",
+    "desc": "Çarşı - Değirmenburnu - Küçüktur",
+    "type": "bus"
+  },
+  {
+    "code": "HA-7",
+    "desc": "Heybeliada Taksi",
+    "type": "bus"
+  },
+  {
+    "code": "HM1",
+    "desc": "Hacıosman Metro - Kocataş",
+    "type": "bus"
+  },
+  {
+    "code": "HM2",
+    "desc": "Konaklar Mahallesi - 4.levent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "HM3",
+    "desc": "Hürriyet Mahallesi - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "HM4",
+    "desc": "Levent Basın Sitesi - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "HS2",
+    "desc": "Avcılar Metrobüs - Şehir Hastanesi",
+    "type": "bus"
+  },
+  {
+    "code": "HS3",
+    "desc": "Sefaköy Metrobüs - Şehir Hastanesi",
+    "type": "bus"
+  },
+  {
+    "code": "HT1",
+    "desc": "K.s.s. Hastanesi - Üçyüzlü Metro",
+    "type": "bus"
+  },
+  {
+    "code": "HT5",
+    "desc": "Kocatepe Metro - Nur Sitesi",
+    "type": "bus"
+  },
+  {
+    "code": "HT6",
+    "desc": "Batışehir - Kocatepe Metro",
+    "type": "bus"
+  },
+  {
+    "code": "HT10",
+    "desc": "Batışehir - Yenibosna Metro",
+    "type": "bus"
+  },
+  {
+    "code": "HT11",
+    "desc": "Giyimkent - Kuyumcukent",
+    "type": "bus"
+  },
+  {
+    "code": "HT12",
+    "desc": "Güneşli Basın Tesisleri - Yenibosna Metro",
+    "type": "bus"
+  },
+  {
+    "code": "HT13",
+    "desc": "Yeni Mahalle Metro - Zeytinburnu",
+    "type": "bus"
+  },
+  {
+    "code": "HT18",
+    "desc": "Hadımköy / İ.ü. Cerrahpaşa Kampüsü - Tüyap",
+    "type": "bus"
+  },
+  {
+    "code": "HT19",
+    "desc": "İ.ü.cerrahpaşa Kampüsü - Tüyap Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "HT20",
+    "desc": "Şahintepe İGTOT - Yenibosna Metro",
+    "type": "bus"
+  },
+  {
+    "code": "HT29",
+    "desc": "Kıraç Yolu - Avcılar Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "HT48",
+    "desc": "Arel Üniversitesi / Tepekent - Avcılar Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "K1",
+    "desc": "Kağıthane - Seyrantepe Hamidiye Etfal Hastanesi",
+    "type": "bus"
+  },
+  {
+    "code": "K2",
+    "desc": "Kağıthane - Seyrantepe Hamidiye Etfal Hastanesi",
+    "type": "bus"
+  },
+  {
+    "code": "K3",
+    "desc": "Kağıthane Garajı - Vadi İstanbul",
+    "type": "bus"
+  },
+  {
+    "code": "K4",
+    "desc": "Kağıthane - Şişli",
+    "type": "bus"
+  },
+  {
+    "code": "KA-1",
+    "desc": "Çarşı - Narçiçeği",
+    "type": "bus"
+  },
+  {
+    "code": "KA-2",
+    "desc": "Tekinay - Plajlar - Büyük Tur",
+    "type": "bus"
+  },
+  {
+    "code": "KA-7",
+    "desc": "Kınalıada Taksi",
+    "type": "bus"
+  },
+  {
+    "code": "KM2",
+    "desc": "Kavakpınar - Tavşantepe Metro",
+    "type": "bus"
+  },
+  {
+    "code": "KM3",
+    "desc": "Uğur Mumcu - Yakacık Metro / Pendik",
+    "type": "bus"
+  },
+  {
+    "code": "KM10",
+    "desc": "Aydınlı Toki / İçmeler - Pendik Metro / YHT - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "KM11",
+    "desc": "Aydınlı Toki / A.yesevi - Pendik Köprüsü",
+    "type": "bus"
+  },
+  {
+    "code": "KM12",
+    "desc": "Tuzla Deniz Harp Okulu - Kartal Metro",
+    "type": "bus"
+  },
+  {
+    "code": "KM13",
+    "desc": "Tuzla - Pendik Metro / YHT / Pendik",
+    "type": "bus"
+  },
+  {
+    "code": "KM14",
+    "desc": "Ahmet Yesevi - Tavşantepe Metro / Yenişehir",
+    "type": "bus"
+  },
+  {
+    "code": "KM15",
+    "desc": "Yenişehir - Pendik Metro",
+    "type": "bus"
+  },
+  {
+    "code": "KM17",
+    "desc": "Tuzla Emlak Konutları - Tavşantepe Metro",
+    "type": "bus"
+  },
+  {
+    "code": "KM18",
+    "desc": "Sabancı Üni. / Medeniyet Üni. - Kurtköy Metro",
+    "type": "bus"
+  },
+  {
+    "code": "KM21",
+    "desc": "Hilal Konutları - Kartal Metro / Cevizli",
+    "type": "bus"
+  },
+  {
+    "code": "KM23",
+    "desc": "Kavakpınar / Marmara Hst. - Kartal Metro / Cevizli",
+    "type": "bus"
+  },
+  {
+    "code": "KM24",
+    "desc": "Kavakpınar - Pendik Metro / YHT / Pendik",
+    "type": "bus"
+  },
+  {
+    "code": "KM25",
+    "desc": "Yenişehir - Kartal Metro / Cevizli",
+    "type": "bus"
+  },
+  {
+    "code": "KM26",
+    "desc": "Çamlık Mahallesi - Pendik Metro / YHT / Pendik",
+    "type": "bus"
+  },
+  {
+    "code": "KM27",
+    "desc": "Yenişehir - Pendik Metro / YHT / Pendik",
+    "type": "bus"
+  },
+  {
+    "code": "KM28",
+    "desc": "Okan Üniversitesi - Kurtköy Metro",
+    "type": "bus"
+  },
+  {
+    "code": "KM29",
+    "desc": "Yenişehir / Marmara Ü. Hast. - Kartal Metro / Cevizli",
+    "type": "bus"
+  },
+  {
+    "code": "KM30",
+    "desc": "Kartal / Atalar - Esenkent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "KM31",
+    "desc": "Uğur Mumcu - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "KM32",
+    "desc": "Kurfalı - Kartal Metro / Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "KM33",
+    "desc": "Pendik Sahil / YHT - Gülsuyu Metro",
+    "type": "bus"
+  },
+  {
+    "code": "KM34",
+    "desc": "Kartal Metro - Topselvi / Gülsuyu Metro",
+    "type": "bus"
+  },
+  {
+    "code": "KM35",
+    "desc": "Uğur Mumcu - Cevizli",
+    "type": "bus"
+  },
+  {
+    "code": "KM36",
+    "desc": "Kurfalı Mahallesi - Cevizli",
+    "type": "bus"
+  },
+  {
+    "code": "KM37",
+    "desc": "Hilal Konutları - Pendik Metro / YHT / Pendik",
+    "type": "bus"
+  },
+  {
+    "code": "KM41",
+    "desc": "Marmara Üniversitesi - Küçükyalı Metro - Başıbüyük Sağlık Kampüsü",
+    "type": "bus"
+  },
+  {
+    "code": "KM42",
+    "desc": "Başıbüyük - Süreyyapaşa Hastanesi / Maltepe",
+    "type": "bus"
+  },
+  {
+    "code": "KM43",
+    "desc": "Maltepe Ünıversıtesı - Zümrütevler / Maltepe",
+    "type": "bus"
+  },
+  {
+    "code": "KM44",
+    "desc": "Maltepe Üniversitesi - Siteler - Maltepe",
+    "type": "bus"
+  },
+  {
+    "code": "KM45",
+    "desc": "Marmara Üniversitesi / Küçükyalı Metro - Mimar Sinan Öğrenci Yurdu",
+    "type": "bus"
+  },
+  {
+    "code": "KM46",
+    "desc": "Batı Ataşehir - Kozyatağı Metro",
+    "type": "bus"
+  },
+  {
+    "code": "KM47",
+    "desc": "Gülensu Mahallesi - Huzurevi Metro",
+    "type": "bus"
+  },
+  {
+    "code": "KM48",
+    "desc": "Esenkent - Huzurevi Metro",
+    "type": "bus"
+  },
+  {
+    "code": "KM60",
+    "desc": "Veysel Karani - Kartal Metro / Cevizli",
+    "type": "bus"
+  },
+  {
+    "code": "KM61",
+    "desc": "Paşaköy / Samandıra - Kartal",
+    "type": "bus"
+  },
+  {
+    "code": "KM70",
+    "desc": "Sultanbeyli / Petrol Yolu Caddesı - Kartal Metro / Cevizli",
+    "type": "bus"
+  },
+  {
+    "code": "KM71",
+    "desc": "Yenidoğan Peronlar / Adil Mah. - Cevizli",
+    "type": "bus"
+  },
+  {
+    "code": "KM72",
+    "desc": "Pendik / Pendik Metro / YHT - Sultanbeyli Devlet Hast.",
+    "type": "bus"
+  },
+  {
+    "code": "KÇ2",
+    "desc": "K.s.s.hastanesi - Yenibosna Metro",
+    "type": "bus"
+  },
+  {
+    "code": "M1A",
+    "desc": "Yenikapı - Atatürk Havalimanı Metro Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "M1B",
+    "desc": "Yenikapı - Kirazlı Metro Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "M2",
+    "desc": "Yenikapı - Hacıosman Metro Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "M3",
+    "desc": "Bakırköy Sahil - Kayaşehir Metro Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "M4",
+    "desc": "Kadıköy - Sabiha Gökçen HL Metro Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "M5",
+    "desc": "Samandıra Metro - Üsküdar",
+    "type": "metro"
+  },
+  {
+    "code": "M6",
+    "desc": "Levent - Boğaziçi Üni./Hisarüstü Metro Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "M7",
+    "desc": "Nurtepe - Mecıdıyeköy",
+    "type": "bus"
+  },
+  {
+    "code": "M8",
+    "desc": "Bostancı - Parseller Metro Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "M9",
+    "desc": "Ataköy - Olimpiyat Metro Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "M11",
+    "desc": "Gayrettepe - İstanbul Havalimanı Metro Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "MK11",
+    "desc": "Olimpiyatköy Metro - Kayaşehir - Tekstilkent Evleri",
+    "type": "bus"
+  },
+  {
+    "code": "MK12",
+    "desc": "Olimpiyatköy Metro - Güvercintepe - Tekstilkent Evleri",
+    "type": "bus"
+  },
+  {
+    "code": "MK13",
+    "desc": "Şahintepe İGTOT - Olimpiyatköy Metro",
+    "type": "bus"
+  },
+  {
+    "code": "MK14",
+    "desc": "Kiptaş Vaditepe - Olimpiyatköy Metro",
+    "type": "bus"
+  },
+  {
+    "code": "MK15",
+    "desc": "Boğazköy / Bahçeşehir - Olimpiyatköy Metro",
+    "type": "bus"
+  },
+  {
+    "code": "MK16",
+    "desc": "Olimpiyatköy Metro - K.çekmece Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "MK19",
+    "desc": "Ayazma Siteleri - Arenapark",
+    "type": "bus"
+  },
+  {
+    "code": "MK22",
+    "desc": "Taşoluk Peron - Şehir Hastanesi",
+    "type": "bus"
+  },
+  {
+    "code": "MK31",
+    "desc": "K.s.s Hastanesi - Başakşehir / Fenertepe Peron",
+    "type": "bus"
+  },
+  {
+    "code": "MK42",
+    "desc": "15 Temmuz Mahallesi - Kirazlı Metro",
+    "type": "bus"
+  },
+  {
+    "code": "MK49",
+    "desc": "Sultangazi Peron - Kazım Karabekir Metro",
+    "type": "bus"
+  },
+  {
+    "code": "MK50",
+    "desc": "Sultangazi Peron - Kazım Karabekir Metro",
+    "type": "bus"
+  },
+  {
+    "code": "MK53",
+    "desc": "Sultangazi Peron - Tekstilkent Metro",
+    "type": "bus"
+  },
+  {
+    "code": "MK97",
+    "desc": "Çavuşpaşa - Zeytinburnu",
+    "type": "bus"
+  },
+  {
+    "code": "MR9",
+    "desc": "Atatürk Mah. / Çamlık - Ayrılık Çeşmesi",
+    "type": "bus"
+  },
+  {
+    "code": "MR11",
+    "desc": "Kazlıçeşme - Topkapı",
+    "type": "bus"
+  },
+  {
+    "code": "MR20",
+    "desc": "Yenibosna Metro - Kazlıçeşme",
+    "type": "bus"
+  },
+  {
+    "code": "MR40",
+    "desc": "K.s.s. Hastanesi - Atakent - Halkalı Marmaray",
+    "type": "bus"
+  },
+  {
+    "code": "MR42",
+    "desc": "Halkalı Marmaray / İnönü Mah. - Sefaköy Metrobüs",
+    "type": "bus"
+  },
+  {
+    "code": "MR50",
+    "desc": "Halkalı Marmaray - Şehir Hastanesi",
+    "type": "bus"
+  },
+  {
+    "code": "MR51",
+    "desc": "İ.ü. Cerrahpaşa Kampüsü / Bahçeşehir - Halkalı Marmaray",
+    "type": "bus"
+  },
+  {
+    "code": "MR52",
+    "desc": "Söğütlüçeşme - Halkalı Marmaray - Şehir Hastanesi",
+    "type": "bus"
+  },
+  {
+    "code": "MR54",
+    "desc": "Igtot - Halkalı Marmaray",
+    "type": "bus"
+  },
+  {
+    "code": "MR60",
+    "desc": "Pendik / Pendik YHT - Sabiha Gökçen Havalimanı",
+    "type": "bus"
+  },
+  {
+    "code": "MR61",
+    "desc": "Güzelyalı - Tuzla Devlet Hastanesi",
+    "type": "bus"
+  },
+  {
+    "code": "SG-1",
+    "desc": "Kadıköy - Sabiha Gökçen Havalimanı",
+    "type": "express"
+  },
+  {
+    "code": "SG-2",
+    "desc": "Taksim - Sabiha Gökçen Havalimanı",
+    "type": "express"
+  },
+  {
+    "code": "SM1",
+    "desc": "Sultanbeylı - Samandıra Merkez Metro",
+    "type": "bus"
+  },
+  {
+    "code": "SM2",
+    "desc": "Ahmet Yesevı Mahallesı - Sancaktepe Metro",
+    "type": "bus"
+  },
+  {
+    "code": "SM3",
+    "desc": "Mımar Sınan Mahallesı - Prof.dr.ferıha Öz Hast.",
+    "type": "bus"
+  },
+  {
+    "code": "SM4",
+    "desc": "Kurtköy Metro / Hılal Konutları - Samandıra Merkez Metro",
+    "type": "bus"
+  },
+  {
+    "code": "SM5",
+    "desc": "Sultanbeylı Orman Caddesı - Samandıra Merkez Metro",
+    "type": "bus"
+  },
+  {
+    "code": "SM6",
+    "desc": "Sultanbeyli Devlet Hastanesi - Samandıra Merkez Metro",
+    "type": "bus"
+  },
+  {
+    "code": "SM7",
+    "desc": "Yenıdoğan - Samandıra Merkez Metro",
+    "type": "bus"
+  },
+  {
+    "code": "SM9",
+    "desc": "Kartal Metro - Samandıra Merkez Metro",
+    "type": "bus"
+  },
+  {
+    "code": "SM12",
+    "desc": "Maltepe Myo - Samandıra Metro / Yenidoğan",
+    "type": "bus"
+  },
+  {
+    "code": "SM13",
+    "desc": "Yenıdoğan / Ufuk Caddesı - Sancaktepe Metro",
+    "type": "bus"
+  },
+  {
+    "code": "SM14",
+    "desc": "Ayazma Yaşam Vadısı - Sancaktepe Metro",
+    "type": "bus"
+  },
+  {
+    "code": "SM15",
+    "desc": "Veysel Karani Mah. - Kartal Metro",
+    "type": "bus"
+  },
+  {
+    "code": "SM16",
+    "desc": "Yenidoğan / Samandıra - Kartal Metro",
+    "type": "bus"
+  },
+  {
+    "code": "SM17",
+    "desc": "Yenidoğan / Osmangazi Mah - Kartal Metro",
+    "type": "bus"
+  },
+  {
+    "code": "SM18",
+    "desc": "Sultanbeyli - Hasanpaşa Metro",
+    "type": "bus"
+  },
+  {
+    "code": "SM19",
+    "desc": "Sultanbeyli Mimarsinan - Veysel Karani",
+    "type": "bus"
+  },
+  {
+    "code": "T1",
+    "desc": "Kabataş - Bağcılar Tramvay Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "T2",
+    "desc": "Taksim - Tünel",
+    "type": "tram"
+  },
+  {
+    "code": "T3",
+    "desc": "Kadıköy - Moda Tarihi Tramvay Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "T4",
+    "desc": "Topkapı - Mescid-i Selam Tramvay Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "T5",
+    "desc": "Eminönü - Alibeyköy Cep Otogarı Tramvay Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "TF1",
+    "desc": "Maçka - Taşkışla Teleferik Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "TF2",
+    "desc": "Eyüp - Piyer Loti Teleferik Hattı",
+    "type": "metro"
+  },
+  {
+    "code": "THSS12",
+    "desc": "Hat THSS12",
+    "type": "bus"
+  },
+  {
+    "code": "THSS_7",
+    "desc": "Hat THSS_7",
+    "type": "bus"
+  },
+  {
+    "code": "TM1",
+    "desc": "Emniyettepe - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM2",
+    "desc": "Hamidiye - Güzeltepe - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM3",
+    "desc": "Hamidiye - Kağıthane - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM4",
+    "desc": "Göktürk - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM5",
+    "desc": "Alibeyköy - 5.levent",
+    "type": "bus"
+  },
+  {
+    "code": "TM6",
+    "desc": "Mevlana - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM7",
+    "desc": "Çırçır Metro - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM8",
+    "desc": "Akşemsettin - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM9",
+    "desc": "Gaziosmanpaşa - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM10",
+    "desc": "Yeşilpınar - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM11",
+    "desc": "Yeşilpınar - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM12",
+    "desc": "Karadolap - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM13",
+    "desc": "Eyüpsultan - Gop - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM14",
+    "desc": "Yenimahalle / Sarıgöl - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM15",
+    "desc": "Cebeci Peronlar - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM16",
+    "desc": "Yenimahalle Gop - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM17",
+    "desc": "Sultangazi - Gazi - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM18",
+    "desc": "Mescid - İ Selam - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "TM19",
+    "desc": "Zübeyde Hanım - Alibeyköy",
+    "type": "bus"
+  },
+  {
+    "code": "U1",
+    "desc": "Beşiktaş - Ulus",
+    "type": "bus"
+  },
+  {
+    "code": "U2",
+    "desc": "Beşiktaş - Ulus",
+    "type": "bus"
+  },
+  {
+    "code": "UK",
+    "desc": "Uzunçayır - Kadıköy",
+    "type": "bus"
+  },
+  {
+    "code": "UM11",
+    "desc": "Kirazlıtepe - Kısıklı Metro - Esatpaşa",
+    "type": "bus"
+  },
+  {
+    "code": "UM13",
+    "desc": "Küçüksu / Yavuztürk Mahallesi - Ümraniye Eğt.arş.hst.",
+    "type": "bus"
+  },
+  {
+    "code": "UM36",
+    "desc": "Esenevler - Bulgurlu Metro",
+    "type": "bus"
+  },
+  {
+    "code": "UM40",
+    "desc": "Atatürk Mah. / Taşdelen - Necip Fazıl Metro",
+    "type": "bus"
+  },
+  {
+    "code": "UM60",
+    "desc": "Sancaktepe - Necip Fazıl Metro",
+    "type": "bus"
+  },
+  {
+    "code": "UM61",
+    "desc": "Paşaköy / Yenidoğan - Necip Fazıl Metro",
+    "type": "bus"
+  },
+  {
+    "code": "UM62",
+    "desc": "Yenidoğan / Taşdelen - Necip Fazıl Metro",
+    "type": "bus"
+  },
+  {
+    "code": "UM73",
+    "desc": "Sabiha Gökçen H.l. / Sultanbeyli - Samandıra Merkez Metro",
+    "type": "bus"
+  },
+  {
+    "code": "UM74",
+    "desc": "Sultanbeyli Devlet Hast. / Necip Fazıl Metro - Dudullu OSB",
+    "type": "bus"
+  },
+  {
+    "code": "YDK",
+    "desc": "Fılo Yedek",
+    "type": "bus"
+  },
+  {
+    "code": "ÇM41",
+    "desc": "Çekmeköy - Necip Fazıl Metro",
+    "type": "bus"
+  },
+  {
+    "code": "ÇM42",
+    "desc": "Şahinbey - Çekmeköy Metro / Emek Mah.",
+    "type": "bus"
+  },
+  {
+    "code": "ÇM43",
+    "desc": "Atatürk Mahallesi - Necip Fazıl Metro",
+    "type": "bus"
+  },
+  {
+    "code": "ÇM44",
+    "desc": "Özyeğin Üni. / Nişantepe - Çekmeköy Metro / Prof. Dr. Feriha Öz Hast.",
+    "type": "bus"
+  }
+]

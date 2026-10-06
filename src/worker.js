@@ -246,6 +246,68 @@ async function handleBuses(request, env) {
   });
 }
 
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function findClosestCorridorIndex(corr, lat, lon) {
+  let bestDist = Infinity, bestIdx = 0;
+  for (let i = 0; i < corr.length; i++) {
+    const dLat = corr[i][0] - lat;
+    const dLon = corr[i][1] - lon;
+    const d = dLat * dLat + dLon * dLon;
+    if (d < bestDist) {
+      bestDist = d;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
+
+function isMetrobusLine(code) {
+  const c = String(code || "").trim().toUpperCase();
+  return c.startsWith("34");
+}
+
+function getMetrobusGeometry(stops, yon) {
+  if (!stops || stops.length < 2) return null;
+  if (typeof METROBUS_CORRIDOR === "undefined" || !METROBUS_CORRIDOR) return stops.map(s => [s.lat, s.lon]);
+
+  const first = stops[0];
+  const last = stops[stops.length - 1];
+  const isEastbound = (yon === "G" || yon === "GİDİŞ" || first.lon < last.lon);
+  const corrKey = isEastbound ? "G" : "D";
+  const corr = METROBUS_CORRIDOR[corrKey];
+  if (!corr || corr.length < 2) return stops.map(s => [s.lat, s.lon]);
+
+  let iStart = findClosestCorridorIndex(corr, first.lat, first.lon);
+  let iEnd = findClosestCorridorIndex(corr, last.lat, last.lon);
+  if (iStart > iEnd) {
+    const t = iStart; iStart = iEnd; iEnd = t;
+  }
+
+  const sliced = corr.slice(iStart, iEnd + 1).map(p => [p[0], p[1]]);
+  if (sliced.length < 2) return stops.map(s => [s.lat, s.lon]);
+
+  // Connect terminus stops if they are located slightly off the highway (e.g. depots)
+  const dStart = haversineMeters(sliced[0][0], sliced[0][1], first.lat, first.lon);
+  if (dStart > 25) {
+    sliced.unshift([first.lat, first.lon]);
+  }
+  const dEnd = haversineMeters(sliced[sliced.length - 1][0], sliced[sliced.length - 1][1], last.lat, last.lon);
+  if (dEnd > 25) {
+    sliced.push([last.lat, last.lon]);
+  }
+
+  return sliced;
+}
+
 // Fetch road-snapped polyline coordinates between stops using high-performance OSRM routing
 async function fetchRoadGeometry(stops) {
   if (!stops || stops.length < 2) return null;
@@ -277,6 +339,24 @@ async function fetchRoadGeometry(stops) {
       if (!res.ok) return null;
       const data = await res.json();
       if (!data.routes || !data.routes[0] || !data.routes[0].geometry) return null;
+
+      // Detour sanity check: verify OSRM did not create absurd loops for this chunk
+      let chunkDirectDist = 0;
+      for (let j = 0; j < chunk.length - 1; j++) {
+        chunkDirectDist += haversineMeters(chunk[j].lat, chunk[j].lon, chunk[j + 1].lat, chunk[j + 1].lon);
+      }
+      const routeDist = data.routes[0].distance || 0;
+      if (chunkDirectDist > 0 && routeDist > chunkDirectDist * 2.5) {
+        // Discard crazy detour, fall back to direct stop points for this chunk
+        const fallback = chunk.map(p => [p.lat, p.lon]);
+        if (idx > 0 && fallback.length > 0) {
+          allRoadCoords.push(...fallback.slice(1));
+        } else {
+          allRoadCoords.push(...fallback);
+        }
+        continue;
+      }
+
       // Convert OSRM GeoJSON [lon, lat] coordinates to Leaflet [lat, lon]
       const pts = data.routes[0].geometry.coordinates.map(p => [p[1], p[0]]);
       if (idx > 0 && pts.length > 0) {
@@ -295,7 +375,7 @@ async function fetchRoadGeometry(stops) {
 
 // Fetch line route, stops, and directions from IETT ibb.asmx (cached for 24h)
 async function fetchLineRoute(code, env) {
-  const key = "route_v3:" + code;
+  const key = "route_v4:" + code;
   let cached = await env.LIVE.get(key, "json");
   if (cached && cached.directions) return cached;
 
@@ -347,6 +427,7 @@ async function fetchLineRoute(code, env) {
   }
 
   const directions = {};
+  const isMetrobus = isMetrobusLine(code);
   for (const k of Object.keys(dirs)) {
     dirs[k].sort((a, b) => a.seq - b.seq);
     const stops = dirs[k];
@@ -358,9 +439,13 @@ async function fetchLineRoute(code, env) {
 
       // Fetch actual road geometry snapping between stops
       let roadCoords = null;
-      try {
-        roadCoords = await fetchRoadGeometry(stops);
-      } catch (e) {}
+      if (isMetrobus) {
+        roadCoords = getMetrobusGeometry(stops, k);
+      } else {
+        try {
+          roadCoords = await fetchRoadGeometry(stops);
+        } catch (e) {}
+      }
 
       directions[k] = {
         code: k,

@@ -2566,7 +2566,7 @@
       const busAnimMap = new Map();
       const lineRouteCache = new Map();
       const lineSpatialIndices = new Map();
-      const ROUTE_CACHE_PREFIX = "ib_route_v3_";
+      const ROUTE_CACHE_PREFIX = "ib_route_v4_";
       const ROUTE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
       function getStoredRoute(code) {
@@ -2703,6 +2703,9 @@
       // Fetch client-side road geometry via OSRM if missing from backend cache
       async function enrichDirectionsWithRoads(directions) {
         if (!directions) return;
+        // Never query OSRM for Metrobüs lines (they have accurate high-definition dedicated corridor geometry)
+        if (selectedLineCode && selectedLineCode.toUpperCase().startsWith("34")) return;
+
         const keys = Object.keys(directions);
         for (const k of keys) {
           const dir = directions[k];
@@ -2730,6 +2733,24 @@
               if (!res.ok) break;
               const data = await res.json();
               if (!data.routes || !data.routes[0] || !data.routes[0].geometry) break;
+
+              // Detour sanity check: verify OSRM did not create absurd loops for this chunk
+              let chunkDirectDist = 0;
+              for (let j = 0; j < chunk.length - 1; j++) {
+                chunkDirectDist += geoDistanceMeters(chunk[j].lat, chunk[j].lon, chunk[j + 1].lat, chunk[j + 1].lon);
+              }
+              const routeDist = data.routes[0].distance || 0;
+              if (chunkDirectDist > 0 && routeDist > chunkDirectDist * 2.5) {
+                // Discard crazy detour, fall back to direct stop points for this chunk
+                const fallback = chunk.map(p => [p.lat, p.lon]);
+                if (idx > 0 && fallback.length > 0) {
+                  allRoadPts.push(...fallback.slice(1));
+                } else {
+                  allRoadPts.push(...fallback);
+                }
+                continue;
+              }
+
               const pts = data.routes[0].geometry.coordinates.map(p => [p[1], p[0]]);
               if (idx > 0 && pts.length > 0) {
                 allRoadPts.push(...pts.slice(1));

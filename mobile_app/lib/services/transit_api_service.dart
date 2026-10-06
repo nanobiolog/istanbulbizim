@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:math' as math;
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import '../models/transit_models.dart';
@@ -17,6 +19,9 @@ class TransitApiService {
   Map<String, String> _doorToLine = {};
   Map<String, List<MetroStation>> _metroStations = {};
   Map<String, String> _metroColors = {};
+  Map<String, List<List<double>>> _metrobusCorridor = {};
+  List<BusStop> _busStops = [];
+  List<LineInfo> _allLines = [];
   bool _assetsLoaded = false;
 
   Future<void> loadLocalAssets() async {
@@ -52,6 +57,48 @@ class TransitApiService {
         }
       });
 
+      // 4. All Transit Lines with Official Descriptions (Bus, Metrobus, Metro)
+      try {
+        final busLinesJson = await rootBundle.loadString('assets/data/bus_lines.json');
+        final dynamic parsedLinesList = jsonDecode(busLinesJson);
+        if (parsedLinesList is List) {
+          _allLines = parsedLinesList
+              .whereType<Map<String, dynamic>>()
+              .map((item) => LineInfo.fromJson(item))
+              .toList();
+        }
+      } catch (_) {}
+
+      // 5. Bus Stops (All ~14,000 Istanbul bus stops)
+      try {
+        final stopsJson = await rootBundle.loadString('assets/data/bus_stops.json');
+        final dynamic parsedStops = jsonDecode(stopsJson);
+        if (parsedStops is List) {
+          _busStops = parsedStops
+              .whereType<Map<String, dynamic>>()
+              .map((item) => BusStop.fromJson(item))
+              .where((s) => s.lat != 0.0 && s.lon != 0.0)
+              .toList();
+        }
+      } catch (_) {}
+
+      // 6. Metrobus Dedicated Corridor
+      try {
+        final corridorJson = await rootBundle.loadString('assets/data/metrobus_corridor.json');
+        final dynamic parsedCorridor = jsonDecode(corridorJson);
+        if (parsedCorridor is Map) {
+          _metrobusCorridor = {};
+          parsedCorridor.forEach((k, v) {
+            if (v is List) {
+              _metrobusCorridor[k.toString()] = v.map((pt) {
+                final list = pt as List;
+                return [(list[0] as num).toDouble(), (list[1] as num).toDouble()];
+              }).toList();
+            }
+          });
+        }
+      } catch (_) {}
+
       _assetsLoaded = true;
     } catch (_) {}
   }
@@ -59,6 +106,34 @@ class TransitApiService {
   Map<String, List<String>> get busLinesDoors => _busLinesDoors;
   Map<String, List<MetroStation>> get metroStations => _metroStations;
   Map<String, String> get metroColors => _metroColors;
+  Map<String, List<List<double>>> get metrobusCorridor => _metrobusCorridor;
+  List<BusStop> get busStops => _busStops;
+  List<LineInfo> get allLines => _allLines;
+
+  @visibleForTesting
+  void setMetrobusCorridor(Map<String, List<List<double>>> corridor) {
+    _metrobusCorridor = corridor;
+  }
+
+  static Color parseColorString(String? colorStr, [Color fallback = const Color(0xFF0284C7)]) {
+    if (colorStr == null || colorStr.isEmpty) return fallback;
+    final trimmed = colorStr.trim();
+    if (trimmed.startsWith('#')) {
+      final hex = trimmed.replaceAll('#', '');
+      if (hex.length == 6) {
+        return Color(int.parse('FF$hex', radix: 16));
+      }
+    } else if (trimmed.startsWith('rgb')) {
+      final match = RegExp(r'rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)').firstMatch(trimmed);
+      if (match != null) {
+        final r = int.parse(match.group(1)!);
+        final g = int.parse(match.group(2)!);
+        final b = int.parse(match.group(3)!);
+        return Color.fromARGB(255, r, g, b);
+      }
+    }
+    return fallback;
+  }
 
   // Try to pull carto_key or status from Cloudflare Worker if available
   Future<String?> fetchConfigCartoKey() async {
@@ -168,9 +243,84 @@ class TransitApiService {
     return direct;
   }
 
-  // Snap stop-to-stop straight lines into real curved street geometry using OSRM
+  int _findClosestCorridorIndex(List<List<double>> corr, double lat, double lon) {
+    double bestDist = double.infinity;
+    int bestIdx = 0;
+    for (int i = 0; i < corr.length; i++) {
+      final dLat = corr[i][0] - lat;
+      final dLon = corr[i][1] - lon;
+      final d = dLat * dLat + dLon * dLon;
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    return bestIdx;
+  }
+
+  double _haversineMeters(double lat1, double lon1, double lat2, double lon2) {
+    const r = 6371000.0;
+    final dLat = (lat2 - lat1) * (math.pi / 180.0);
+    final dLon = (lon2 - lon1) * (math.pi / 180.0);
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1 * (math.pi / 180.0)) * math.cos(lat2 * (math.pi / 180.0)) *
+        math.sin(dLon / 2) * math.sin(dLon / 2);
+    return 2 * r * math.asin(math.sqrt(a));
+  }
+
+  List<List<double>>? getMetrobusCoordinates(List<BusStop> stops, String dirKey) {
+    if (stops.isEmpty || _metrobusCorridor.isEmpty) return null;
+    final firstStop = stops.first;
+    final lastStop = stops.last;
+
+    // Direction G or firstStop west of lastStop -> 'G' (Eastbound)
+    // Otherwise -> 'D' (Westbound)
+    final key = (dirKey == 'G' || dirKey == 'GİDİŞ' || firstStop.lon < lastStop.lon) ? 'G' : 'D';
+    final corr = _metrobusCorridor[key];
+    if (corr == null || corr.isEmpty) return null;
+
+    int iStart = _findClosestCorridorIndex(corr, firstStop.lat, firstStop.lon);
+    int iEnd = _findClosestCorridorIndex(corr, lastStop.lat, lastStop.lon);
+
+    if (iStart > iEnd) {
+      final tmp = iStart;
+      iStart = iEnd;
+      iEnd = tmp;
+    }
+
+    final sliced = corr.sublist(iStart, iEnd + 1).map((pt) => [pt[0], pt[1]]).toList();
+    if (sliced.length < 2) return null;
+
+    final dStart = _haversineMeters(sliced.first[0], sliced.first[1], firstStop.lat, firstStop.lon);
+    if (dStart > 25) {
+      sliced.insert(0, [firstStop.lat, firstStop.lon]);
+    }
+    final dEnd = _haversineMeters(sliced.last[0], sliced.last[1], lastStop.lat, lastStop.lon);
+    if (dEnd > 25) {
+      sliced.add([lastStop.lat, lastStop.lon]);
+    }
+
+    return sliced;
+  }
+
+  // Snap stop-to-stop straight lines into real curved street geometry using corridor or OSRM
   Future<void> _ensureRoadSnappedGeometry(LineRouteDetails routeDetails) async {
-    for (final dir in routeDetails.directions.values) {
+    final isMetrobus = routeDetails.code.toUpperCase().startsWith('34');
+
+    for (final entry in routeDetails.directions.entries) {
+      final dirKey = entry.key;
+      final dir = entry.value;
+
+      if (isMetrobus) {
+        // Always use dedicated high-definition Metrobus corridor, NEVER OSRM!
+        final mbPts = getMetrobusCoordinates(dir.stops, dirKey);
+        if (mbPts != null && mbPts.length >= 2) {
+          dir.coordinates = mbPts;
+          dir.hasRoadGeometry = true;
+        }
+        continue;
+      }
+
       if (dir.hasRoadGeometry && dir.coordinates.length > dir.stops.length * 2) {
         continue;
       }
@@ -210,6 +360,26 @@ class TransitApiService {
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
           if (data['routes'] != null && (data['routes'] as List).isNotEmpty) {
+            // Detour sanity check: verify OSRM did not create absurd loops for this chunk
+            double chunkDirectDist = 0;
+            for (int j = 0; j < chunk.length - 1; j++) {
+              chunkDirectDist += _haversineMeters(chunk[j].lat, chunk[j].lon, chunk[j + 1].lat, chunk[j + 1].lon);
+            }
+            final routeDist = ((data['routes'][0]['distance'] as num?) ?? 0).toDouble();
+
+            if (chunkDirectDist > 0 && routeDist > chunkDirectDist * 2.5) {
+              // Discard absurd detour, use direct stops for this chunk
+              final fallback = chunk.map((s) => [s.lat, s.lon]).toList();
+              if (allRoadCoords.isNotEmpty && fallback.isNotEmpty) {
+                allRoadCoords.addAll(fallback.skip(1));
+              } else {
+                allRoadCoords.addAll(fallback);
+              }
+              if (end >= stops.length) break;
+              i += chunkSize - 1;
+              continue;
+            }
+
             final geom = data['routes'][0]['geometry'];
             if (geom != null && geom['coordinates'] is List) {
               final pts = (geom['coordinates'] as List).map((p) {

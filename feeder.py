@@ -137,10 +137,28 @@ def sync_mapping(days=3):
     if "O1013" in door_to_line:
         print(f"   -> O1013 primary line resolved to: {door_to_line['O1013']}", flush=True)
 
+    # Also add Metrobüs & Turkish character aliases
+    metrobus_doors = dict_lines.get("34G", [])
+    if "34T" not in dict_lines and metrobus_doors:
+        dict_lines["34T"] = metrobus_doors
+    if "34U" not in dict_lines and metrobus_doors:
+        dict_lines["34U"] = metrobus_doors
+    for tr, asc in [
+        ("130Ş", "130S"), ("130ŞT", "130ST"), ("133Ş", "133S"),
+        ("14ŞB", "14SB"), ("15ŞN", "15SN"), ("29Ş", "29S"),
+        ("54HŞ", "54HS"), ("78Ş", "78S"), ("79Ş", "79S"),
+        ("92Ş", "92S"), ("AND1Ş", "AND1S")
+    ]:
+        if asc in dict_lines and tr not in dict_lines:
+            dict_lines[tr] = dict_lines[asc]
+        elif tr in dict_lines and asc not in dict_lines:
+            dict_lines[asc] = dict_lines[tr]
+
     # Save to local files in workspace & ~/.istanbulbizim
     destinations = [
         (os.path.join(BASE_DIR, "src", "bus_lines_map.json"), dict_lines),
         (os.path.join(BASE_DIR, "src", "door_lines_map.json"), door_to_line),
+        (os.path.join(BASE_DIR, "mobile_app", "assets", "data", "bus_lines_map.json"), dict_lines),
         (os.path.expanduser("~/.istanbulbizim/bus_lines_map.json"), dict_lines),
         (os.path.expanduser("~/.istanbulbizim/door_lines_map.json"), door_to_line)
     ]

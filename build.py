@@ -26,6 +26,9 @@ def main():
     with open(os.path.join(SRC_DIR, "metro_colors.json"), "r", encoding="utf-8") as f:
         metro_colors = json.load(f)
 
+    with open(os.path.join(SRC_DIR, "metrobus_corridor.json"), "r", encoding="utf-8") as f:
+        metrobus_corridor = json.load(f)
+
     with open(os.path.join(SRC_DIR, "index.html"), "r", encoding="utf-8") as f:
         html_page = f.read()
 
@@ -106,6 +109,7 @@ export default {
     if (path === "/doors/map") return handleDoorsMap(env);
     if (path === "/metro/stations") return json(METRO_STATIONS, 200, { "cache-control": "public, max-age=86400" });
     if (path === "/metro/colors") return json(METRO_COLORS, 200, { "cache-control": "public, max-age=86400" });
+    if (path === "/metrobus/corridor") return json(METROBUS_CORRIDOR, 200, { "cache-control": "public, max-age=604800" });
     if (path === "/feed/buses") return handleFeed(request, env);
     if (path === "/feed/mapping") return handleFeedMapping(request, env);
     if (path === "/stops") return json(BUS_STOPS, 200, { "cache-control": "public, max-age=86400" });
@@ -189,6 +193,7 @@ export default {
         f"const BUS_STOPS = {json.dumps(bus_stops, ensure_ascii=False)};\n",
         f"const METRO_STATIONS = {json.dumps(metro_stations, ensure_ascii=False)};\n",
         f"const METRO_COLORS = {json.dumps(metro_colors, ensure_ascii=False)};\n",
+        f"const METROBUS_CORRIDOR = {json.dumps(metrobus_corridor, ensure_ascii=False)};\n",
         f"const HTML_PAGE = {json.dumps(html_page, ensure_ascii=False)};\n",
         f"const MANIFEST_JSON = {json.dumps(manifest_json, ensure_ascii=False)};\n",
         f"const SW_CODE = {json.dumps(sw_code, ensure_ascii=False)};\n",
