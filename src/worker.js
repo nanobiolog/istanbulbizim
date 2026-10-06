@@ -246,9 +246,56 @@ async function handleBuses(request, env) {
   });
 }
 
+// Fetch road-snapped polyline coordinates between stops using high-performance OSRM routing
+async function fetchRoadGeometry(stops) {
+  if (!stops || stops.length < 2) return null;
+  // Chunk stops into batches of at most 25 waypoints to keep OSRM query URLs fast and compact
+  const CHUNK_SIZE = 25;
+  const chunks = [];
+  let i = 0;
+  while (i < stops.length) {
+    chunks.push(stops.slice(i, i + CHUNK_SIZE));
+    if (i + CHUNK_SIZE >= stops.length) break;
+    i += CHUNK_SIZE - 1; // 1 waypoint overlap between adjacent chunks
+  }
+
+  const allRoadCoords = [];
+  for (let idx = 0; idx < chunks.length; idx++) {
+    const chunk = chunks[idx];
+    const coordsStr = chunk.map(s => `${s.lon.toFixed(5)},${s.lat.toFixed(5)}`).join(";");
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2500);
+      const res = await fetch(osrmUrl, {
+        headers: { "User-Agent": "IstanbulBizim/1.0 (CF-Worker)" },
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data.routes || !data.routes[0] || !data.routes[0].geometry) return null;
+      // Convert OSRM GeoJSON [lon, lat] coordinates to Leaflet [lat, lon]
+      const pts = data.routes[0].geometry.coordinates.map(p => [p[1], p[0]]);
+      if (idx > 0 && pts.length > 0) {
+        allRoadCoords.push(...pts.slice(1)); // avoid duplicate junction vertex
+      } else {
+        allRoadCoords.push(...pts);
+      }
+    } catch (e) {
+      // In case of network timeout or OSRM unavailability, gracefully return null
+      return null;
+    }
+  }
+
+  return allRoadCoords.length >= 2 ? allRoadCoords : null;
+}
+
 // Fetch line route, stops, and directions from IETT ibb.asmx (cached for 24h)
 async function fetchLineRoute(code, env) {
-  const key = "route:" + code;
+  const key = "route_v3:" + code;
   let cached = await env.LIVE.get(key, "json");
   if (cached && cached.directions) return cached;
 
@@ -307,6 +354,14 @@ async function fetchLineRoute(code, env) {
       const origin = stops[0].name;
       const destination = stops[stops.length - 1].name;
       const isOutbound = k === "G" || k === "GİDİŞ";
+      const directStopCoords = stops.map(s => [s.lat, s.lon]);
+
+      // Fetch actual road geometry snapping between stops
+      let roadCoords = null;
+      try {
+        roadCoords = await fetchRoadGeometry(stops);
+      } catch (e) {}
+
       directions[k] = {
         code: k,
         name: (isOutbound ? "Gidiş: " : "Dönüş: ") + destination,
@@ -315,7 +370,9 @@ async function fetchLineRoute(code, env) {
         headsign: `${origin} ➔ ${destination}`,
         color: isOutbound ? "#a855f7" : "#06b6d4",
         stops,
-        coordinates: stops.map(s => [s.lat, s.lon])
+        // Road-snapped geometry if available, fallback to direct stop-to-stop coordinates
+        coordinates: roadCoords || directStopCoords,
+        has_road_geometry: Boolean(roadCoords)
       };
     }
   }

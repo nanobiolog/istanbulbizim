@@ -1917,7 +1917,7 @@
 
       L.control.zoom({ position: "bottomright" }).addTo(map);
 
-      // Basemap Tiles (Carto Retina Dark & Light without requiring API key)
+      // Basemap Tiles (Carto Retina Dark & Positron without requiring API key)
       const cartoKeyParam = "__CARTO_KEY__";
       const keySuffix = (cartoKeyParam && !cartoKeyParam.startsWith("__")) ? `?key=${cartoKeyParam}` : "";
 
@@ -1927,7 +1927,7 @@
         attribution: '&copy; <a href="https://carto.com/">CARTO</a> | Veri: İBB Açık Veri & İETT'
       });
 
-      const lightTile = L.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png${keySuffix}`, {
+      const lightTile = L.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png${keySuffix}`, {
         subdomains: "abcd",
         maxZoom: 19,
         attribution: '&copy; <a href="https://carto.com/">CARTO</a> | Veri: İBB Açık Veri & İETT'
@@ -1951,7 +1951,8 @@
       // Marker Pool & Animation Map for 60fps continuous gliding
       const busAnimMap = new Map();
       const lineRouteCache = new Map();
-      const ROUTE_CACHE_PREFIX = "ib_route_v2_";
+      const lineSpatialIndices = new Map();
+      const ROUTE_CACHE_PREFIX = "ib_route_v3_";
       const ROUTE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
       function getStoredRoute(code) {
@@ -1981,9 +1982,161 @@
           try {
             for (let i = 0; i < localStorage.length; i++) {
               const k = localStorage.key(i);
-              if (k && k.startsWith(ROUTE_CACHE_PREFIX)) localStorage.removeItem(k);
+              if (k && k.startsWith("ib_route_")) localStorage.removeItem(k);
             }
           } catch (_) {}
+        }
+      }
+
+      // Fast Spatial Hash Indexing for Route Road Segments (O(1) lookup per bus)
+      function getOrBuildSpatialIndex(coords) {
+        if (!coords || coords.length < 2) return null;
+        const key = coords[0][0].toFixed(3) + ":" + coords[coords.length - 1][0].toFixed(3) + ":" + coords.length;
+        if (lineSpatialIndices.has(key)) return lineSpatialIndices.get(key);
+
+        const cellSize = 0.005; // ~500m grid cell
+        const grid = new Map();
+        for (let i = 0; i < coords.length - 1; i++) {
+          const a = coords[i];
+          const b = coords[i + 1];
+          const minLat = Math.min(a[0], b[0]);
+          const maxLat = Math.max(a[0], b[0]);
+          const minLon = Math.min(a[1], b[1]);
+          const maxLon = Math.max(a[1], b[1]);
+
+          const minCellY = Math.floor(minLat / cellSize);
+          const maxCellY = Math.floor(maxLat / cellSize);
+          const minCellX = Math.floor(minLon / cellSize);
+          const maxCellX = Math.floor(maxLon / cellSize);
+
+          for (let cy = minCellY; cy <= maxCellY; cy++) {
+            for (let cx = minCellX; cx <= maxCellX; cx++) {
+              const cellKey = `${cy}:${cx}`;
+              let list = grid.get(cellKey);
+              if (!list) {
+                list = [];
+                grid.set(cellKey, list);
+              }
+              list.push(i);
+            }
+          }
+        }
+
+        const idxObj = { grid, cellSize, coords };
+        lineSpatialIndices.set(key, idxObj);
+        return idxObj;
+      }
+
+      // Project vehicle GPS coordinate onto the nearest real road segment within threshold
+      function snapBusToRoad(lat, lon, spatialIndex, maxDistM = 65) {
+        if (!spatialIndex) return { lat, lon, bearing: null, snapped: false };
+        const { grid, cellSize, coords } = spatialIndex;
+        const cy = Math.floor(lat / cellSize);
+        const cx = Math.floor(lon / cellSize);
+        const cosLat = Math.cos(lat * Math.PI / 180);
+        const mPerLat = 111139;
+        const mPerLon = 111139 * cosLat;
+
+        let bestDist = maxDistM;
+        let bestLat = lat;
+        let bestLon = lon;
+        let bestBearing = null;
+        let snapped = false;
+        const checked = new Set();
+
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const segs = grid.get(`${cy + dy}:${cx + dx}`);
+            if (!segs) continue;
+            for (let s = 0; s < segs.length; s++) {
+              const i = segs[s];
+              if (checked.has(i)) continue;
+              checked.add(i);
+
+              const a = coords[i];
+              const b = coords[i + 1];
+
+              const segDx = (b[1] - a[1]) * mPerLon;
+              const segDy = (b[0] - a[0]) * mPerLat;
+              const l2 = segDx * segDx + segDy * segDy;
+              if (l2 === 0) continue;
+
+              const pDx = (lon - a[1]) * mPerLon;
+              const pDy = (lat - a[0]) * mPerLat;
+              const t = Math.max(0, Math.min(1, (pDx * segDx + pDy * segDy) / l2));
+
+              const projLat = a[0] + t * (b[0] - a[0]);
+              const projLon = a[1] + t * (b[1] - a[1]);
+
+              const distDx = (lon - projLon) * mPerLon;
+              const distDy = (lat - projLat) * mPerLat;
+              const dist = Math.sqrt(distDx * distDx + distDy * distDy);
+
+              if (dist < bestDist) {
+                bestDist = dist;
+                bestLat = projLat;
+                bestLon = projLon;
+                bestBearing = (Math.atan2(segDx, segDy) * (180 / Math.PI) + 360) % 360;
+                snapped = true;
+              }
+            }
+          }
+        }
+
+        return { lat: bestLat, lon: bestLon, bearing: bestBearing, snapped };
+      }
+
+      // Fetch client-side road geometry via OSRM if missing from backend cache
+      async function enrichDirectionsWithRoads(directions) {
+        if (!directions) return;
+        const keys = Object.keys(directions);
+        for (const k of keys) {
+          const dir = directions[k];
+          if (!dir || !dir.stops || dir.stops.length < 2) continue;
+          if (dir.has_road_geometry && dir.coordinates && dir.coordinates.length > dir.stops.length) continue;
+
+          // Request OSRM road geometry
+          try {
+            const stops = dir.stops;
+            const CHUNK_SIZE = 25;
+            const chunks = [];
+            let i = 0;
+            while (i < stops.length) {
+              chunks.push(stops.slice(i, i + CHUNK_SIZE));
+              if (i + CHUNK_SIZE >= stops.length) break;
+              i += CHUNK_SIZE - 1;
+            }
+
+            const allRoadPts = [];
+            for (let idx = 0; idx < chunks.length; idx++) {
+              const chunk = chunks[idx];
+              const coordsStr = chunk.map(s => `${s.lon.toFixed(5)},${s.lat.toFixed(5)}`).join(";");
+              const url = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`;
+              const res = await fetch(url);
+              if (!res.ok) break;
+              const data = await res.json();
+              if (!data.routes || !data.routes[0] || !data.routes[0].geometry) break;
+              const pts = data.routes[0].geometry.coordinates.map(p => [p[1], p[0]]);
+              if (idx > 0 && pts.length > 0) {
+                allRoadPts.push(...pts.slice(1));
+              } else {
+                allRoadPts.push(...pts);
+              }
+            }
+
+            if (allRoadPts.length >= stops.length) {
+              dir.coordinates = allRoadPts;
+              dir.has_road_geometry = true;
+              // Re-render road polyline once road geometry is resolved
+              if (selectedLineData && selectedLineData.directions && selectedLineData.directions[k]) {
+                selectedLineData.directions[k].coordinates = allRoadPts;
+                selectedLineData.directions[k].has_road_geometry = true;
+                drawRoute(selectedLineData.directions);
+              }
+            }
+          } catch (e) {
+            // Graceful fallback to direct stop coordinates
+          }
         }
       }
 
@@ -2464,14 +2617,18 @@
 
           const isVisible = (activeDirectionFilter === "ALL" || activeDirectionFilter === k);
           const color = dir.color || (k === "G" ? "#a855f7" : "#06b6d4");
-          const opacity = isVisible ? 0.92 : 0.15;
-          const glowOpacity = isVisible ? 0.35 : 0.05;
+          const opacity = isVisible ? 0.95 : 0.15;
+          const glowOpacity = isVisible ? 0.38 : 0.05;
 
-          const coords = dir.stops.map(s => [s.lat, s.lon]);
-          coords.forEach(pt => allCoords.push(pt));
+          // Use real road geometry coordinates if available, fallback to stops
+          const roadCoords = (Array.isArray(dir.coordinates) && dir.coordinates.length >= 2)
+            ? dir.coordinates
+            : dir.stops.map(s => [s.lat, s.lon]);
 
-          // Outer glowing route outline
-          const glowPoly = L.polyline(coords, {
+          roadCoords.forEach(pt => allCoords.push(pt));
+
+          // Outer glowing route outline along the real road path
+          const glowPoly = L.polyline(roadCoords, {
             color: color,
             weight: 8,
             opacity: glowOpacity,
@@ -2480,23 +2637,23 @@
           });
           routeLayer.addLayer(glowPoly);
 
-          // Inner crisp route polyline
-          const routePoly = L.polyline(coords, {
+          // Inner crisp transit route polyline along the real road path
+          const routePoly = L.polyline(roadCoords, {
             color: color,
-            weight: 4,
+            weight: 4.5,
             opacity: opacity,
             lineJoin: "round",
             dashArray: k === "G" ? "6, 6" : null
           });
-          routePoly.bindTooltip(`<b>${dir.headsign || dir.name}</b> (${dir.stops.length} durak)`, { sticky: true });
+          routePoly.bindTooltip(`<b>${dir.headsign || dir.name}</b> (${dir.stops.length} durak${dir.has_road_geometry ? " • Yol Güzergahı" : ""})`, { sticky: true });
           routeLayer.addLayer(routePoly);
 
-          // Render stops along this direction
+          // Render official bus stops along this direction
           dir.stops.forEach((s, idx) => {
             const isTerminal = (idx === 0 || idx === dir.stops.length - 1);
             const stopDot = L.circleMarker([s.lat, s.lon], {
-              radius: isTerminal ? 6 : 3,
-              weight: isTerminal ? 2.5 : 1,
+              radius: isTerminal ? 6.5 : 3.5,
+              weight: isTerminal ? 2.5 : 1.2,
               color: "#ffffff",
               fillColor: color,
               fillOpacity: isVisible ? 1 : 0.25
@@ -2689,16 +2846,46 @@
                </div>`;
         }
 
+        // Build spatial index for current line's direction road geometry for instant O(1) road snapping
+        let activeRoadIndex = null;
+        if (selectedLineData && selectedLineData.directions) {
+          const targetDir = activeDirectionFilter !== "ALL" ? selectedLineData.directions[activeDirectionFilter] : null;
+          if (targetDir && Array.isArray(targetDir.coordinates) && targetDir.coordinates.length >= 2) {
+            activeRoadIndex = getOrBuildSpatialIndex(targetDir.coordinates);
+          } else {
+            // If ALL directions visible, combine or choose coordinates from available directions
+            const allCoordsList = [];
+            Object.values(selectedLineData.directions).forEach(d => {
+              if (Array.isArray(d.coordinates)) allCoordsList.push(...d.coordinates);
+            });
+            if (allCoordsList.length >= 2) activeRoadIndex = getOrBuildSpatialIndex(allCoordsList);
+          }
+        }
+
         // Reconcile and update bus markers smoothly
         visibleBuses.forEach(b => {
           activeBusIds.add(b.id);
           const isDirG = b.dir === "G";
           const col = b.color || (isDirG ? "#a855f7" : "#06b6d4");
+
+          // Snap GPS coordinate onto the nearest real road segment
+          let targetLat = b.lat;
+          let targetLon = b.lon;
+          let roadBearing = null;
+          if (activeRoadIndex) {
+            const snapped = snapBusToRoad(b.lat, b.lon, activeRoadIndex, 65);
+            if (snapped.snapped) {
+              targetLat = snapped.lat;
+              targetLon = snapped.lon;
+              roadBearing = snapped.bearing;
+            }
+          }
+
           let item = busAnimMap.get(b.id);
-          const distM = item ? geoDistanceMeters(item.currentLat, item.currentLon, b.lat, b.lon) : 0;
-          const isMoving = (b.s >= 4 && (!item || distM >= 10));
-          const bearing = b.bearing || (item ? item.bearing : 0) || 0;
-          pts.push([b.lat, b.lon]);
+          const distM = item ? geoDistanceMeters(item.currentLat, item.currentLon, targetLat, targetLon) : 0;
+          const isMoving = (b.s >= 4 && (!item || distM >= 8));
+          const bearing = (isMoving && roadBearing != null) ? roadBearing : (b.bearing || (item ? item.bearing : 0) || 0);
+          pts.push([targetLat, targetLon]);
 
           if (!item) {
             const iconHtml = buildMarkerIcon(isMoving, bearing, col, b.id);
@@ -2709,7 +2896,7 @@
               iconAnchor: [16, 16]
             });
 
-            const marker = L.marker([b.lat, b.lon], { icon: busIcon });
+            const marker = L.marker([targetLat, targetLon], { icon: busIcon });
             const dirLabel = b.dir_name ? `➔ ${b.dir_name}` : (isDirG ? "Gidiş Yönü" : "Dönüş Yönü");
             marker.bindTooltip(`<b>${b.id}</b> • ${dirLabel} (${b.s || 0} km/s)`, { direction: "top", offset: [0, -14] });
             marker.on("click", (e) => {
@@ -2722,12 +2909,12 @@
             item = {
               marker,
               arrowEl: null,
-              fromLat: b.lat,
-              fromLon: b.lon,
-              targetLat: b.lat,
-              targetLon: b.lon,
-              currentLat: b.lat,
-              currentLon: b.lon,
+              fromLat: targetLat,
+              fromLon: targetLon,
+              targetLat: targetLat,
+              targetLon: targetLon,
+              currentLat: targetLat,
+              currentLon: targetLon,
               bearing,
               displayBearing: bearing,
               wasMoving: isMoving,
@@ -2757,14 +2944,14 @@
               }, 0);
             }
 
-            // Update existing marker position smoothly
-            if (b.lat !== item.targetLat || b.lon !== item.targetLon) {
+            // Update existing marker position smoothly along road path
+            if (targetLat !== item.targetLat || targetLon !== item.targetLon) {
               item.fromLat = item.currentLat;
               item.fromLon = item.currentLon;
-              item.targetLat = b.lat;
-              item.targetLon = b.lon;
-              if (isMoving && distM >= 10) {
-                const newBearing = calculateBearing(item.fromLat, item.fromLon, b.lat, b.lon);
+              item.targetLat = targetLat;
+              item.targetLon = targetLon;
+              if (isMoving && distM >= 8) {
+                const newBearing = roadBearing != null ? roadBearing : calculateBearing(item.fromLat, item.fromLon, targetLat, targetLon);
                 item.bearing = lerpAngle(item.bearing || newBearing, newBearing, 0.7);
               }
               item.startTime = now;
@@ -2933,9 +3120,12 @@
                   selectedLineData = matchBusesForLine(code, routeData);
                   renderSelectedLine(true);
                 }
+                enrichDirectionsWithRoads(routeData.directions);
               }
             })
             .catch(() => {});
+        } else if (cachedRoute && cachedRoute.directions) {
+          enrichDirectionsWithRoads(cachedRoute.directions);
         }
 
         // 3. Complete Line Data Fetch (updates fleet & line metadata)
@@ -2949,6 +3139,7 @@
               selectedLineData = data;
               renderSelectedLine(isSilent);
               txtStatusMsg.textContent = `${code} aktif (${(data.buses || []).length} araç)`;
+              if (data.directions) enrichDirectionsWithRoads(data.directions);
             } else if (!selectedLineData || (selectedLineData.buses || []).length === 0) {
               if (!isSilent) showToast(`"${code}" hattı bulunamadı`);
               txtStatusMsg.textContent = "Hat bulunamadı";
