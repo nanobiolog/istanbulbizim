@@ -3176,6 +3176,64 @@
       }
 
       // ─── METRO LIVE TRAIN KINEMATICS & ESTIMATED STOP TIME ENGINE ───
+      function getLineKinematics(lineCode) {
+        const code = String(lineCode || "").toUpperCase().trim();
+
+        // 1. Sürücüsüz Metrolar (M5 Üsküdar-Çekmeköy, M8 Bostancı-Dudullu)
+        if (code === "M5" || code === "M8") {
+          return {
+            systemType: "Sürücüsüz Metro",
+            accRate: 1.05, // 1,0 - 1,1 m/s²
+            decRate: 1.15, // 1,1 - 1,2 m/s²
+            accRangeMin: 1.00,
+            accRangeMax: 1.10,
+            decRangeMin: 1.10,
+            decRangeMax: 1.20,
+            specText: "Sürücüsüz (Hızlanma: 1,0-1,1 • Fren: 1,1-1,2 m/s²)"
+          };
+        }
+
+        // 2. Hafif Metro / Tramvay (M1 hattı ve T1, T4 tramvayları, ayrıca T3, T5)
+        if (code.startsWith("M1") || code.startsWith("T")) {
+          return {
+            systemType: code.startsWith("M1") ? "Hafif Metro" : "Tramvay",
+            accRate: 1.10, // 1,0 - 1,2 m/s²
+            decRate: 1.20, // 1,1 - 1,3 m/s²
+            accRangeMin: 1.00,
+            accRangeMax: 1.20,
+            decRangeMin: 1.10,
+            decRangeMax: 1.30,
+            specText: "Hafif Metro / Tramvay (Hızlanma: 1,0-1,2 • Fren: 1,1-1,3 m/s²)"
+          };
+        }
+
+        // 3. Füniküler & Teleferik (F1, F4, TF1, TF2)
+        if (code.startsWith("F") || code.startsWith("TF")) {
+          return {
+            systemType: code.startsWith("F") ? "Füniküler" : "Teleferik",
+            accRate: 0.75,
+            decRate: 0.85,
+            accRangeMin: 0.70,
+            accRangeMax: 0.80,
+            decRangeMin: 0.80,
+            decRangeMax: 0.90,
+            specText: "Kablolu Sistem (Hızlanma: 0,7-0,8 • Fren: 0,8-0,9 m/s²)"
+          };
+        }
+
+        // 4. İstanbul Metrosu (Standart) - Ağır Metro: M2, M3, M4, M6, M7, M9 vb.
+        return {
+          systemType: "İstanbul Metrosu (Standart)",
+          accRate: 0.89, // 0,89 m/s²
+          decRate: 1.04, // 1,04 m/s²
+          accRangeMin: 0.88,
+          accRangeMax: 0.90,
+          decRangeMin: 1.03,
+          decRangeMax: 1.05,
+          specText: "Standart Metro (Ort. Hızlanma: 0,89 • Ort. Fren: 1,04 m/s²)"
+        };
+      }
+
       function getTrainDisplayProps(t) {
         let accClass = "cruise";
         let arrowIcon = "●";
@@ -3188,14 +3246,14 @@
           arrowIcon = "▲";
           statusTitle = "Hızlanıyor";
           statusIcon = "🚀";
-          const a = t.currentAcc > 0 ? t.currentAcc : 0.95;
+          const a = t.currentAcc > 0 ? t.currentAcc : (t.accRate || 0.89);
           accDisplay = `+${a.toFixed(2)} m/s²`;
         } else if (t.state === "DECELERATING") {
           accClass = "dec";
           arrowIcon = "▼";
           statusTitle = "Yavaşlıyor / Fren";
           statusIcon = "🛑";
-          const d = t.currentAcc < 0 ? t.currentAcc : -1.10;
+          const d = t.currentAcc < 0 ? t.currentAcc : -(t.decRate || 1.04);
           accDisplay = `${d.toFixed(2)} m/s²`;
         } else if (t.state === "AT_STATION") {
           accClass = "stop";
@@ -3354,9 +3412,10 @@
             </div>
             <div class="popup-details">
               <div><b>Hat:</b> <span style="color:${t.color};font-weight:700">${t.line}</span></div>
+              <div><b>Sistem:</b> <span style="color:#cbd5e1;font-size:11px">${t.systemType || "Metro"}</span></div>
               <div><b>Anlık Hız:</b> <span id="mt-pop-speed" style="font-weight:700">${Math.round(t.currentSpeed)} km/s</span></div>
               <div><b>İvme / Fren:</b> <span id="mt-pop-acc" class="tag-acc ${p.accClass}">${p.accDisplay}</span></div>
-              <div><b>Kalan Mesafe:</b> <span id="mt-pop-dist">${Math.round(t.remainingMeters || 0)} m</span></div>
+              <div style="grid-column: span 2"><b>Kalan Mesafe:</b> <span id="mt-pop-dist">${Math.round(t.remainingMeters || 0)} m</span></div>
               <div style="grid-column: span 2">
                 <b>Sonraki Durak:</b> <span id="mt-pop-next" style="color:#38bdf8;font-weight:700">${t.targetStnName}</span>
               </div>
@@ -3534,7 +3593,11 @@
               t.state = "ACCELERATING";
               const r = Math.max(0.04, u / 0.22);
               t.currentSpeed = Math.max(6, t.maxSpeed * Math.sqrt(r));
-              t.currentAcc = Math.round((t.accRate * (1 - 0.22 * r)) * 100) / 100;
+              // Precise dynamic acceleration conforming to system table:
+              const minA = t.accRangeMin != null ? t.accRangeMin : (t.accRate || 0.89);
+              const maxA = t.accRangeMax != null ? t.accRangeMax : (t.accRate || 0.89);
+              const dynamicAcc = maxA - (maxA - minA) * (r * 0.7);
+              t.currentAcc = Math.round(dynamicAcc * 100) / 100;
             } else if (u <= 0.78) {
               t.state = "CRUISING";
               t.currentSpeed = t.maxSpeed + Math.sin(u * 25) * 1.2;
@@ -3543,7 +3606,11 @@
               t.state = "DECELERATING";
               const remR = Math.max(0.02, (1 - u) / 0.22);
               t.currentSpeed = Math.max(4, t.maxSpeed * Math.sqrt(remR));
-              t.currentAcc = -Math.round((t.decRate * (0.85 + 0.2 * (1 - remR))) * 100) / 100;
+              // Precise dynamic braking conforming to system table:
+              const minD = t.decRangeMin != null ? t.decRangeMin : (t.decRate || 1.04);
+              const maxD = t.decRangeMax != null ? t.decRangeMax : (t.decRate || 1.04);
+              const dynamicDec = minD + (maxD - minD) * ((1 - remR) * 0.7);
+              t.currentAcc = -Math.round(dynamicDec * 100) / 100;
             }
 
             if (t.progress >= 1.0) {
@@ -3593,6 +3660,7 @@
           const stations = metroNetwork[lineCode];
           if (!stations || stations.length < 2) return;
 
+          const kin = getLineKinematics(lineCode);
           const trainCount = Math.max(2, Math.min(5, Math.floor(stations.length / 4)));
           for (let i = 0; i < trainCount; i++) {
             const dir = i % 2 === 0 ? 1 : -1;
@@ -3622,6 +3690,14 @@
               id: `${lineCode}-${i + 1}`,
               line: lineCode,
               color: metroColors[lineCode] || "#0284c7",
+              systemType: kin.systemType,
+              accRate: kin.accRate,
+              decRate: kin.decRate,
+              accRangeMin: kin.accRangeMin,
+              accRangeMax: kin.accRangeMax,
+              decRangeMin: kin.decRangeMin,
+              decRangeMax: kin.decRangeMax,
+              specText: kin.specText,
               stations: stations,
               dir: dir,
               segIdx: initialSegment,
@@ -3631,8 +3707,6 @@
               timeInSegSec: timeInSeg,
               maxSpeed: maxSpd,
               currentSpeed: maxSpd * 0.85,
-              accRate: 1.05,
-              decRate: 1.15,
               currentAcc: 0.0,
               state: "CRUISING",
               dwellTotal: 12,
