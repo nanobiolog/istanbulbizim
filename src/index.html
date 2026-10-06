@@ -591,6 +591,34 @@
       border: 2px solid #ffffff;
       box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
     }
+    .bus-wait-badge {
+      position: absolute;
+      top: -16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(245, 158, 11, 0.95);
+      border: 1px solid #ffffff;
+      color: #0b1329;
+      font-size: 8px;
+      font-weight: 800;
+      padding: 1px 4px;
+      border-radius: 4px;
+      white-space: nowrap;
+      pointer-events: none;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+    .bus-waiting-pulse {
+      position: absolute;
+      inset: -6px;
+      border-radius: 50%;
+      background: #f59e0b;
+      opacity: 0.45;
+      animation: markerRadar 1.6s ease-out infinite;
+      pointer-events: none;
+    }
 
     /* Direction Group Headers in Bus List */
     .dir-group-header {
@@ -2157,6 +2185,144 @@
         return Math.sqrt(dLat * dLat + dLon * dLon);
       }
 
+      // ─── 2D REAL-TIME KALMAN FILTER (GPS NOISE FILTER & KINEMATIC DEAD RECKONING) ───
+      // State vector: x = [lat, lon, v_lat, v_lon]^T (coordinates in degrees, velocities in deg/s)
+      // Dynamic dt calculation accounts for interval batches and variable polling
+      class KalmanBusTracker {
+        constructor(initLat, initLon, initSpeedKmh = 0, initBearing = null) {
+          this.lat = initLat;
+          this.lon = initLon;
+          
+          let vLat = 0;
+          let vLon = 0;
+          if (initSpeedKmh > 0 && initBearing != null) {
+            const vMs = (initSpeedKmh * 1000) / 3600;
+            const rad = initBearing * (Math.PI / 180);
+            const mPerLat = 111139;
+            const mPerLon = 111139 * Math.cos(initLat * Math.PI / 180);
+            vLat = (vMs * Math.cos(rad)) / mPerLat;
+            vLon = (vMs * Math.sin(rad)) / mPerLon;
+          }
+          this.vLat = vLat;
+          this.vLon = vLon;
+
+          // Covariance matrix P diagonal elements: position uncertainty & velocity uncertainty
+          // Initial uncertainty: 15m position, 5m/s velocity
+          const cosL = Math.cos(initLat * Math.PI / 180);
+          const pPosLat = (15 / 111139) ** 2;
+          const pPosLon = (15 / (111139 * cosL)) ** 2;
+          const pVelLat = (5 / 111139) ** 2;
+          const pVelLon = (5 / (111139 * cosL)) ** 2;
+
+          this.p00 = pPosLat;
+          this.p11 = pPosLon;
+          this.p22 = pVelLat;
+          this.p33 = pVelLon;
+          this.p02 = 0;
+          this.p13 = 0;
+
+          // Noise parameters
+          // R: Measurement Noise Variance (GPS urban canyon accuracy: ~8-12m)
+          this.rMeters = 10.0;
+          // Q: Process Noise Acceleration Variance (~1.2 m/s² for urban buses)
+          this.qAcc = 1.2;
+
+          this.lastUpdateTime = performance.now();
+        }
+
+        predict(dt) {
+          if (!dt || dt <= 0) return;
+          // State transition: pos = pos + vel * dt
+          this.lat += this.vLat * dt;
+          this.lon += this.vLon * dt;
+
+          const cosL = Math.max(0.2, Math.cos(this.lat * Math.PI / 180));
+          const mPerLat = 111139;
+          const mPerLon = 111139 * cosL;
+
+          // Process noise Q
+          const qLat = ((this.qAcc / mPerLat) ** 2) * dt;
+          const qLon = ((this.qAcc / mPerLon) ** 2) * dt;
+
+          // Covariance propagation: P = F * P * F^T + Q
+          this.p00 += 2 * this.p02 * dt + this.p22 * (dt * dt) + qLat * (dt * dt * 0.25);
+          this.p02 += this.p22 * dt + qLat * (dt * 0.5);
+          this.p22 += qLat;
+
+          this.p11 += 2 * this.p13 * dt + this.p33 * (dt * dt) + qLon * (dt * dt * 0.25);
+          this.p13 += this.p33 * dt + qLon * (dt * 0.5);
+          this.p33 += qLon;
+        }
+
+        update(measLat, measLon, reportedSpeedKmh = 0) {
+          const now = performance.now();
+          const dt = Math.min(60, Math.max(0.1, (now - this.lastUpdateTime) / 1000));
+          this.lastUpdateTime = now;
+
+          // 1. Predict state forward by actual elapsed interval dt
+          this.predict(dt);
+
+          // 2. Innovation (measurement residual)
+          const yLat = measLat - this.lat;
+          const yLon = measLon - this.lon;
+
+          const cosL = Math.max(0.2, Math.cos(measLat * Math.PI / 180));
+          const mPerLat = 111139;
+          const mPerLon = 111139 * cosL;
+
+          // Measurement noise variance R (degrees²)
+          // If reported speed is 0 or low, GPS noise is higher; if moving, measurement is reliable
+          const rBase = reportedSpeedKmh < 4 ? 6.0 : this.rMeters;
+          const rLat = (rBase / mPerLat) ** 2;
+          const rLon = (rBase / mPerLon) ** 2;
+
+          // Innovation covariance S = H * P * H^T + R
+          const sLat = this.p00 + rLat;
+          const sLon = this.p11 + rLon;
+
+          // Optimal Kalman Gain K = P * H^T * S^-1
+          const kLatPos = this.p00 / sLat;
+          const kLatVel = this.p02 / sLat;
+          const kLonPos = this.p11 / sLon;
+          const kLonVel = this.p13 / sLon;
+
+          // Update state with measurement
+          this.lat += kLatPos * yLat;
+          this.vLat += kLatVel * yLat;
+          this.lon += kLonPos * yLon;
+          this.vLon += kLonVel * yLon;
+
+          // Update covariance: P = (I - K * H) * P
+          this.p00 *= (1 - kLatPos);
+          this.p02 *= (1 - kLatPos);
+          this.p22 -= kLatVel * this.p02;
+
+          this.p11 *= (1 - kLonPos);
+          this.p13 *= (1 - kLonPos);
+          this.p33 -= kLonVel * this.p13;
+
+          return { lat: this.lat, lon: this.lon, vLat: this.vLat, vLon: this.vLon };
+        }
+
+        getEstimatedSpeedKmh() {
+          const mPerLat = 111139;
+          const cosL = Math.max(0.2, Math.cos(this.lat * Math.PI / 180));
+          const mPerLon = 111139 * cosL;
+          const vMs = Math.sqrt((this.vLat * mPerLat) ** 2 + (this.vLon * mPerLon) ** 2);
+          return Math.round(vMs * 3.6);
+        }
+
+        getEstimatedBearing() {
+          const mPerLat = 111139;
+          const cosL = Math.max(0.2, Math.cos(this.lat * Math.PI / 180));
+          const mPerLon = 111139 * cosL;
+          const dy = this.vLat * mPerLat;
+          const dx = this.vLon * mPerLon;
+          if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05) return null;
+          return (Math.atan2(dx, dy) * (180 / Math.PI) + 360) % 360;
+        }
+      }
+
       // ─── APPLICATION STATE ───
       let fleetBuses = [];
       let busLinesMap = {};
@@ -2313,23 +2479,34 @@
           if (dist < minDistG) { minDistG = dist; closestStopG = s; }
         }
 
-        if (minDistG < minDistD) {
-          return {
-            dir: "G",
-            dir_name: dG.destination || "Gidiş Yönü",
-            headsign: dG.headsign || "",
-            stop: closestStopG ? closestStopG.name : "",
-            color: "#a855f7"
-          };
-        } else {
-          return {
-            dir: "D",
-            dir_name: dD.destination || "Dönüş Yönü",
-            headsign: dD.headsign || "",
-            stop: closestStopD ? closestStopD.name : "",
-            color: "#06b6d4"
-          };
+        const isG = minDistG < minDistD;
+        const targetDir = isG ? dG : dD;
+        const targetStop = isG ? closestStopG : closestStopD;
+        const dirCode = isG ? "G" : "D";
+        const dirColor = isG ? "#a855f7" : "#06b6d4";
+        const dirTitle = isG ? (dG.destination || "Gidiş Yönü") : (dD.destination || "Dönüş Yönü");
+
+        // Calculate physical distance to closest stop in meters
+        let stopDistM = Infinity;
+        let isWaitingAtStop = false;
+        if (targetStop) {
+          stopDistM = Math.round(geoDistanceMeters(bus.lat, bus.lon, targetStop.lat, targetStop.lon));
+          // If bus is stationary or crawling (<= 6 km/h) and within 65m of an official bus stop:
+          // it is confirmed waiting at the stop for passenger boarding/alighting!
+          if ((bus.s || 0) <= 6 && stopDistM <= 65) {
+            isWaitingAtStop = true;
+          }
         }
+
+        return {
+          dir: dirCode,
+          dir_name: dirTitle,
+          headsign: targetDir.headsign || "",
+          stop: targetStop ? targetStop.name : "",
+          stop_dist_m: stopDistM,
+          waiting_at_stop: isWaitingAtStop,
+          color: dirColor
+        };
       }
 
       function matchBusesForLine(code, routeData) {
@@ -2353,6 +2530,8 @@
               headsign: match.headsign,
               color: match.color,
               stop: match.stop,
+              stop_dist_m: match.stop_dist_m,
+              waiting_at_stop: match.waiting_at_stop,
               time: b.t,
               s: b.s,
               op: b.op || "İETT",
@@ -2499,10 +2678,20 @@
           const popSpeedEl = document.getElementById("popup-bus-speed");
           if (popSpeedEl) popSpeedEl.textContent = `${activeInspectedBus.s || 0} km/s`;
 
+          const popStatusEl = document.getElementById("popup-bus-status");
+          if (popStatusEl) {
+            popStatusEl.innerHTML = activeInspectedBus.waiting_at_stop
+              ? `<span style="color:#f59e0b;font-weight:700">⏸️ Durakta Bekliyor (Yolcu İndirme/Bindirme)</span>`
+              : (activeInspectedBus.s >= 4 ? `<span style="color:#10b981;font-weight:600">▶️ Seyir Halinde</span>` : `<span style="color:#94a3b8">Hareketsiz / Beklemede</span>`);
+          }
+
           const mobTimeEl = el("insp-time");
           if (mobTimeEl && mobileInspector.style.display !== "none") {
             mobTimeEl.textContent = fullTimeText;
             el("insp-speed").textContent = `${activeInspectedBus.s || 0} km/s`;
+            if (activeInspectedBus.waiting_at_stop) {
+              el("insp-speed").innerHTML = `<span style="color:#f59e0b;font-weight:700">⏸️ Durakta Bekliyor</span>`;
+            }
           }
         }
 
@@ -2533,14 +2722,20 @@
         const dirText = b.dir_name ? `➔ ${b.dir_name}` : (b.dir === "G" ? "➔ Gidiş Yönü" : (b.dir === "D" ? "➔ Dönüş Yönü" : "-"));
         const stopText = b.stop || "-";
 
+        const isWaiting = b.waiting_at_stop || ((b.s || 0) <= 6 && (b.stop_dist_m || Infinity) <= 65);
+        const statusHtml = isWaiting
+          ? `<span style="color:#f59e0b;font-weight:700">⏸️ Durakta Bekliyor (Yolcu İndirme/Bindirme)</span>`
+          : ((b.s || 0) >= 4 ? `<span style="color:#10b981;font-weight:600">▶️ Seyir Halinde</span>` : `<span style="color:#94a3b8">Hareketsiz / Beklemede</span>`);
+        const stopDistanceNote = (b.stop_dist_m && b.stop_dist_m < 500) ? `<small style="color:#94a3b8;margin-left:4px">(${b.stop_dist_m} m)</small>` : "";
+
         if (window.innerWidth <= 768) {
           el("insp-title").textContent = `Araç: ${b.id} ${b.p ? `(${b.p})` : ""}`;
           el("insp-line").innerHTML = mappedLine 
             ? `<span style="color:#38bdf8;font-weight:800;font-size:14px">${mappedLine}</span> <small style="color:#94a3b8">(${dirText})</small>` 
             : "Eşleşme yok";
-          el("insp-speed").textContent = speedText;
+          el("insp-speed").textContent = isWaiting ? "⏸️ Durakta Bekliyor" : speedText;
           el("insp-time").textContent = timeText;
-          el("insp-op").innerHTML = `${opText} <br><small style="color:#94a3b8">Durak: ${stopText}</small>`;
+          el("insp-op").innerHTML = `${opText} <br><small style="color:#94a3b8">Durak: ${stopText} ${stopDistanceNote}</small>`;
 
           const btnFilter = el("btn-insp-filter");
           if (mappedLine) {
@@ -2571,7 +2766,8 @@
                 <div class="popup-details">
                   <div><b>Hat:</b> ${mappedLine ? `<span style="color:#38bdf8;font-weight:700">${mappedLine}</span>` : "Yok"}</div>
                   <div><b>Gittiği Yön:</b> <span style="color:#f59e0b;font-weight:600">${dirText}</span></div>
-                  <div><b>Yakın Durak:</b> <span>${stopText}</span></div>
+                  <div><b>Yakın Durak:</b> <span>${stopText} ${stopDistanceNote}</span></div>
+                  <div style="grid-column: span 2"><b>Durum:</b> <span id="popup-bus-status">${statusHtml}</span></div>
                   <div><b>Hız:</b> <span id="popup-bus-speed">${speedText}</span></div>
                   <div><b>Zaman:</b> <span id="popup-bus-time">${timeText}</span></div>
                   <div><b>Operatör:</b> ${opText}</div>
@@ -2651,17 +2847,30 @@
           // Render official bus stops along this direction
           dir.stops.forEach((s, idx) => {
             const isTerminal = (idx === 0 || idx === dir.stops.length - 1);
+            
+            // Check if any live bus on this line is currently waiting at or near this stop
+            const currentLineBuses = (selectedLineData && Array.isArray(selectedLineData.buses)) ? selectedLineData.buses : [];
+            const waitingBus = currentLineBuses.find(b => {
+              if (b.waiting_at_stop && b.stop === s.name) return true;
+              return (b.s || 0) <= 6 && geoDistanceMeters(b.lat, b.lon, s.lat, s.lon) <= 75;
+            });
+
             const stopDot = L.circleMarker([s.lat, s.lon], {
-              radius: isTerminal ? 6.5 : 3.5,
-              weight: isTerminal ? 2.5 : 1.2,
-              color: "#ffffff",
-              fillColor: color,
+              radius: waitingBus ? 7.5 : (isTerminal ? 6.5 : 3.5),
+              weight: waitingBus ? 3 : (isTerminal ? 2.5 : 1.2),
+              color: waitingBus ? "#f59e0b" : "#ffffff",
+              fillColor: waitingBus ? "#f59e0b" : color,
               fillOpacity: isVisible ? 1 : 0.25
             });
 
+            let waitNotice = "";
+            if (waitingBus) {
+              waitNotice = `<div style="margin-top:4px;padding:3px 6px;background:rgba(245,158,11,0.25);border:1px solid #f59e0b;border-radius:4px;color:#fef3c7;font-size:11px"><b>⏸️ Durakta Bekleyen Araç:</b> ${waitingBus.id} ${waitingBus.p ? `(${waitingBus.p})` : ""}</div>`;
+            }
+
             const label = isTerminal 
-              ? `<b>🚩 ${idx === 0 ? "Başlangıç Durağı" : "Son Durak"}</b><br>${s.name}` 
-              : `<b>🚏 ${s.seq}. ${s.name}</b>${s.district ? `<br><small style="color:#94a3b8">${s.district}</small>` : ""}`;
+              ? `<b>🚩 ${idx === 0 ? "Başlangıç Durağı" : "Son Durak"}</b><br>${s.name}${waitNotice}` 
+              : `<b>🚏 ${s.seq}. ${s.name}</b>${s.district ? `<br><small style="color:#94a3b8">${s.district}</small>` : ""}${waitNotice}`;
             stopDot.bindTooltip(label, { direction: "top", offset: [0, -4] });
             routeLayer.addLayer(stopDot);
           });
@@ -2712,6 +2921,7 @@
               inspectVehicle(b);
             });
 
+            const kalman = new KalmanBusTracker(b.lat, b.lon, b.s || 0, b.bearing || 0);
             item = {
               marker,
               fromLat: b.lat,
@@ -2723,21 +2933,32 @@
               bearing: 0,
               startTime: now,
               duration: currentBatchDuration,
+              kalman,
               data: b
             };
 
             busAnimMap.set(b.id, item);
             busesLayer.addLayer(marker);
           } else {
-            // Update target for smooth glide interpolation
-            if (b.lat !== item.targetLat || b.lon !== item.targetLon) {
+            // Update target through Kalman Filter for smooth GPS noise filtering
+            if (b.lat !== item.rawLat || b.lon !== item.rawLon) {
+              item.rawLat = b.lat;
+              item.rawLon = b.lon;
+
+              if (!item.kalman) {
+                item.kalman = new KalmanBusTracker(item.currentLat, item.currentLon, b.s || 0, item.bearing || 0);
+              }
+              const kEst = item.kalman.update(b.lat, b.lon, b.s || 0);
+
               item.fromLat = item.currentLat;
               item.fromLon = item.currentLon;
-              item.targetLat = b.lat;
-              item.targetLon = b.lon;
-              const distM = geoDistanceMeters(item.fromLat, item.fromLon, b.lat, b.lon);
-              if (b.s >= 4 && distM >= 10) {
-                const newBearing = calculateBearing(item.fromLat, item.fromLon, b.lat, b.lon);
+              item.targetLat = kEst.lat;
+              item.targetLon = kEst.lon;
+
+              const distM = geoDistanceMeters(item.fromLat, item.fromLon, kEst.lat, kEst.lon);
+              const estBearing = item.kalman.getEstimatedBearing();
+              if (b.s >= 4 && distM >= 8) {
+                const newBearing = estBearing != null ? estBearing : calculateBearing(item.fromLat, item.fromLon, kEst.lat, kEst.lon);
                 item.bearing = lerpAngle(item.bearing || newBearing, newBearing, 0.7);
               }
               item.startTime = now;
@@ -2831,7 +3052,15 @@
 
         const activeBusIds = new Set();
 
-        function buildMarkerIcon(moving, curBearing, c, bid) {
+        function buildMarkerIcon(moving, curBearing, c, bid, isWaiting) {
+          if (isWaiting) {
+            return `<div class="bus-anim-marker bus-stopped" style="--marker-color:#f59e0b">
+                 <div class="bus-waiting-pulse"></div>
+                 <div class="bus-stop-dot" style="background:#f59e0b"></div>
+                 <div class="bus-wait-badge">⏸️ DURAKTA</div>
+                 <div class="bus-badge-label">${bid}</div>
+               </div>`;
+          }
           return moving
             ? `<div class="bus-anim-marker" style="--marker-color:${c}">
                  <div class="bus-radar-pulse"></div>
@@ -2868,12 +3097,46 @@
           const isDirG = b.dir === "G";
           const col = b.color || (isDirG ? "#a855f7" : "#06b6d4");
 
-          // Snap GPS coordinate onto the nearest real road segment
-          let targetLat = b.lat;
-          let targetLon = b.lon;
+          let item = busAnimMap.get(b.id);
+
+          // 1. Kalman Filter update for noisy GPS intervals
+          if (!item) {
+            item = {
+              marker: null,
+              arrowEl: null,
+              kalman: new KalmanBusTracker(b.lat, b.lon, b.s || 0, b.bearing || 0),
+              rawLat: b.lat,
+              rawLon: b.lon,
+              fromLat: b.lat,
+              fromLon: b.lon,
+              targetLat: b.lat,
+              targetLon: b.lon,
+              currentLat: b.lat,
+              currentLon: b.lon,
+              bearing: b.bearing || 0,
+              displayBearing: b.bearing || 0,
+              wasMoving: false,
+              wasWaiting: false,
+              startTime: now,
+              duration: currentBatchDuration,
+              data: b
+            };
+          }
+
+          let kLat = b.lat;
+          let kLon = b.lon;
+          if (item.kalman) {
+            const kEst = item.kalman.update(b.lat, b.lon, b.s || 0);
+            kLat = kEst.lat;
+            kLon = kEst.lon;
+          }
+
+          // 2. Snap Kalman-smoothed GPS coordinate onto the nearest real road segment
+          let targetLat = kLat;
+          let targetLon = kLon;
           let roadBearing = null;
           if (activeRoadIndex) {
-            const snapped = snapBusToRoad(b.lat, b.lon, activeRoadIndex, 65);
+            const snapped = snapBusToRoad(kLat, kLon, activeRoadIndex, 65);
             if (snapped.snapped) {
               targetLat = snapped.lat;
               targetLon = snapped.lon;
@@ -2881,14 +3144,19 @@
             }
           }
 
-          let item = busAnimMap.get(b.id);
-          const distM = item ? geoDistanceMeters(item.currentLat, item.currentLon, targetLat, targetLon) : 0;
-          const isMoving = (b.s >= 4 && (!item || distM >= 8));
-          const bearing = (isMoving && roadBearing != null) ? roadBearing : (b.bearing || (item ? item.bearing : 0) || 0);
+          const distM = geoDistanceMeters(item.currentLat, item.currentLon, targetLat, targetLon);
+          const isMoving = (b.s >= 4 && distM >= 8);
+          const isWaiting = Boolean(b.waiting_at_stop || ((b.s || 0) <= 6 && (b.stop_dist_m || Infinity) <= 65));
+          const estBearing = item.kalman ? item.kalman.getEstimatedBearing() : null;
+          const bearing = (isMoving && roadBearing != null) ? roadBearing : (estBearing != null ? estBearing : (b.bearing || item.bearing || 0));
           pts.push([targetLat, targetLon]);
 
-          if (!item) {
-            const iconHtml = buildMarkerIcon(isMoving, bearing, col, b.id);
+          const waitTag = isWaiting ? " • ⏸️ Durakta Bekliyor" : "";
+          const dirLabel = b.dir_name ? `➔ ${b.dir_name}` : (isDirG ? "Gidiş Yönü" : "Dönüş Yönü");
+          const tooltipContent = `<b>${b.id}</b> • ${dirLabel} (${b.s || 0} km/s)${waitTag}`;
+
+          if (!item.marker) {
+            const iconHtml = buildMarkerIcon(isMoving, bearing, col, b.id, isWaiting);
             const busIcon = L.divIcon({
               className: "bus-custom-div-icon",
               html: iconHtml,
@@ -2897,8 +3165,7 @@
             });
 
             const marker = L.marker([targetLat, targetLon], { icon: busIcon });
-            const dirLabel = b.dir_name ? `➔ ${b.dir_name}` : (isDirG ? "Gidiş Yönü" : "Dönüş Yönü");
-            marker.bindTooltip(`<b>${b.id}</b> • ${dirLabel} (${b.s || 0} km/s)`, { direction: "top", offset: [0, -14] });
+            marker.bindTooltip(tooltipContent, { direction: "top", offset: [0, -14] });
             marker.on("click", (e) => {
               L.DomEvent.stopPropagation(e);
               inspectVehicle(b);
@@ -2906,22 +3173,20 @@
 
             selectedLineLayer.addLayer(marker);
 
-            item = {
-              marker,
-              arrowEl: null,
-              fromLat: targetLat,
-              fromLon: targetLon,
-              targetLat: targetLat,
-              targetLon: targetLon,
-              currentLat: targetLat,
-              currentLon: targetLon,
-              bearing,
-              displayBearing: bearing,
-              wasMoving: isMoving,
-              startTime: now,
-              duration: currentBatchDuration,
-              data: b
-            };
+            item.marker = marker;
+            item.fromLat = targetLat;
+            item.fromLon = targetLon;
+            item.targetLat = targetLat;
+            item.targetLon = targetLon;
+            item.currentLat = targetLat;
+            item.currentLon = targetLon;
+            item.bearing = bearing;
+            item.displayBearing = bearing;
+            item.wasMoving = isMoving;
+            item.wasWaiting = isWaiting;
+            item.startTime = now;
+            item.duration = currentBatchDuration;
+            item.data = b;
             busAnimMap.set(b.id, item);
 
             setTimeout(() => {
@@ -2929,12 +3194,13 @@
               if (arr && item) item.arrowEl = arr;
             }, 0);
           } else {
-            // Update icon if stopped vs moving state changed
-            if (item.wasMoving !== isMoving) {
+            // Update icon if stopped vs moving or wait-at-stop state changed
+            if (item.wasMoving !== isMoving || item.wasWaiting !== isWaiting) {
               item.wasMoving = isMoving;
+              item.wasWaiting = isWaiting;
               item.marker.setIcon(L.divIcon({
                 className: "bus-custom-div-icon",
-                html: buildMarkerIcon(isMoving, item.bearing || bearing, col, b.id),
+                html: buildMarkerIcon(isMoving, item.bearing || bearing, col, b.id, isWaiting),
                 iconSize: [32, 32],
                 iconAnchor: [16, 16]
               }));
@@ -2951,16 +3217,15 @@
               item.targetLat = targetLat;
               item.targetLon = targetLon;
               if (isMoving && distM >= 8) {
-                const newBearing = roadBearing != null ? roadBearing : calculateBearing(item.fromLat, item.fromLon, targetLat, targetLon);
+                const newBearing = roadBearing != null ? roadBearing : (estBearing != null ? estBearing : calculateBearing(item.fromLat, item.fromLon, targetLat, targetLon));
                 item.bearing = lerpAngle(item.bearing || newBearing, newBearing, 0.7);
               }
               item.startTime = now;
               item.duration = currentBatchDuration;
             }
             item.data = b;
-            const dirLabel = b.dir_name ? `➔ ${b.dir_name}` : (isDirG ? "Gidiş Yönü" : "Dönüş Yönü");
             if (item.marker && item.marker.getTooltip()) {
-              item.marker.setTooltipContent(`<b>${b.id}</b> • ${dirLabel} (${b.s || 0} km/s)`);
+              item.marker.setTooltipContent(tooltipContent);
             }
           }
         });
@@ -2983,12 +3248,17 @@
                     <span style="font-size:10px;opacity:0.9">${groupBuses.length} Araç</span>
                    </div>`;
           groupBuses.forEach(b => {
+            const isWaiting = b.waiting_at_stop || ((b.s || 0) <= 6 && (b.stop_dist_m || Infinity) <= 65);
+            const waitBadge = isWaiting
+              ? `<span style="display:inline-flex;align-items:center;gap:3px;padding:1px 5px;background:rgba(245,158,11,0.2);border:1px solid #f59e0b;color:#fbbf24;border-radius:4px;font-size:9px;font-weight:700">⏸️ Durakta Bekliyor</span>`
+              : "";
+
             h += `
               <div class="bus-card" onclick="window.panToBus(${b.lat}, ${b.lon}, '${b.id}')">
                 <div class="bus-card-left">
                   <span class="legend-dot" style="background:${col}"></span>
                   <div>
-                    <div class="bus-id">${b.id} ${b.p ? `<span class="bus-plate">(${b.p})</span>` : ""}</div>
+                    <div class="bus-id">${b.id} ${b.p ? `<span class="bus-plate">(${b.p})</span>` : ""} ${waitBadge}</div>
                     <div class="bus-plate">${b.stop ? `🚏 ${b.stop}` : (b.op || "İETT")} • <span class="bus-card-age" data-bus-time="${b.t || b.time || ''}">${formatBusAge(b.t || b.time, b.a)}</span></div>
                   </div>
                 </div>
