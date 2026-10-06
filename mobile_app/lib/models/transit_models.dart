@@ -49,10 +49,11 @@ class BusVehicle {
     );
   }
 
+  // Black and white high-contrast speed indication
   Color get speedColor {
-    if (speed <= 3) return const Color(0xFF64748B); // Waiting/stopped (slate)
-    if (speed < 15) return const Color(0xFFF59E0B); // Slow/Traffic (amber)
-    return const Color(0xFF10B981); // Smooth speed (emerald)
+    if (speed <= 3) return const Color(0xFF71717A); // Stopped / Waiting (zinc/gray)
+    if (speed < 15) return const Color(0xFF3F3F46); // Slow / Traffic (dark zinc)
+    return const Color(0xFF18181B); // Moving (solid black/near black)
   }
 }
 
@@ -93,7 +94,8 @@ class LineDirectionRoute {
   final String headsign;
   final String colorHex;
   final List<BusStop> stops;
-  final List<List<double>> coordinates; // [[lat, lon], ...]
+  List<List<double>> coordinates; // [[lat, lon], ...]
+  bool hasRoadGeometry;
 
   LineDirectionRoute({
     required this.code,
@@ -104,6 +106,7 @@ class LineDirectionRoute {
     required this.colorHex,
     required this.stops,
     required this.coordinates,
+    this.hasRoadGeometry = false,
   });
 
   factory LineDirectionRoute.fromJson(Map<String, dynamic> json) {
@@ -124,9 +127,10 @@ class LineDirectionRoute {
       origin: json['origin']?.toString() ?? '',
       destination: json['destination']?.toString() ?? '',
       headsign: json['headsign']?.toString() ?? '',
-      colorHex: json['color']?.toString() ?? '#06b6d4',
+      colorHex: json['color']?.toString() ?? '#18181B',
       stops: parsedStops,
       coordinates: parsedCoords,
+      hasRoadGeometry: json['has_road_geometry'] == true,
     );
   }
 }
@@ -191,4 +195,47 @@ class MetroStation {
       lineCode: line,
     );
   }
+}
+
+/// Simulated 60 FPS Metro Train conforming to Istanbul Metro Kinematics
+class MetroTrainVehicle {
+  final String id;
+  final String lineCode;
+  final String systemType;
+  final Color color;
+  final List<MetroStation> stations;
+  int dir; // 1: forward, -1: reverse
+  int segIdx;
+  double progress; // 0.0 to 1.0
+  double currentSpeed; // km/h
+  double currentLat;
+  double currentLon;
+  String state; // 'CRUISING', 'ACCELERATING', 'DECELERATING', 'AT_STATION'
+  double dwellRemaining;
+  double segDurationSec;
+  double timeInSegSec;
+  double maxSpeed;
+  String targetStationName;
+  String prevStationName;
+
+  MetroTrainVehicle({
+    required this.id,
+    required this.lineCode,
+    required this.systemType,
+    required this.color,
+    required this.stations,
+    required this.dir,
+    required this.segIdx,
+    required this.progress,
+    required this.currentSpeed,
+    required this.currentLat,
+    required this.currentLon,
+    this.state = 'CRUISING',
+    this.dwellRemaining = 0,
+    required this.segDurationSec,
+    required this.timeInSegSec,
+    required this.maxSpeed,
+    required this.targetStationName,
+    required this.prevStationName,
+  });
 }

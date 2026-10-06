@@ -77,7 +77,7 @@ class FloatingMapControls extends StatelessWidget {
           onTap: onRecenter,
           icon: Icon(
             hasUserLocation ? Icons.my_location_rounded : Icons.location_searching_rounded,
-            color: hasUserLocation ? AppTheme.accentBlue : AppTheme.accentBlack,
+            color: AppTheme.accentBlack,
             size: 26,
           ),
         ),

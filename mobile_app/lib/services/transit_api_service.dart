@@ -10,6 +10,7 @@ class TransitApiService {
   static const String directIbbRoute = "https://api.ibb.gov.tr/iett/ibb/ibb.asmx";
 
   String baseUrl = defaultWorkerUrl;
+  String? cartoApiKey;
 
   // Local assets cache
   Map<String, List<String>> _busLinesDoors = {};
@@ -52,14 +53,28 @@ class TransitApiService {
       });
 
       _assetsLoaded = true;
-    } catch (e) {
-      // ignore local load error, will use dynamic data
-    }
+    } catch (_) {}
   }
 
   Map<String, List<String>> get busLinesDoors => _busLinesDoors;
   Map<String, List<MetroStation>> get metroStations => _metroStations;
   Map<String, String> get metroColors => _metroColors;
+
+  // Try to pull carto_key or status from Cloudflare Worker if available
+  Future<String?> fetchConfigCartoKey() async {
+    if (cartoApiKey != null && cartoApiKey!.isNotEmpty) return cartoApiKey;
+    try {
+      final res = await http.get(Uri.parse('$baseUrl/status')).timeout(const Duration(seconds: 3));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data is Map && data['carto_key'] != null) {
+          cartoApiKey = data['carto_key'].toString();
+          return cartoApiKey;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
 
   // Fetch all fleet vehicles
   Future<List<BusVehicle>> fetchFleetBuses() async {
@@ -79,9 +94,7 @@ class TransitApiService {
           return _enrichBusesWithLines(list);
         }
       }
-    } catch (_) {
-      // Fallback to direct IETT SOAP API
-    }
+    } catch (_) {}
 
     // 2. Direct SOAP fallback
     return await _fetchDirectIettFleet();
@@ -139,13 +152,87 @@ class TransitApiService {
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         if (data is Map<String, dynamic> && data['directions'] != null) {
-          return LineRouteDetails.fromJson(data);
+          final parsed = LineRouteDetails.fromJson(data);
+          // If the worker did not snap to roads, snap client-side via OSRM!
+          await _ensureRoadSnappedGeometry(parsed);
+          return parsed;
         }
       }
     } catch (_) {}
 
     // 2. Direct SOAP fallback to IBB DurakDetay_GYY
-    return await _fetchDirectLineRoute(lineCode);
+    final direct = await _fetchDirectLineRoute(lineCode);
+    if (direct != null) {
+      await _ensureRoadSnappedGeometry(direct);
+    }
+    return direct;
+  }
+
+  // Snap stop-to-stop straight lines into real curved street geometry using OSRM
+  Future<void> _ensureRoadSnappedGeometry(LineRouteDetails routeDetails) async {
+    for (final dir in routeDetails.directions.values) {
+      if (dir.hasRoadGeometry && dir.coordinates.length > dir.stops.length * 2) {
+        continue;
+      }
+      final stops = dir.stops;
+      if (stops.length < 2) continue;
+
+      try {
+        final roadPts = await _fetchRoadGeometryOSRM(stops);
+        if (roadPts != null && roadPts.length >= 2) {
+          dir.coordinates = roadPts;
+          dir.hasRoadGeometry = true;
+        }
+      } catch (_) {}
+    }
+  }
+
+  // High performance OSRM road geometry builder in chunks of 25 stops
+  Future<List<List<double>>?> _fetchRoadGeometryOSRM(List<BusStop> stops) async {
+    const chunkSize = 25;
+    final allRoadCoords = <List<double>>[];
+
+    int i = 0;
+    while (i < stops.length) {
+      final end = (i + chunkSize < stops.length) ? i + chunkSize : stops.length;
+      final chunk = stops.sublist(i, end);
+      if (chunk.length < 2) break;
+
+      final coordsStr = chunk.map((s) => '${s.lon.toStringAsFixed(5)},${s.lat.toStringAsFixed(5)}').join(';');
+      final url = 'https://router.project-osrm.org/route/v1/driving/$coordsStr?overview=full&geometries=geojson';
+
+      try {
+        final res = await http.get(
+          Uri.parse(url),
+          headers: {'User-Agent': 'IstanbulBizim/1.0'},
+        ).timeout(const Duration(milliseconds: 3500));
+
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          if (data['routes'] != null && (data['routes'] as List).isNotEmpty) {
+            final geom = data['routes'][0]['geometry'];
+            if (geom != null && geom['coordinates'] is List) {
+              final pts = (geom['coordinates'] as List).map((p) {
+                return [(p[1] as num).toDouble(), (p[0] as num).toDouble()]; // [lat, lon]
+              }).toList();
+
+              if (allRoadCoords.isNotEmpty && pts.isNotEmpty) {
+                allRoadCoords.addAll(pts.skip(1));
+              } else {
+                allRoadCoords.addAll(pts);
+              }
+            }
+          }
+        }
+      } catch (_) {
+        // Fallback: If one chunk fails, continue with others
+      }
+
+      if (end >= stops.length) break;
+      i += chunkSize - 1; // 1 stop overlap between adjacent chunks
+    }
+
+    return allRoadCoords.length >= 2 ? allRoadCoords : null;
   }
 
   // Direct SOAP implementation for fleet
@@ -170,8 +257,8 @@ class TransitApiService {
 
       if (res.statusCode == 200) {
         final bodyStr = res.body;
-        final startTag = '<GetFiloAracKonum_jsonResult>';
-        final endTag = '</GetFiloAracKonum_jsonResult>';
+        const startTag = '<GetFiloAracKonum_jsonResult>';
+        const endTag = '</GetFiloAracKonum_jsonResult>';
         final startIdx = bodyStr.indexOf(startTag);
         final endIdx = bodyStr.indexOf(endTag);
 
@@ -208,9 +295,7 @@ class TransitApiService {
           return buses;
         }
       }
-    } catch (e) {
-      // Direct SOAP failed
-    }
+    } catch (_) {}
     return [];
   }
 
@@ -278,7 +363,7 @@ class TransitApiService {
               origin: origin,
               destination: dest,
               headsign: '$origin ➔ $dest',
-              colorHex: isOutbound ? '#a855f7' : '#06b6d4',
+              colorHex: '#18181B',
               stops: stops,
               coordinates: stops.map((s) => [s.lat, s.lon]).toList(),
             );

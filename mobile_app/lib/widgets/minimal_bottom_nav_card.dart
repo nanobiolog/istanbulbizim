@@ -6,7 +6,8 @@ class MinimalBottomNavCard extends StatelessWidget {
   final BusVehicle? selectedBus;
   final String? activeLine;
   final LineRouteDetails? routeDetails;
-  final int busCount;
+  final int visibleBusCount;
+  final int totalBusCount;
   final String selectedDirection;
   final Function(String) onDirectionChanged;
   final VoidCallback onClearSelection;
@@ -17,7 +18,8 @@ class MinimalBottomNavCard extends StatelessWidget {
     this.selectedBus,
     this.activeLine,
     this.routeDetails,
-    required this.busCount,
+    required this.visibleBusCount,
+    required this.totalBusCount,
     required this.selectedDirection,
     required this.onDirectionChanged,
     required this.onClearSelection,
@@ -126,7 +128,7 @@ class MinimalBottomNavCard extends StatelessWidget {
         ),
         const SizedBox(height: 14),
 
-        // Speed & Info Grid
+        // Speed & Info Grid (Black & White high-contrast)
         Row(
           children: [
             // Speed indicator badge
@@ -134,14 +136,14 @@ class MinimalBottomNavCard extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
-                  color: bus.speedColor.withOpacity(0.12),
+                  color: AppTheme.accentBlack,
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Row(
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.speed_rounded,
-                      color: bus.speedColor,
+                      color: Colors.white,
                       size: 22,
                     ),
                     const SizedBox(width: 8),
@@ -150,8 +152,8 @@ class MinimalBottomNavCard extends StatelessWidget {
                       children: [
                         Text(
                           '${bus.speed.toInt()} km/s',
-                          style: TextStyle(
-                            color: bus.speedColor,
+                          style: const TextStyle(
+                            color: Colors.white,
                             fontWeight: FontWeight.w800,
                             fontSize: 16,
                           ),
@@ -159,7 +161,7 @@ class MinimalBottomNavCard extends StatelessWidget {
                         Text(
                           bus.speed <= 3 ? 'Durakta / Bekliyor' : 'Seyir Halinde',
                           style: TextStyle(
-                            color: bus.speedColor,
+                            color: Colors.white.withValues(alpha: 0.75),
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
                           ),
@@ -179,12 +181,13 @@ class MinimalBottomNavCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: AppTheme.background,
                   borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.borderMedium),
                 ),
                 child: Row(
                   children: [
                     const Icon(
                       Icons.access_time_filled_rounded,
-                      color: AppTheme.textSecondary,
+                      color: AppTheme.accentBlack,
                       size: 20,
                     ),
                     const SizedBox(width: 8),
@@ -256,7 +259,7 @@ class MinimalBottomNavCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '$busCount Canlı Araç Takip Ediliyor',
+                  '$visibleBusCount Canlı Araç Takip Ediliyor',
                   style: const TextStyle(
                     color: AppTheme.textSecondary,
                     fontSize: 13,
@@ -270,14 +273,14 @@ class MinimalBottomNavCard extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
-                  color: AppTheme.background,
+                  color: AppTheme.accentBlack,
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: const Text(
                   'Kapat',
                   style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
                     fontSize: 13,
                   ),
                 ),
@@ -287,7 +290,7 @@ class MinimalBottomNavCard extends StatelessWidget {
         ),
         const SizedBox(height: 14),
 
-        // Direction Selection Tabs (Big easy to tap buttons)
+        // Direction Selection Tabs (High Contrast Black & White)
         Row(
           children: [
             Expanded(
@@ -295,7 +298,6 @@ class MinimalBottomNavCard extends StatelessWidget {
                 label: dRoute?.destination ?? 'Dönüş Yönü',
                 code: 'D',
                 isSelected: selectedDirection == 'D',
-                color: AppTheme.directionCyan,
               ),
             ),
             const SizedBox(width: 8),
@@ -304,7 +306,6 @@ class MinimalBottomNavCard extends StatelessWidget {
                 label: gRoute?.destination ?? 'Gidiş Yönü',
                 code: 'G',
                 isSelected: selectedDirection == 'G',
-                color: AppTheme.directionPurple,
               ),
             ),
             const SizedBox(width: 8),
@@ -312,7 +313,6 @@ class MinimalBottomNavCard extends StatelessWidget {
               label: 'Tümü',
               code: 'ALL',
               isSelected: selectedDirection == 'ALL',
-              color: AppTheme.accentBlack,
               compact: true,
             ),
           ],
@@ -325,7 +325,6 @@ class MinimalBottomNavCard extends StatelessWidget {
     required String label,
     required String code,
     required bool isSelected,
-    required Color color,
     bool compact = false,
   }) {
     return GestureDetector(
@@ -337,10 +336,10 @@ class MinimalBottomNavCard extends StatelessWidget {
           vertical: 12,
         ),
         decoration: BoxDecoration(
-          color: isSelected ? color : AppTheme.background,
+          color: isSelected ? AppTheme.accentBlack : AppTheme.background,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? color : AppTheme.borderLight,
+            color: isSelected ? AppTheme.accentBlack : AppTheme.borderMedium,
             width: 1.5,
           ),
         ),
@@ -360,7 +359,7 @@ class MinimalBottomNavCard extends StatelessWidget {
     );
   }
 
-  // 3. Default Fast Navigation Bar (Look at user image: 10 min, button to search, quick actions)
+  // 3. Default Fast Navigation Bar with Vicinity Count
   Widget _buildDefaultStatusView(BuildContext context) {
     return Row(
       children: [
@@ -388,7 +387,7 @@ class MinimalBottomNavCard extends StatelessWidget {
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 16,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ],
@@ -398,31 +397,46 @@ class MinimalBottomNavCard extends StatelessWidget {
         ),
         const SizedBox(width: 12),
 
-        // Live Fleet Counter Pill
+        // Live Fleet Counter Pill with 5km proximity info
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
             color: AppTheme.background,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppTheme.borderLight),
+            border: Border.all(color: AppTheme.borderMedium),
           ),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: AppTheme.speedGreen,
-                  shape: BoxShape.circle,
-                ),
+              Row(
+                children: [
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: const BoxDecoration(
+                      color: AppTheme.accentBlack,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '$visibleBusCount Araç',
+                    style: const TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Text(
-                '$busCount Araç',
-                style: const TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
+              const SizedBox(height: 2),
+              const Text(
+                'Yakında (5 km)',
+                style: TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontWeight: FontWeight.w500,
+                  fontSize: 10,
                 ),
               ),
             ],

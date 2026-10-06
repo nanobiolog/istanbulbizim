@@ -42,7 +42,7 @@ class MinimalHudHeader extends StatelessWidget {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.12),
+            color: Colors.white.withValues(alpha: 0.15),
             shape: BoxShape.circle,
           ),
           child: const Center(
@@ -68,7 +68,7 @@ class MinimalHudHeader extends StatelessWidget {
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 18,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w800,
                       letterSpacing: -0.4,
                     ),
                   ),
@@ -77,7 +77,7 @@ class MinimalHudHeader extends StatelessWidget {
                     width: 7,
                     height: 7,
                     decoration: const BoxDecoration(
-                      color: AppTheme.speedGreen,
+                      color: Colors.white,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -85,9 +85,9 @@ class MinimalHudHeader extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                '$busCount Canlı İETT Otobüsü',
+                '$busCount Aktif Araç',
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.65),
+                  color: Colors.white.withValues(alpha: 0.70),
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),
@@ -96,7 +96,7 @@ class MinimalHudHeader extends StatelessWidget {
           ),
         ),
 
-        // Big Search Button
+        // Big Tactile Black/White Search Button
         GestureDetector(
           onTap: onSearchTap,
           child: Container(
@@ -110,15 +110,15 @@ class MinimalHudHeader extends StatelessWidget {
               children: [
                 Icon(
                   Icons.search_rounded,
-                  color: AppTheme.accentBlack,
+                  color: AppTheme.surfaceDark,
                   size: 18,
                 ),
                 SizedBox(width: 6),
                 Text(
                   'Hat Ara',
                   style: TextStyle(
-                    color: AppTheme.accentBlack,
-                    fontWeight: FontWeight.w700,
+                    color: AppTheme.surfaceDark,
+                    fontWeight: FontWeight.w800,
                     fontSize: 14,
                   ),
                 ),
@@ -137,19 +137,19 @@ class MinimalHudHeader extends StatelessWidget {
 
     return Row(
       children: [
-        // Big Direction Arrow (like Turn-by-turn banner)
+        // Big Direction Arrow
         Container(
           width: 48,
           height: 48,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.15),
+            color: Colors.white.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(16),
           ),
           child: const Center(
             child: Icon(
               Icons.turn_slight_right_rounded,
               color: Colors.white,
-              size: 32,
+              size: 30,
             ),
           ),
         ),
@@ -166,23 +166,23 @@ class MinimalHudHeader extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      color: AppTheme.directionCyan,
+                      color: Colors.white,
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
                       activeLine ?? '',
                       style: const TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.w800,
+                        color: AppTheme.surfaceDark,
+                        fontWeight: FontWeight.w900,
                         fontSize: 13,
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    '$busCount Aktif Araç',
+                    '$busCount Araç',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.7),
+                      color: Colors.white.withValues(alpha: 0.7),
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
                     ),
@@ -212,7 +212,7 @@ class MinimalHudHeader extends StatelessWidget {
             width: 38,
             height: 38,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.12),
+              color: Colors.white.withValues(alpha: 0.15),
               shape: BoxShape.circle,
             ),
             child: const Center(

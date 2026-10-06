@@ -1,47 +1,43 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  // Ultra-clean high contrast navigation colors (Inspired by Apple Maps & modern turn-by-turn navigation)
-  static const Color background = Color(0xFFF8F9FA);
+  // Pure Black & White High Contrast Minimalist UI (zero colorful distractions)
+  static const Color background = Color(0xFFF9FAFB);
   static const Color surface = Colors.white;
-  static const Color surfaceDark = Color(0xFF1E2022);
-  static const Color textPrimary = Color(0xFF111827);
-  static const Color textSecondary = Color(0xFF6B7280);
-  static const Color textMuted = Color(0xFF9CA3AF);
+  static const Color surfaceDark = Color(0xFF09090B); // Pure carbon black
+  static const Color textPrimary = Color(0xFF09090B);
+  static const Color textSecondary = Color(0xFF52525B);
+  static const Color textMuted = Color(0xFF71717A);
 
-  // Modern Accent Colors
-  static const Color accentBlack = Color(0xFF121316);
-  static const Color accentBlue = Color(0xFF2563EB);
-  static const Color accentTeal = Color(0xFF0D9488);
-  static const Color directionCyan = Color(0xFF06B6D4);
-  static const Color directionPurple = Color(0xFFA855F7);
-  static const Color speedGreen = Color(0xFF10B981);
-  static const Color speedYellow = Color(0xFFF59E0B);
-  static const Color speedRed = Color(0xFFEF4444);
+  // High contrast monochrome accents
+  static const Color accentBlack = Color(0xFF09090B);
+  static const Color accentGray = Color(0xFF27272A);
+  static const Color lightGray = Color(0xFFF4F4F5);
+
+  // Subtle clean status dots
+  static const Color statusLive = Color(0xFF18181B);
+  static const Color statusGreen = Color(0xFF10B981);
+  static const Color directionCyan = Color(0xFF09090B); // High contrast black
+  static const Color directionPurple = Color(0xFF27272A); // High contrast dark charcoal
 
   // Border & Dividers
-  static const Color borderLight = Color(0xFFE5E7EB);
-  static const Color borderMedium = Color(0xFFD1D5DB);
+  static const Color borderLight = Color(0xFFE4E4E7);
+  static const Color borderMedium = Color(0xFFD4D4D8);
 
-  // Card & Button Shadows (crisp, modern)
+  // Modern crisp shadows
   static final List<BoxShadow> pillShadow = [
     BoxShadow(
-      color: Colors.black.withOpacity(0.08),
-      blurRadius: 18,
-      spreadRadius: 2,
-      offset: const Offset(0, 6),
-    ),
-    BoxShadow(
-      color: Colors.black.withOpacity(0.04),
-      blurRadius: 4,
-      offset: const Offset(0, 2),
+      color: Colors.black.withValues(alpha: 0.06),
+      blurRadius: 16,
+      spreadRadius: 1,
+      offset: const Offset(0, 4),
     ),
   ];
 
   static final List<BoxShadow> sheetShadow = [
     BoxShadow(
-      color: Colors.black.withOpacity(0.12),
-      blurRadius: 28,
+      color: Colors.black.withValues(alpha: 0.10),
+      blurRadius: 24,
       spreadRadius: 0,
       offset: const Offset(0, -6),
     ),
@@ -49,8 +45,8 @@ class AppTheme {
 
   static final List<BoxShadow> hudShadow = [
     BoxShadow(
-      color: Colors.black.withOpacity(0.20),
-      blurRadius: 16,
+      color: Colors.black.withValues(alpha: 0.25),
+      blurRadius: 20,
       spreadRadius: 0,
       offset: const Offset(0, 8),
     ),

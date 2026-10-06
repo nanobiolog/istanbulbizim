@@ -8,6 +8,8 @@ class QuickActionPills extends StatelessWidget {
   final VoidCallback onClearLine;
   final bool showMetro;
   final VoidCallback onToggleMetro;
+  final bool showTrains;
+  final VoidCallback onToggleTrains;
 
   const QuickActionPills({
     super.key,
@@ -17,6 +19,8 @@ class QuickActionPills extends StatelessWidget {
     required this.onClearLine,
     required this.showMetro,
     required this.onToggleMetro,
+    required this.showTrains,
+    required this.onToggleTrains,
   });
 
   @override
@@ -28,13 +32,21 @@ class QuickActionPills extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         physics: const BouncingScrollPhysics(),
         children: [
-          // Metro Toggle Pill
+          // Metro Network Pill
           _buildPill(
-            label: 'Metro',
+            label: 'Metro Hatları',
             icon: Icons.subway_rounded,
             isSelected: showMetro,
-            activeColor: const Color(0xFF009944), // Metro Green
             onTap: onToggleMetro,
+          ),
+          const SizedBox(width: 8),
+
+          // Live Moving Trains Pill
+          _buildPill(
+            label: 'Canlı Trenler',
+            icon: Icons.train_rounded,
+            isSelected: showTrains,
+            onTap: onToggleTrains,
           ),
           const SizedBox(width: 8),
 
@@ -44,7 +56,6 @@ class QuickActionPills extends StatelessWidget {
               label: 'Tüm Hatlar',
               icon: Icons.clear_all_rounded,
               isSelected: false,
-              activeColor: AppTheme.accentBlack,
               onTap: onClearLine,
             ),
             const SizedBox(width: 8),
@@ -59,7 +70,6 @@ class QuickActionPills extends StatelessWidget {
                 label: line,
                 icon: Icons.directions_bus_rounded,
                 isSelected: isSelected,
-                activeColor: AppTheme.accentBlack,
                 onTap: () => onSelectLine(line),
               ),
             );
@@ -73,19 +83,18 @@ class QuickActionPills extends StatelessWidget {
     required String label,
     required IconData icon,
     required bool isSelected,
-    required Color activeColor,
     required VoidCallback onTap,
   }) {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
+        duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? activeColor : AppTheme.surface,
+          color: isSelected ? AppTheme.accentBlack : AppTheme.surface,
           borderRadius: BorderRadius.circular(24),
           border: Border.all(
-            color: isSelected ? activeColor : AppTheme.borderLight,
+            color: isSelected ? AppTheme.accentBlack : AppTheme.borderMedium,
             width: 1.5,
           ),
           boxShadow: AppTheme.pillShadow,
@@ -103,7 +112,7 @@ class QuickActionPills extends StatelessWidget {
               label,
               style: TextStyle(
                 color: isSelected ? Colors.white : AppTheme.textPrimary,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                fontWeight: FontWeight.w700,
                 fontSize: 14,
               ),
             ),
