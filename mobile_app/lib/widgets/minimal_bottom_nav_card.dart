@@ -9,6 +9,8 @@ class MinimalBottomNavCard extends StatelessWidget {
   final int visibleBusCount;
   final int totalBusCount;
   final String selectedDirection;
+  final DateTime? lastUpdated;
+  final bool isNightMode;
   final Function(String) onDirectionChanged;
   final VoidCallback onClearSelection;
   final VoidCallback onSearchTap;
@@ -21,21 +23,36 @@ class MinimalBottomNavCard extends StatelessWidget {
     required this.visibleBusCount,
     required this.totalBusCount,
     required this.selectedDirection,
+    this.lastUpdated,
+    this.isNightMode = true,
     required this.onDirectionChanged,
     required this.onClearSelection,
     required this.onSearchTap,
   });
 
+  String _formatLastUpdated() {
+    if (lastUpdated == null) return 'Canlı';
+    final now = DateTime.now();
+    final diff = now.difference(lastUpdated!);
+    if (diff.inSeconds < 10) return 'Az önce';
+    if (diff.inSeconds < 60) return '${diff.inSeconds} sn önce';
+    return '${lastUpdated!.hour.toString().padLeft(2, '0')}:${lastUpdated!.minute.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 22),
       decoration: BoxDecoration(
-        color: AppTheme.surface,
+        color: isNightMode ? const Color(0xFF0D1117) : AppTheme.surface,
         borderRadius: const BorderRadius.only(
           topLeft: Radius.circular(32),
           topRight: Radius.circular(32),
+        ),
+        border: Border.all(
+          color: isNightMode ? Colors.white.withValues(alpha: 0.12) : AppTheme.borderLight,
+          width: 1.2,
         ),
         boxShadow: AppTheme.sheetShadow,
       ),
@@ -48,15 +65,17 @@ class MinimalBottomNavCard extends StatelessWidget {
             // Drag Handle Bar
             Center(
               child: Container(
-                width: 36,
+                width: 38,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: AppTheme.borderMedium,
+                  color: isNightMode
+                      ? Colors.white.withValues(alpha: 0.25)
+                      : AppTheme.borderMedium,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
 
             if (selectedBus != null)
               _buildSelectedBusView(context)
@@ -70,13 +89,27 @@ class MinimalBottomNavCard extends StatelessWidget {
     );
   }
 
-  // 1. Bus Vehicle Detailed View
+  // 1. Bus Vehicle Detailed View with rich telemetry, heading, operator & speed
   Widget _buildSelectedBusView(BuildContext context) {
     final bus = selectedBus!;
+    final speed = bus.speed;
+    final speedStatus = speed <= 3
+        ? 'Durakta / Bekliyor'
+        : (speed < 15 ? 'Yoğun Trafik / Yavaş' : (speed < 45 ? 'Normal Seyir' : 'Seri / Hızlı'));
+    final speedColor = bus.speedColor;
+
+    // Direction name resolution
+    String dirText = bus.directionName.isNotEmpty
+        ? bus.directionName
+        : (bus.direction == 'D' ? 'Dönüş İstikameti' : (bus.direction == 'G' ? 'Gidiş İstikameti' : ''));
+
+    final updateTime = _formatLastUpdated();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
+        // Top Row: Line badge, Vehicle Door No, Close
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -86,131 +119,334 @@ class MinimalBottomNavCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: AppTheme.accentBlack,
-                    borderRadius: BorderRadius.circular(8),
+                    color: isNightMode ? Colors.white : AppTheme.accentBlack,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 4,
+                      ),
+                    ],
                   ),
                   child: Text(
                     bus.line.isNotEmpty ? bus.line : 'İETT',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
+                    style: TextStyle(
+                      color: isNightMode ? AppTheme.surfaceDark : Colors.white,
+                      fontWeight: FontWeight.w900,
                       fontSize: 16,
                     ),
                   ),
                 ),
                 const SizedBox(width: 10),
-                Text(
-                  bus.id, // Door / Vehicle No
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.textPrimary,
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Kapı: ${bus.id}',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: isNightMode ? Colors.white : AppTheme.textPrimary,
+                          ),
+                        ),
+                        if (bus.plate.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isNightMode
+                                  ? Colors.white.withValues(alpha: 0.10)
+                                  : AppTheme.background,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: isNightMode
+                                    ? Colors.white.withValues(alpha: 0.15)
+                                    : AppTheme.borderMedium,
+                              ),
+                            ),
+                            child: Text(
+                              bus.plate,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: isNightMode ? Colors.white70 : AppTheme.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    Text(
+                      bus.operator.isNotEmpty ? bus.operator : 'İETT İstanbul Otobüs Filosu',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isNightMode ? Colors.white54 : AppTheme.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
             GestureDetector(
               onTap: onClearSelection,
               child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: const BoxDecoration(
-                  color: AppTheme.background,
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: isNightMode
+                      ? Colors.white.withValues(alpha: 0.10)
+                      : AppTheme.background,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.close_rounded,
                   size: 18,
-                  color: AppTheme.textSecondary,
+                  color: isNightMode ? Colors.white70 : AppTheme.textSecondary,
                 ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
 
-        // Speed & Info Grid (Black & White high-contrast)
+        // Direction / Headsign Card if available
+        if (bus.headsign.isNotEmpty || dirText.isNotEmpty) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: isNightMode
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : AppTheme.lightGray,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: isNightMode
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : AppTheme.borderLight,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  bus.direction == 'D'
+                      ? Icons.arrow_forward_rounded
+                      : Icons.arrow_back_rounded,
+                  color: bus.direction == 'D'
+                      ? AppTheme.directionCyan
+                      : AppTheme.directionPurple,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (dirText.isNotEmpty)
+                        Text(
+                          dirText,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: bus.direction == 'D'
+                                ? AppTheme.directionCyan
+                                : AppTheme.directionPurple,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      Text(
+                        bus.headsign.isNotEmpty ? bus.headsign : 'Güzergah Boyunca',
+                        style: TextStyle(
+                          color: isNightMode ? Colors.white : AppTheme.textPrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                if (bus.bearing != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: isNightMode
+                          ? Colors.white.withValues(alpha: 0.10)
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Transform.rotate(
+                          angle: (bus.bearing! * 3.141592653589793 / 180),
+                          child: const Icon(
+                            Icons.navigation_rounded,
+                            size: 12,
+                            color: Color(0xFF0284C7),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${bus.bearing!.toInt()}°',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: isNightMode ? Colors.white70 : AppTheme.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+
+        // Metric Tiles: Speed, GPS Time, Signal Freshness
         Row(
           children: [
             // Speed indicator badge
             Expanded(
+              flex: 5,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                 decoration: BoxDecoration(
-                  color: AppTheme.accentBlack,
+                  color: isNightMode
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : AppTheme.accentBlack,
                   borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: isNightMode ? Colors.white12 : Colors.transparent,
+                  ),
                 ),
                 child: Row(
                   children: [
-                    const Icon(
-                      Icons.speed_rounded,
-                      color: Colors.white,
-                      size: 22,
+                    Container(
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(
+                        color: speedColor.withValues(alpha: 0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.speed_rounded,
+                        color: speedColor,
+                        size: 18,
+                      ),
                     ),
                     const SizedBox(width: 8),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${bus.speed.toInt()} km/s',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                '${speed.toInt()}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(width: 3),
+                              const Text(
+                                'km/s',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        Text(
-                          bus.speed <= 3 ? 'Durakta / Bekliyor' : 'Seyir Halinde',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.75),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
+                          Text(
+                            speedStatus,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.75),
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
 
-            // Time / Age badge
+            // Time / Freshness badge
             Expanded(
+              flex: 5,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                 decoration: BoxDecoration(
-                  color: AppTheme.background,
+                  color: isNightMode
+                      ? Colors.white.withValues(alpha: 0.05)
+                      : AppTheme.background,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.borderMedium),
+                  border: Border.all(
+                    color: isNightMode ? Colors.white12 : AppTheme.borderMedium,
+                  ),
                 ),
                 child: Row(
                   children: [
-                    const Icon(
-                      Icons.access_time_filled_rounded,
-                      color: AppTheme.accentBlack,
-                      size: 20,
+                    Container(
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(
+                        color: (isNightMode ? Colors.white : AppTheme.accentBlack)
+                            .withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.schedule_rounded,
+                        color: isNightMode ? Colors.white70 : AppTheme.accentBlack,
+                        size: 18,
+                      ),
                     ),
                     const SizedBox(width: 8),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          bus.time.isNotEmpty ? bus.time : 'Canlı',
-                          style: const TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            bus.time.isNotEmpty ? bus.time : updateTime,
+                            style: TextStyle(
+                              color: isNightMode ? Colors.white : AppTheme.textPrimary,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                            ),
                           ),
-                        ),
-                        Text(
-                          bus.plate.isNotEmpty ? bus.plate : (bus.operator.isNotEmpty ? bus.operator : 'İETT Filo'),
-                          style: const TextStyle(
-                            color: AppTheme.textSecondary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
+                          Row(
+                            children: [
+                              Container(
+                                width: 5,
+                                height: 5,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF10B981),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                bus.ageSeconds > 0 ? '${bus.ageSeconds} sn önce' : 'Canlı Sinyal',
+                                style: TextStyle(
+                                  color: isNightMode ? Colors.white54 : AppTheme.textSecondary,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -218,26 +454,15 @@ class MinimalBottomNavCard extends StatelessWidget {
             ),
           ],
         ),
-
-        if (bus.headsign.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Text(
-            bus.headsign,
-            style: const TextStyle(
-              color: AppTheme.textPrimary,
-              fontWeight: FontWeight.w600,
-              fontSize: 14,
-            ),
-          ),
-        ],
       ],
     );
   }
 
-  // 2. Active Line View (with Direction D / G toggle)
+  // 2. Active Line View (with Direction D / G toggle and route destinations)
   Widget _buildActiveLineView(BuildContext context) {
     final dRoute = routeDetails?.directions['D'];
     final gRoute = routeDetails?.directions['G'];
+    final updateTime = _formatLastUpdated();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -249,22 +474,58 @@ class MinimalBottomNavCard extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Hat $activeLine',
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.textPrimary,
-                    letterSpacing: -0.5,
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      'Hat $activeLine',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        color: isNightMode ? Colors.white : AppTheme.textPrimary,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isNightMode
+                            ? Colors.white.withValues(alpha: 0.12)
+                            : AppTheme.background,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isNightMode ? Colors.white24 : AppTheme.borderMedium,
+                        ),
+                      ),
+                      child: Text(
+                        '$visibleBusCount Araç',
+                        style: TextStyle(
+                          color: isNightMode ? Colors.white : AppTheme.textPrimary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                Text(
-                  '$visibleBusCount Canlı Araç Takip Ediliyor',
-                  style: const TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.update_rounded,
+                      size: 11,
+                      color: isNightMode ? Colors.white54 : AppTheme.textSecondary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Son Güncelleme: $updateTime',
+                      style: TextStyle(
+                        color: isNightMode ? Colors.white54 : AppTheme.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -273,31 +534,38 @@ class MinimalBottomNavCard extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
-                  color: AppTheme.accentBlack,
+                  color: isNightMode
+                      ? Colors.white.withValues(alpha: 0.12)
+                      : AppTheme.accentBlack,
                   borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: isNightMode ? Colors.white24 : Colors.transparent,
+                  ),
                 ),
-                child: const Text(
-                  'Kapat',
+                child: Text(
+                  'Filtreyi Temizle',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
-                    fontSize: 13,
+                    fontSize: 12,
                   ),
                 ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
 
-        // Direction Selection Tabs (High Contrast Black & White)
+        // Direction Selection Tabs (High Contrast Black & White / Vibrant Direction Accents)
         Row(
           children: [
             Expanded(
               child: _buildDirectionButton(
                 label: dRoute?.destination ?? 'Dönüş Yönü',
                 code: 'D',
+                accentColor: AppTheme.directionCyan,
                 isSelected: selectedDirection == 'D',
+                arrowIcon: Icons.arrow_forward_rounded,
               ),
             ),
             const SizedBox(width: 8),
@@ -305,13 +573,16 @@ class MinimalBottomNavCard extends StatelessWidget {
               child: _buildDirectionButton(
                 label: gRoute?.destination ?? 'Gidiş Yönü',
                 code: 'G',
+                accentColor: AppTheme.directionPurple,
                 isSelected: selectedDirection == 'G',
+                arrowIcon: Icons.arrow_back_rounded,
               ),
             ),
             const SizedBox(width: 8),
             _buildDirectionButton(
               label: 'Tümü',
               code: 'ALL',
+              accentColor: const Color(0xFF0284C7),
               isSelected: selectedDirection == 'ALL',
               compact: true,
             ),
@@ -324,7 +595,9 @@ class MinimalBottomNavCard extends StatelessWidget {
   Widget _buildDirectionButton({
     required String label,
     required String code,
+    required Color accentColor,
     required bool isSelected,
+    IconData? arrowIcon,
     bool compact = false,
   }) {
     return GestureDetector(
@@ -333,34 +606,61 @@ class MinimalBottomNavCard extends StatelessWidget {
         duration: const Duration(milliseconds: 180),
         padding: EdgeInsets.symmetric(
           horizontal: compact ? 12 : 10,
-          vertical: 12,
+          vertical: 10,
         ),
         decoration: BoxDecoration(
-          color: isSelected ? AppTheme.accentBlack : AppTheme.background,
+          color: isSelected
+              ? (isNightMode ? Colors.white : AppTheme.accentBlack)
+              : (isNightMode
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : AppTheme.background),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? AppTheme.accentBlack : AppTheme.borderMedium,
+            color: isSelected
+                ? (isNightMode ? Colors.white : AppTheme.accentBlack)
+                : (isNightMode ? Colors.white12 : AppTheme.borderMedium),
             width: 1.5,
           ),
         ),
         child: Center(
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: isSelected ? Colors.white : AppTheme.textPrimary,
-              fontWeight: FontWeight.w700,
-              fontSize: 13,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (arrowIcon != null) ...[
+                Icon(
+                  arrowIcon,
+                  size: 13,
+                  color: isSelected
+                      ? (isNightMode ? AppTheme.surfaceDark : Colors.white)
+                      : accentColor,
+                ),
+                const SizedBox(width: 5),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isSelected
+                        ? (isNightMode ? AppTheme.surfaceDark : Colors.white)
+                        : (isNightMode ? Colors.white : AppTheme.textPrimary),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  // 3. Default Fast Navigation Bar with Vicinity Count
+  // 3. Default Fast Navigation Bar with Vicinity Count & Update info
   Widget _buildDefaultStatusView(BuildContext context) {
+    final updateTime = _formatLastUpdated();
+
     return Row(
       children: [
         // Instant Line Search Big Button
@@ -368,25 +668,32 @@ class MinimalBottomNavCard extends StatelessWidget {
           child: GestureDetector(
             onTap: onSearchTap,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
               decoration: BoxDecoration(
-                color: AppTheme.accentBlack,
-                borderRadius: BorderRadius.circular(20),
+                color: isNightMode ? Colors.white : AppTheme.accentBlack,
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
               ),
-              child: const Row(
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
                     Icons.directions_bus_filled_rounded,
-                    color: Colors.white,
-                    size: 22,
+                    color: isNightMode ? AppTheme.surfaceDark : Colors.white,
+                    size: 20,
                   ),
-                  SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Text(
                     'Hat Seç veya Ara',
                     style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
+                      color: isNightMode ? AppTheme.surfaceDark : Colors.white,
+                      fontSize: 15,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -395,15 +702,19 @@ class MinimalBottomNavCard extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
 
-        // Live Fleet Counter Pill with 5km proximity info
+        // Live Fleet Counter Pill with 5km proximity info & Last update
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: AppTheme.background,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppTheme.borderMedium),
+            color: isNightMode
+                ? Colors.white.withValues(alpha: 0.06)
+                : AppTheme.background,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: isNightMode ? Colors.white12 : AppTheme.borderMedium,
+            ),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -412,29 +723,29 @@ class MinimalBottomNavCard extends StatelessWidget {
               Row(
                 children: [
                   Container(
-                    width: 7,
-                    height: 7,
+                    width: 6,
+                    height: 6,
                     decoration: const BoxDecoration(
-                      color: AppTheme.accentBlack,
+                      color: Color(0xFF10B981),
                       shape: BoxShape.circle,
                     ),
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 5),
                   Text(
                     '$visibleBusCount Araç',
-                    style: const TextStyle(
-                      color: AppTheme.textPrimary,
+                    style: TextStyle(
+                      color: isNightMode ? Colors.white : AppTheme.textPrimary,
                       fontWeight: FontWeight.w800,
-                      fontSize: 14,
+                      fontSize: 13,
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 2),
-              const Text(
-                'Yakında (5 km)',
+              Text(
+                'Güncel • $updateTime',
                 style: TextStyle(
-                  color: AppTheme.textSecondary,
+                  color: isNightMode ? Colors.white54 : AppTheme.textSecondary,
                   fontWeight: FontWeight.w500,
                   fontSize: 10,
                 ),

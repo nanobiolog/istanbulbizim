@@ -239,6 +239,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               busCount: provider.selectedLineCode != null
                   ? provider.visibleBuses.length
                   : provider.activeBusCount,
+              lastUpdated: provider.lastUpdated,
+              isNightMode: provider.isNightMode,
               onClearLine: () => provider.selectLine(null),
               onSearchTap: () => _openSearch(provider),
             ),
@@ -246,7 +248,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
           // ─── 3. QUICK ACTION PILLS (Under Header) ───
           Positioned(
-            top: MediaQuery.of(context).padding.top + 84,
+            top: MediaQuery.of(context).padding.top +
+                (provider.selectedLineCode != null ? 104 : 94),
             left: 0,
             right: 0,
             child: QuickActionPills(
@@ -266,10 +269,16 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             ),
           ),
 
-          // ─── 4. FLOATING MAP CONTROLS (Right side with Moon & Layers) ───
+          // ─── 4. FLOATING MAP CONTROLS (Right side - dynamically adjusted so never overflowed) ───
           Positioned(
             right: 16,
-            bottom: 140,
+            bottom: provider.selectedStop != null
+                ? 380
+                : (provider.selectedTrain != null
+                    ? 320
+                    : (provider.selectedBus != null
+                        ? 225
+                        : (provider.selectedLineCode != null ? 185 : 110))),
             child: FloatingMapControls(
               isRefreshing: provider.isLoading,
               hasUserLocation: provider.userLocation != null,
@@ -330,6 +339,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                         visibleBusCount: provider.visibleBuses.length,
                         totalBusCount: provider.activeBusCount,
                         selectedDirection: provider.selectedDirection,
+                        lastUpdated: provider.lastUpdated,
+                        isNightMode: provider.isNightMode,
                         onDirectionChanged: (dir) => provider.setDirectionFilter(dir),
                         onClearSelection: () {
                           if (provider.selectedBus != null) {
@@ -346,7 +357,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
   }
 
-  // ─── BUS VEHICLE MARKERS BUILDER ───
+  // ─── BUS VEHICLE MARKERS BUILDER (with directional heading arrow & speed aura) ───
   List<Marker> _buildBusMarkers(TransitProvider provider) {
     final markers = <Marker>[];
     final visibleList = provider.visibleBuses;
@@ -358,8 +369,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       markers.add(
         Marker(
           point: point,
-          width: isSelected ? 48 : 38,
-          height: isSelected ? 48 : 38,
+          width: isSelected ? 52 : 42,
+          height: isSelected ? 52 : 42,
           alignment: Alignment.center,
           child: GestureDetector(
             onTap: () {
@@ -375,9 +386,36 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildBusMarkerWidget(BusVehicle bus, bool isSelected) {
+    final hasBearing = bus.bearing != null && bus.speed > 2.0;
+
     return Stack(
       alignment: Alignment.center,
       children: [
+        // Directional Heading Pointer Arrow (if vehicle has bearing and moving)
+        if (hasBearing)
+          Transform.rotate(
+            angle: (bus.bearing! * math.pi / 180),
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Container(
+                width: 7,
+                height: 7,
+                margin: const EdgeInsets.only(top: 1),
+                decoration: BoxDecoration(
+                  color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF0284C7),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: (isSelected ? const Color(0xFF38BDF8) : const Color(0xFF0284C7))
+                          .withValues(alpha: 0.8),
+                      blurRadius: 4,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
         // Outer circular badge
         Container(
           width: isSelected ? 44 : 34,
@@ -387,8 +425,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: isSelected ? 0.35 : 0.15),
-                blurRadius: isSelected ? 10 : 4,
+                color: Colors.black.withValues(alpha: isSelected ? 0.35 : 0.18),
+                blurRadius: isSelected ? 10 : 5,
                 spreadRadius: isSelected ? 2 : 0,
                 offset: const Offset(0, 2),
               ),
@@ -431,7 +469,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               border: Border.all(color: Colors.white, width: 1.5),
               boxShadow: [
                 BoxShadow(
-                  color: bus.speedColor.withValues(alpha: 0.5),
+                  color: bus.speedColor.withValues(alpha: 0.6),
                   blurRadius: 3,
                 ),
               ],
