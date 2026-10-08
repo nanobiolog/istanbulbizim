@@ -142,44 +142,113 @@ class TransitProvider extends ChangeNotifier {
     return const Color(0xFF0284C7);
   }
 
+  // Cached visible bus list to avoid re-filtering 60 times a second during animations
+  List<BusVehicle> _cachedVisibleBuses = [];
+  LatLng _lastFilterCenter = const LatLng(0, 0);
+  double _lastFilterZoom = 0;
+  String? _lastFilterLine;
+  String _lastFilterDir = 'ALL';
+
   /// Crucial Performance Filter:
   /// When a line is selected, show that line's buses.
-  /// When viewing the entire fleet, prevent crash by only rendering buses within 5 km of camera or user,
-  /// and don't render clutter if zoomed out too far (< 12.0).
+  /// When viewing the entire fleet and zoomed out (< 11.5), do NOT render all buses at once (too heavy).
+  /// Above 11.5, render buses in viewport radius with zoom-based limits.
   List<BusVehicle> get visibleBuses {
-    if (!_showBuses) return [];
+    if (!_showBuses) return const [];
+
+    // Recompute if filter parameters changed significantly
+    final center = _userLocation ?? _cameraCenter;
+    final distMoved = _distanceMeters(_lastFilterCenter.latitude, _lastFilterCenter.longitude, center.latitude, center.longitude);
+    final zoomDiff = (_lastFilterZoom - _currentZoom).abs();
+
+    if (_cachedVisibleBuses.isNotEmpty &&
+        distMoved < 150 &&
+        zoomDiff < 0.25 &&
+        _lastFilterLine == _selectedLineCode &&
+        _lastFilterDir == _selectedDirection) {
+      return _cachedVisibleBuses;
+    }
+
+    _lastFilterCenter = center;
+    _lastFilterZoom = _currentZoom;
+    _lastFilterLine = _selectedLineCode;
+    _lastFilterDir = _selectedDirection;
 
     if (_selectedLineCode != null) {
-      if (_selectedDirection == 'ALL') return _buses;
-      return _buses.where((b) => b.direction.isEmpty || b.direction == _selectedDirection).toList();
+      if (_selectedDirection == 'ALL') {
+        _cachedVisibleBuses = _buses;
+      } else {
+        _cachedVisibleBuses = _buses.where((b) => b.direction.isEmpty || b.direction == _selectedDirection).toList();
+      }
+      return _cachedVisibleBuses;
     }
 
-    // Zoom-dependent density control:
-    final center = _userLocation ?? _cameraCenter;
-    const double radiusMeters = 5000; // 5 km radius
+    // When map is zoomed out (< 11.5), do NOT show all bus markers at once (too hard to render)
+    if (_currentZoom < 11.5) {
+      _cachedVisibleBuses = const [];
+      return _cachedVisibleBuses;
+    }
 
-    final nearBuses = _buses.where((bus) {
+    // Dynamic density control based on zoom level:
+    final double radiusMeters = _currentZoom >= 14.0 ? 5000 : (_currentZoom >= 12.5 ? 4000 : 3000);
+    final int maxBuses = _currentZoom >= 14.0 ? 120 : (_currentZoom >= 13.0 ? 70 : 35);
+
+    final nearBuses = <BusVehicle>[];
+    for (final bus in _buses) {
       final d = _distanceMeters(center.latitude, center.longitude, bus.lat, bus.lon);
-      return d <= radiusMeters;
-    }).toList();
-
-    if (_currentZoom < 12.0) {
-      return nearBuses.take(40).toList();
+      if (d <= radiusMeters) {
+        nearBuses.add(bus);
+        if (nearBuses.length >= maxBuses) break;
+      }
     }
-    return nearBuses;
+
+    _cachedVisibleBuses = nearBuses;
+    return _cachedVisibleBuses;
   }
 
-  /// Viewport filtered bus stops for peak 60 FPS performance
+  /// Viewport filtered bus stops using spatial grid indexing for peak 60 FPS performance
   List<BusStop> get visibleBusStops {
-    if (!_showBusStops || _busStops.isEmpty) return [];
-    if (_currentZoom < 13.5) return [];
+    if (!_showBusStops || _busStops.isEmpty) return const [];
+    if (_currentZoom < 14.5) return const []; // Do not clutter when zoomed out
 
     final center = _cameraCenter;
-    const double radiusMeters = 3500; // 3.5 km around viewport center
+    const double radiusMeters = 2500; // 2.5 km around viewport center
 
-    return _busStops.where((s) {
-      return _distanceMeters(center.latitude, center.longitude, s.lat, s.lon) <= radiusMeters;
-    }).take(250).toList();
+    // Fast lookup using spatial grid cells instead of iterating over 14,000 stops
+    final grid = _apiService.busStopsGrid;
+    final stopsList = <BusStop>[];
+
+    if (grid.isNotEmpty) {
+      final centerLatCell = (center.latitude * 50).floor();
+      final centerLonCell = (center.longitude * 50).floor();
+
+      // Check 3x3 surrounding cells (~4.4km area)
+      for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+          final cellKey = ((centerLatCell + dy) << 16) ^ ((centerLonCell + dx) & 0xFFFF);
+          final inCell = grid[cellKey];
+          if (inCell != null) {
+            for (final s in inCell) {
+              if (_distanceMeters(center.latitude, center.longitude, s.lat, s.lon) <= radiusMeters) {
+                stopsList.add(s);
+                if (stopsList.length >= 100) break;
+              }
+            }
+          }
+          if (stopsList.length >= 100) break;
+        }
+        if (stopsList.length >= 100) break;
+      }
+    } else {
+      for (final s in _busStops) {
+        if (_distanceMeters(center.latitude, center.longitude, s.lat, s.lon) <= radiusMeters) {
+          stopsList.add(s);
+          if (stopsList.length >= 100) break;
+        }
+      }
+    }
+
+    return stopsList;
   }
 
   /// Calculate live approaching buses for an inspected bus stop
@@ -261,24 +330,22 @@ class TransitProvider extends ChangeNotifier {
     _cameraCenter = center;
     _currentZoom = zoom;
 
-    final distMoved = _distanceMeters(
-      _lastComputedCenter.latitude,
-      _lastComputedCenter.longitude,
-      center.latitude,
-      center.longitude,
-    );
-    final zoomDiff = (_lastComputedZoom - zoom).abs();
+    // Debounce recalculation during dragging / zooming to keep map 60 FPS silky smooth
+    _dragDebounceTimer?.cancel();
+    _dragDebounceTimer = Timer(const Duration(milliseconds: 220), () {
+      final distMoved = _distanceMeters(
+        _lastComputedCenter.latitude,
+        _lastComputedCenter.longitude,
+        _cameraCenter.latitude,
+        _cameraCenter.longitude,
+      );
+      final zoomDiff = (_lastComputedZoom - _currentZoom).abs();
 
-    if (distMoved > 250 || zoomDiff > 0.35) {
-      _computeNearbyLines();
-      notifyListeners();
-    } else {
-      _dragDebounceTimer?.cancel();
-      _dragDebounceTimer = Timer(const Duration(milliseconds: 140), () {
+      if (distMoved > 200 || zoomDiff > 0.3) {
         _computeNearbyLines();
         notifyListeners();
-      });
-    }
+      }
+    });
   }
 
   void _computeNearbyLines() {
@@ -483,16 +550,30 @@ class TransitProvider extends ChangeNotifier {
         }
       }
 
-      // 2. Fallback: Find nearest bus stop in Istanbul bus stops database
+      // 2. Fallback: Find nearest bus stop using spatial grid indexing
       if (nextStop.isEmpty && _busStops.isNotEmpty) {
         double minD = double.infinity;
         BusStop? nearest;
 
-        for (final s in _busStops) {
-          final d = _distanceMeters(bus.lat, bus.lon, s.lat, s.lon);
-          if (d < minD && d < 3000) {
-            minD = d;
-            nearest = s;
+        final grid = _apiService.busStopsGrid;
+        if (grid.isNotEmpty) {
+          final latCell = (bus.lat * 50).floor();
+          final lonCell = (bus.lon * 50).floor();
+
+          for (int dy = -1; dy <= 1; dy++) {
+            for (int dx = -1; dx <= 1; dx++) {
+              final cellKey = ((latCell + dy) << 16) ^ ((lonCell + dx) & 0xFFFF);
+              final inCell = grid[cellKey];
+              if (inCell != null) {
+                for (final s in inCell) {
+                  final d = _distanceMeters(bus.lat, bus.lon, s.lat, s.lon);
+                  if (d < minD && d < 2500) {
+                    minD = d;
+                    nearest = s;
+                  }
+                }
+              }
+            }
           }
         }
 

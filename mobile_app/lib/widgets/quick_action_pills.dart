@@ -139,27 +139,27 @@ class QuickActionPills extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFFEF4444).withValues(alpha: 0.20),
+          color: isNightMode ? Colors.white : AppTheme.accentBlack,
           borderRadius: BorderRadius.circular(22),
           border: Border.all(
-            color: const Color(0xFFEF4444).withValues(alpha: 0.70),
+            color: isNightMode ? Colors.white : AppTheme.accentBlack,
             width: 1.2,
           ),
           boxShadow: AppTheme.pillShadow,
         ),
-        child: const Row(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               Icons.close_rounded,
               size: 14,
-              color: Color(0xFFF87171),
+              color: isNightMode ? AppTheme.accentBlack : Colors.white,
             ),
-            SizedBox(width: 4),
+            const SizedBox(width: 4),
             Text(
               'Tüm Hatlar',
               style: TextStyle(
-                color: Color(0xFFFCA5A5),
+                color: isNightMode ? AppTheme.accentBlack : Colors.white,
                 fontWeight: FontWeight.w800,
                 fontSize: 13,
               ),
@@ -187,14 +187,14 @@ class QuickActionPills extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected
-              ? Colors.white
+              ? (isNightMode ? Colors.white : AppTheme.accentBlack)
               : (isNightMode
                   ? const Color(0xFF0D1117).withValues(alpha: 0.92)
                   : Colors.white),
           borderRadius: BorderRadius.circular(22),
           border: Border.all(
             color: isSelected
-                ? Colors.white
+                ? (isNightMode ? Colors.white : AppTheme.accentBlack)
                 : (isNightMode
                     ? Colors.white.withValues(alpha: 0.16)
                     : AppTheme.borderMedium),
@@ -209,15 +209,15 @@ class QuickActionPills extends StatelessWidget {
               Icons.directions_bus_rounded,
               size: 15,
               color: isSelected
-                  ? const Color(0xFF090D16)
-                  : (isNightMode ? const Color(0xFF38BDF8) : AppTheme.accentBlack),
+                  ? (isNightMode ? AppTheme.accentBlack : Colors.white)
+                  : (isNightMode ? Colors.white70 : AppTheme.accentBlack),
             ),
             const SizedBox(width: 5),
             Text(
               line.lineCode,
               style: TextStyle(
                 color: isSelected
-                    ? const Color(0xFF090D16)
+                    ? (isNightMode ? AppTheme.accentBlack : Colors.white)
                     : (isNightMode ? Colors.white : AppTheme.textPrimary),
                 fontWeight: FontWeight.w800,
                 fontSize: 13.5,
@@ -229,13 +229,15 @@ class QuickActionPills extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? const Color(0xFF090D16).withValues(alpha: 0.10)
-                      : const Color(0xFF10B981).withValues(alpha: 0.20),
+                      ? (isNightMode ? Colors.black12 : Colors.white24)
+                      : (isNightMode
+                          ? Colors.white.withValues(alpha: 0.12)
+                          : AppTheme.lightGray),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: isSelected
-                        ? const Color(0xFF090D16).withValues(alpha: 0.25)
-                        : const Color(0xFF10B981).withValues(alpha: 0.45),
+                        ? (isNightMode ? Colors.black26 : Colors.white38)
+                        : (isNightMode ? Colors.white24 : AppTheme.borderMedium),
                     width: 0.8,
                   ),
                 ),
@@ -243,8 +245,8 @@ class QuickActionPills extends StatelessWidget {
                   '${line.busCount}',
                   style: TextStyle(
                     color: isSelected
-                        ? const Color(0xFF090D16)
-                        : const Color(0xFF34D399),
+                        ? (isNightMode ? AppTheme.accentBlack : Colors.white)
+                        : (isNightMode ? Colors.white : AppTheme.textPrimary),
                     fontSize: 10,
                     fontWeight: FontWeight.w900,
                   ),
@@ -270,14 +272,14 @@ class QuickActionPills extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected
-              ? (isNightMode ? Colors.white.withValues(alpha: 0.22) : AppTheme.accentBlack)
+              ? (isNightMode ? Colors.white : AppTheme.accentBlack)
               : (isNightMode
                   ? const Color(0xFF0D1117).withValues(alpha: 0.85)
                   : Colors.white),
           borderRadius: BorderRadius.circular(22),
           border: Border.all(
             color: isSelected
-                ? (isNightMode ? const Color(0xFF38BDF8) : AppTheme.accentBlack)
+                ? (isNightMode ? Colors.white : AppTheme.accentBlack)
                 : (isNightMode
                     ? Colors.white.withValues(alpha: 0.14)
                     : AppTheme.borderMedium),
@@ -292,7 +294,7 @@ class QuickActionPills extends StatelessWidget {
               icon,
               size: 15,
               color: isSelected
-                  ? (isNightMode ? const Color(0xFF38BDF8) : Colors.white)
+                  ? (isNightMode ? AppTheme.accentBlack : Colors.white)
                   : (isNightMode ? Colors.white70 : AppTheme.textPrimary),
             ),
             const SizedBox(width: 5),
@@ -300,7 +302,7 @@ class QuickActionPills extends StatelessWidget {
               label,
               style: TextStyle(
                 color: isSelected
-                    ? Colors.white
+                    ? (isNightMode ? AppTheme.accentBlack : Colors.white)
                     : (isNightMode ? Colors.white70 : AppTheme.textPrimary),
                 fontWeight: FontWeight.w700,
                 fontSize: 13,

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
@@ -21,86 +22,141 @@ class TransitApiService {
   Map<String, String> _metroColors = {};
   Map<String, List<List<double>>> _metrobusCorridor = {};
   List<BusStop> _busStops = [];
+  Map<int, List<BusStop>> _busStopsGrid = {}; // Spatial grid cache for fast O(1) stop lookups
   List<LineInfo> _allLines = [];
   bool _assetsLoaded = false;
 
   Future<void> loadLocalAssets() async {
     if (_assetsLoaded) return;
     try {
-      // 1. Bus Lines Map
-      final linesJson = await rootBundle.loadString('assets/data/bus_lines_map.json');
-      final Map<String, dynamic> parsedLines = jsonDecode(linesJson);
-      _busLinesDoors = {};
-      _doorToLine = {};
-      parsedLines.forEach((line, doors) {
-        if (doors is List) {
-          final doorList = doors.map((d) => d.toString()).toList();
-          _busLinesDoors[line] = doorList;
-          for (final door in doorList) {
-            _doorToLine[door] = line;
-          }
-        }
-      });
+      // Load raw strings in parallel
+      final results = await Future.wait([
+        rootBundle.loadString('assets/data/bus_lines_map.json'),
+        rootBundle.loadString('assets/data/metro_colors.json'),
+        rootBundle.loadString('assets/data/metro_stations.json'),
+        rootBundle.loadString('assets/data/bus_lines.json'),
+        rootBundle.loadString('assets/data/bus_stops.json'),
+        rootBundle.loadString('assets/data/metrobus_corridor.json'),
+      ]);
 
-      // 2. Metro Colors
-      final colorsJson = await rootBundle.loadString('assets/data/metro_colors.json');
-      final Map<String, dynamic> parsedColors = jsonDecode(colorsJson);
-      _metroColors = parsedColors.map((k, v) => MapEntry(k, v.toString()));
+      // Parse massive JSON files in background isolates using compute() to prevent main thread freezing
+      final parsedData = await compute(_parseAllAssetsInIsolate, [
+        results[0],
+        results[1],
+        results[2],
+        results[3],
+        results[4],
+        results[5],
+      ]);
 
-      // 3. Metro Stations
-      final stationsJson = await rootBundle.loadString('assets/data/metro_stations.json');
-      final Map<String, dynamic> parsedStations = jsonDecode(stationsJson);
-      _metroStations = {};
-      parsedStations.forEach((line, list) {
-        if (list is List) {
-          _metroStations[line] = list.map((item) => MetroStation.fromJson(item, line)).toList();
-        }
-      });
-
-      // 4. All Transit Lines with Official Descriptions (Bus, Metrobus, Metro)
-      try {
-        final busLinesJson = await rootBundle.loadString('assets/data/bus_lines.json');
-        final dynamic parsedLinesList = jsonDecode(busLinesJson);
-        if (parsedLinesList is List) {
-          _allLines = parsedLinesList
-              .whereType<Map<String, dynamic>>()
-              .map((item) => LineInfo.fromJson(item))
-              .toList();
-        }
-      } catch (_) {}
-
-      // 5. Bus Stops (All ~14,000 Istanbul bus stops)
-      try {
-        final stopsJson = await rootBundle.loadString('assets/data/bus_stops.json');
-        final dynamic parsedStops = jsonDecode(stopsJson);
-        if (parsedStops is List) {
-          _busStops = parsedStops
-              .whereType<Map<String, dynamic>>()
-              .map((item) => BusStop.fromJson(item))
-              .where((s) => s.lat != 0.0 && s.lon != 0.0)
-              .toList();
-        }
-      } catch (_) {}
-
-      // 6. Metrobus Dedicated Corridor
-      try {
-        final corridorJson = await rootBundle.loadString('assets/data/metrobus_corridor.json');
-        final dynamic parsedCorridor = jsonDecode(corridorJson);
-        if (parsedCorridor is Map) {
-          _metrobusCorridor = {};
-          parsedCorridor.forEach((k, v) {
-            if (v is List) {
-              _metrobusCorridor[k.toString()] = v.map((pt) {
-                final list = pt as List;
-                return [(list[0] as num).toDouble(), (list[1] as num).toDouble()];
-              }).toList();
-            }
-          });
-        }
-      } catch (_) {}
+      _busLinesDoors = parsedData.busLinesDoors;
+      _doorToLine = parsedData.doorToLine;
+      _metroColors = parsedData.metroColors;
+      _metroStations = parsedData.metroStations;
+      _allLines = parsedData.allLines;
+      _busStops = parsedData.busStops;
+      _busStopsGrid = parsedData.busStopsGrid;
+      _metrobusCorridor = parsedData.metrobusCorridor;
 
       _assetsLoaded = true;
     } catch (_) {}
+  }
+
+  static _ParsedAssets _parseAllAssetsInIsolate(List<String> rawStrings) {
+    // 1. Bus Lines Map
+    final Map<String, List<String>> linesDoors = {};
+    final Map<String, String> doorToLine = {};
+    try {
+      final Map<String, dynamic> parsedLines = jsonDecode(rawStrings[0]);
+      parsedLines.forEach((line, doors) {
+        if (doors is List) {
+          final doorList = doors.map((d) => d.toString()).toList();
+          linesDoors[line] = doorList;
+          for (final door in doorList) {
+            doorToLine[door] = line;
+          }
+        }
+      });
+    } catch (_) {}
+
+    // 2. Metro Colors
+    final Map<String, String> metroColors = {};
+    try {
+      final Map<String, dynamic> parsedColors = jsonDecode(rawStrings[1]);
+      parsedColors.forEach((k, v) => metroColors[k] = v.toString());
+    } catch (_) {}
+
+    // 3. Metro Stations
+    final Map<String, List<MetroStation>> metroStations = {};
+    try {
+      final Map<String, dynamic> parsedStations = jsonDecode(rawStrings[2]);
+      parsedStations.forEach((line, list) {
+        if (list is List) {
+          metroStations[line] = list.map((item) => MetroStation.fromJson(item, line)).toList();
+        }
+      });
+    } catch (_) {}
+
+    // 4. All Transit Lines
+    List<LineInfo> allLines = [];
+    try {
+      final dynamic parsedLinesList = jsonDecode(rawStrings[3]);
+      if (parsedLinesList is List) {
+        allLines = parsedLinesList
+            .whereType<Map<String, dynamic>>()
+            .map((item) => LineInfo.fromJson(item))
+            .toList();
+      }
+    } catch (_) {}
+
+    // 5. Bus Stops (All ~14,000 Istanbul bus stops) & Spatial Grid
+    List<BusStop> busStops = [];
+    final Map<int, List<BusStop>> grid = {};
+    try {
+      final dynamic parsedStops = jsonDecode(rawStrings[4]);
+      if (parsedStops is List) {
+        for (final item in parsedStops) {
+          if (item is Map<String, dynamic>) {
+            final stop = BusStop.fromJson(item);
+            if (stop.lat != 0.0 && stop.lon != 0.0) {
+              busStops.add(stop);
+              // Grid cell key (~2.2km grid resolution: 0.02 deg ~ 2.2km)
+              final cellLat = (stop.lat * 50).floor();
+              final cellLon = (stop.lon * 50).floor();
+              final cellKey = (cellLat << 16) ^ (cellLon & 0xFFFF);
+              grid.putIfAbsent(cellKey, () => []).add(stop);
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 6. Metrobus Dedicated Corridor
+    final Map<String, List<List<double>>> corridor = {};
+    try {
+      final dynamic parsedCorridor = jsonDecode(rawStrings[5]);
+      if (parsedCorridor is Map) {
+        parsedCorridor.forEach((k, v) {
+          if (v is List) {
+            corridor[k.toString()] = v.map((pt) {
+              final list = pt as List;
+              return [(list[0] as num).toDouble(), (list[1] as num).toDouble()];
+            }).toList();
+          }
+        });
+      }
+    } catch (_) {}
+
+    return _ParsedAssets(
+      busLinesDoors: linesDoors,
+      doorToLine: doorToLine,
+      metroColors: metroColors,
+      metroStations: metroStations,
+      allLines: allLines,
+      busStops: busStops,
+      busStopsGrid: grid,
+      metrobusCorridor: corridor,
+    );
   }
 
   Map<String, List<String>> get busLinesDoors => _busLinesDoors;
@@ -108,6 +164,7 @@ class TransitApiService {
   Map<String, String> get metroColors => _metroColors;
   Map<String, List<List<double>>> get metrobusCorridor => _metrobusCorridor;
   List<BusStop> get busStops => _busStops;
+  Map<int, List<BusStop>> get busStopsGrid => _busStopsGrid;
   List<LineInfo> get allLines => _allLines;
 
   @visibleForTesting
@@ -719,3 +776,26 @@ class TransitApiService {
     }).toList();
   }
 }
+
+class _ParsedAssets {
+  final Map<String, List<String>> busLinesDoors;
+  final Map<String, String> doorToLine;
+  final Map<String, String> metroColors;
+  final Map<String, List<MetroStation>> metroStations;
+  final List<LineInfo> allLines;
+  final List<BusStop> busStops;
+  final Map<int, List<BusStop>> busStopsGrid;
+  final Map<String, List<List<double>>> metrobusCorridor;
+
+  _ParsedAssets({
+    required this.busLinesDoors,
+    required this.doorToLine,
+    required this.metroColors,
+    required this.metroStations,
+    required this.allLines,
+    required this.busStops,
+    required this.busStopsGrid,
+    required this.metrobusCorridor,
+  });
+}
+

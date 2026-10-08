@@ -96,15 +96,11 @@ class _MinimalHudHeaderState extends State<MinimalHudHeader> {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF0284C7), Color(0xFF0369A1)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(14),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF0284C7).withValues(alpha: 0.35),
+                      color: Colors.white.withValues(alpha: 0.15),
                       blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),
@@ -113,7 +109,7 @@ class _MinimalHudHeaderState extends State<MinimalHudHeader> {
                 child: const Center(
                   child: Icon(
                     Icons.explore_rounded,
-                    color: Colors.white,
+                    color: AppTheme.accentBlack,
                     size: 22,
                   ),
                 ),

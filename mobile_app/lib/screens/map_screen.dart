@@ -218,8 +218,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   markers: _buildMetroStationMarkers(provider),
                 ),
 
-              // 60 FPS Moving Metro Trains Layer (Clickable & Colored)
-              if (provider.showMetroLines && provider.showMetroTrains)
+              // 60 FPS Moving Metro Trains Layer (Clickable & Colored, visible when zoomed in)
+              if (provider.showMetroLines && provider.showMetroTrains && _currentZoom >= 12.0)
                 MarkerLayer(
                   markers: _buildMetroTrainMarkers(provider),
                 ),
@@ -245,7 +245,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             ],
           ),
 
-          // ─── 2. OFFLINE BANNER (Top of screen when disconnected or API unreachable) ───
+          // ─── 2. OFFLINE BANNER (Top of screen when disconnected or API unreachable - Minimal B&W) ───
           if (provider.isOffline)
             Positioned(
               top: MediaQuery.of(context).padding.top + 4,
@@ -254,11 +254,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFDC2626).withValues(alpha: 0.95),
+                  color: AppTheme.accentBlack.withValues(alpha: 0.95),
                   borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    width: 1.0,
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.3),
+                      color: Colors.black.withValues(alpha: 0.4),
                       blurRadius: 10,
                       offset: const Offset(0, 3),
                     ),
@@ -299,17 +303,17 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     GestureDetector(
                       onTap: () => provider.refreshFleet(),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
+                          color: Colors.white,
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Text(
                           'Tekrar Dene',
                           style: TextStyle(
-                            color: Colors.white,
+                            color: AppTheme.accentBlack,
                             fontSize: 11,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
                       ),
@@ -487,13 +491,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 height: 7,
                 margin: const EdgeInsets.only(top: 1),
                 decoration: BoxDecoration(
-                  color: isSelected ? const Color(0xFF38BDF8) : const Color(0xFF0284C7),
+                  color: isSelected ? Colors.white : AppTheme.accentBlack,
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: (isSelected ? const Color(0xFF38BDF8) : const Color(0xFF0284C7))
-                          .withValues(alpha: 0.8),
-                      blurRadius: 4,
+                      color: Colors.black.withValues(alpha: 0.5),
+                      blurRadius: 3,
                     ),
                   ],
                 ),
@@ -506,7 +509,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           width: isSelected ? 44 : 34,
           height: isSelected ? 44 : 34,
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF0284C7) : Colors.white,
+            color: isSelected ? AppTheme.accentBlack : Colors.white,
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
@@ -648,7 +651,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
+            color: Colors.white.withValues(alpha: 0.15),
             shape: BoxShape.circle,
           ),
         ),
@@ -660,7 +663,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.25),
+                color: Colors.black.withValues(alpha: 0.35),
                 blurRadius: 6,
                 spreadRadius: 1,
               ),
@@ -671,7 +674,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               width: 12,
               height: 12,
               decoration: const BoxDecoration(
-                color: Color(0xFF0284C7),
+                color: AppTheme.accentBlack,
                 shape: BoxShape.circle,
               ),
             ),
@@ -683,29 +686,34 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   // ─── METRO POLYLINES & STATIONS (Official Vibrant Colors) ───
   List<Polyline> _buildMetroPolylines(TransitProvider provider) {
+    if (_currentZoom < 10.5) return [];
+
     final polylines = <Polyline>[];
+    final isZoomedOut = _currentZoom < 12.5;
 
     provider.metroStations.forEach((lineCode, stations) {
       if (stations.length < 2) return;
       final points = stations.map((s) => LatLng(s.lat, s.lon)).toList();
       final color = provider.getMetroLineColor(lineCode);
 
-      // Glowing Underlay Track
-      polylines.add(
-        Polyline(
-          points: points,
-          strokeWidth: 7.0,
-          color: color.withValues(alpha: 0.35),
-        ),
-      );
+      // Glowing Underlay Track (only when sufficiently zoomed in)
+      if (!isZoomedOut) {
+        polylines.add(
+          Polyline(
+            points: points,
+            strokeWidth: 6.0,
+            color: color.withValues(alpha: 0.35),
+          ),
+        );
+      }
 
       // Main Crisp Polyline in Official Line Color
       polylines.add(
         Polyline(
           points: points,
-          strokeWidth: 3.8,
+          strokeWidth: isZoomedOut ? 2.5 : 3.8,
           color: color,
-          borderStrokeWidth: 1.0,
+          borderStrokeWidth: isZoomedOut ? 0.0 : 1.0,
           borderColor: Colors.white.withValues(alpha: 0.8),
         ),
       );
@@ -820,15 +828,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             },
             child: Container(
               decoration: BoxDecoration(
-                color: isSelected ? const Color(0xFF0284C7) : Colors.white,
+                color: isSelected ? AppTheme.accentBlack : Colors.white,
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: isSelected ? Colors.white : const Color(0xFF0284C7),
-                  width: isSelected ? 2.5 : 2.0,
+                  color: isSelected ? Colors.white : AppTheme.accentBlack,
+                  width: isSelected ? 2.5 : 1.8,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF0284C7).withValues(alpha: isSelected ? 0.6 : 0.3),
+                    color: Colors.black.withValues(alpha: isSelected ? 0.35 : 0.18),
                     blurRadius: isSelected ? 8 : 4,
                   ),
                 ],
@@ -840,7 +848,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                         width: 6,
                         height: 6,
                         decoration: const BoxDecoration(
-                          color: Color(0xFF0284C7),
+                          color: AppTheme.accentBlack,
                           shape: BoxShape.circle,
                         ),
                       ),

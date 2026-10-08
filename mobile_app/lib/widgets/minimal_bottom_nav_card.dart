@@ -862,14 +862,16 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
             Container(
               padding: const EdgeInsets.all(5),
               decoration: BoxDecoration(
-                color: (isMetro ? const Color(0xFF0284C7) : const Color(0xFF10B981))
-                    .withValues(alpha: _showTimetable ? 0.3 : 0.15),
+                color: (isNight ? Colors.white : AppTheme.accentBlack)
+                    .withValues(alpha: _showTimetable ? 0.25 : 0.10),
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 isMetro ? Icons.subway_rounded : Icons.schedule_rounded,
                 size: 16,
-                color: isMetro ? const Color(0xFF38BDF8) : const Color(0xFF10B981),
+                color: _showTimetable
+                    ? (isNight ? Colors.white : Colors.white)
+                    : (isNight ? Colors.white70 : AppTheme.accentBlack),
               ),
             ),
             const SizedBox(width: 10),
@@ -894,9 +896,7 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
                         decoration: BoxDecoration(
-                          color: isMetro
-                              ? const Color(0xFF0284C7).withValues(alpha: 0.25)
-                              : const Color(0xFF10B981).withValues(alpha: 0.25),
+                          color: (isNight ? Colors.white : AppTheme.accentBlack).withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
@@ -904,7 +904,9 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
                           style: TextStyle(
                             fontSize: 9,
                             fontWeight: FontWeight.w800,
-                            color: isMetro ? const Color(0xFF38BDF8) : const Color(0xFF10B981),
+                            color: _showTimetable
+                                ? (isNight ? Colors.white : Colors.white)
+                                : (isNight ? Colors.white70 : AppTheme.accentBlack),
                           ),
                         ),
                       ),

@@ -194,13 +194,13 @@ class BusStopDetailSheet extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF0284C7),
+                                color: Colors.white,
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 bus.line.isNotEmpty ? bus.line : 'İETT',
                                 style: const TextStyle(
-                                  color: Colors.white,
+                                  color: AppTheme.accentBlack,
                                   fontWeight: FontWeight.w900,
                                   fontSize: 13,
                                 ),
