@@ -114,6 +114,7 @@ export default {
     if (path === "/feed/mapping") return handleFeedMapping(request, env);
     if (path === "/stops") return json(BUS_STOPS, 200, { "cache-control": "public, max-age=86400" });
     if (path === "/disruptions") return handleDisruptions(env, url);
+    if (path === "/timetable") return handleTimetable(env, url);
     if (path.startsWith("/tile/")) {
       // Proxy CARTO raster tiles using CARTO_API_KEY from Cloudflare secrets
       const parts = path.replace("/tile/", "").split("/");

@@ -755,6 +755,140 @@ async function handleLines(env) {
   return json({ lines: c }, 200, { "cache-control": "public, max-age=3600" });
 }
 
+// Official IBB Scheduled Departure Timetables (PlanlananSeferSaati.asmx)
+const TIMETABLE_URL = "https://api.ibb.gov.tr/iett/UlasimAnaVeri/PlanlananSeferSaati.asmx";
+
+function generateMetroTimetable(lineCode) {
+  const isNightLine = lineCode.startsWith("M1") || lineCode.startsWith("M2") || lineCode.startsWith("M4") || lineCode.startsWith("M5") || lineCode.startsWith("M6");
+  const entries = [];
+  const days = ["I", "C", "P"];
+  const dirs = ["D", "G"];
+
+  for (const day of days) {
+    for (const dir of dirs) {
+      for (let h = 6; h <= 23; h++) {
+        let interval = 7;
+        if (h >= 7 && h <= 9) interval = 4; // Peak morning
+        else if (h >= 17 && h <= 19) interval = 4; // Peak evening
+        else if (h >= 22) interval = 10; // Night
+
+        for (let m = 0; m < 60; m += interval) {
+          entries.push({
+            time: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`,
+            direction: dir,
+            day_type: day,
+            service_type: "Metro",
+            route_sign: null
+          });
+        }
+      }
+
+      if (isNightLine && (day === "C" || day === "P")) {
+        for (let h = 0; h < 6; h++) {
+          for (let m = 0; m < 60; m += 20) {
+            entries.push({
+              time: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`,
+              direction: dir,
+              day_type: day,
+              service_type: "Gece Metrosu",
+              route_sign: null
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    line_code: lineCode,
+    is_metro: true,
+    entries,
+    note: "Metro ve tramvay hatları pik saatlerde 3-5 dk, diğer saatlerde 6-10 dk aralıklarla düzenli sefer yapmaktadır."
+  };
+}
+
+async function handleTimetable(env, url) {
+  const lineCode = norm(url.searchParams.get("line") || url.searchParams.get("code"));
+  if (!lineCode || lineCode.length > 12) {
+    return json({ error: "Lütfen bir hat kodu belirtin (örn. 15B, 500T, M2)" }, 400);
+  }
+
+  // 1. Check if rail line (Metro / Tram / Funicular)
+  const isRail = lineCode.startsWith("M") || lineCode.startsWith("T") || lineCode.startsWith("F") || lineCode.startsWith("TF");
+  if (isRail) {
+    return json(generateMetroTimetable(lineCode), 200, { "cache-control": "public, max-age=86400" });
+  }
+
+  // 2. Check KV cache for bus line timetable (TTL: 12 hours)
+  const cacheKey = "timetable_v1:" + lineCode;
+  try {
+    const cached = await env.LIVE.get(cacheKey, { type: "json", cacheTtl: 3600 });
+    if (cached && Array.isArray(cached.entries) && cached.entries.length > 0) {
+      return json(cached, 200, { "cache-control": "public, max-age=43200, stale-while-revalidate=86400" });
+    }
+  } catch (e) {}
+
+  // 3. Direct IBB SOAP query: GetPlanlananSeferSaati_json
+  try {
+    const body = `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><GetPlanlananSeferSaati_json xmlns="${NS}"><HatKodu>${esc(lineCode)}</HatKodu></GetPlanlananSeferSaati_json></soap:Body></soap:Envelope>`;
+
+    const res = await fetch(TIMETABLE_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/xml; charset=utf-8",
+        "SOAPAction": `"${NS}GetPlanlananSeferSaati_json"`,
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"
+      },
+      body
+    });
+
+    if (res.ok) {
+      const xmlStr = await res.text();
+      const startTag = "<GetPlanlananSeferSaati_jsonResult>";
+      const endTag = "</GetPlanlananSeferSaati_jsonResult>";
+      const startIdx = xmlStr.indexOf(startTag);
+      const endIdx = xmlStr.indexOf(endTag);
+
+      if (startIdx !== -1 && endIdx !== -1) {
+        const rawJson = xmlStr.substring(startIdx + startTag.length, endIdx);
+        const unescaped = unesc(rawJson);
+        const parsed = JSON.parse(unescaped);
+
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const entries = parsed.map(r => ({
+            time: String(r.DT || r.time || "").trim(),
+            direction: String(r.SYON || r.yon || "D").trim(),
+            day_type: String(r.SGUNTIPI || r.gun || "I").trim(),
+            service_type: String(r.SSERVISTIPI || r.servis_tipi || "Normal").trim(),
+            route_sign: r.GUZERGAH_ISARETI ? String(r.GUZERGAH_ISARETI).trim() : null
+          })).filter(e => e.time.length >= 4);
+
+          const result = {
+            line_code: lineCode,
+            is_metro: false,
+            entries,
+            total_departures: entries.length,
+            updated_at: Date.now()
+          };
+
+          await env.LIVE.put(cacheKey, JSON.stringify(result), { expirationTtl: 43200 }).catch(() => {});
+          return json(result, 200, { "cache-control": "public, max-age=43200, stale-while-revalidate=86400" });
+        }
+      }
+    }
+  } catch (e) {
+    console.error(`Timetable fetch error for ${lineCode}:`, String(e));
+  }
+
+  return json({
+    line_code: lineCode,
+    is_metro: false,
+    entries: [],
+    total_departures: 0,
+    note: "İBB veri portalında bu hat için planlanan kalkış saatleri bulunamadı."
+  }, 200, { "cache-control": "public, max-age=300" });
+}
+
 // Ingestion endpoint for local feeder or external proxy
 async function handleFeed(request, env) {
   if (request.method !== "POST") return json({ error: "POST required" }, 405);
@@ -980,6 +1114,7 @@ export default {
     if (path === "/feed/mapping") return handleFeedMapping(request, env);
     if (path === "/stops") return json(BUS_STOPS, 200, { "cache-control": "public, max-age=86400" });
     if (path === "/disruptions") return handleDisruptions(env, url);
+    if (path === "/timetable") return handleTimetable(env, url);
     if (path.startsWith("/tile/")) {
       // Proxy CARTO raster tiles using CARTO_API_KEY from Cloudflare secrets
       const parts = path.replace("/tile/", "").split("/");

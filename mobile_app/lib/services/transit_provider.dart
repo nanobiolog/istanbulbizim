@@ -589,6 +589,11 @@ class TransitProvider extends ChangeNotifier {
     if (bus != null) {
       _selectedTrain = null;
       _selectedStop = null;
+      if (bus.line.isNotEmpty) {
+        if (_selectedLineTimetable == null || _selectedLineTimetable!.lineCode.toUpperCase() != bus.line.toUpperCase()) {
+          loadTimetableForLine(bus.line);
+        }
+      }
     }
     notifyListeners();
   }

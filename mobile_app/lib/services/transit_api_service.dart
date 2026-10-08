@@ -243,19 +243,143 @@ class TransitApiService {
     return direct;
   }
 
+  static const String directIbbTimetable = "https://api.ibb.gov.tr/iett/UlasimAnaVeri/PlanlananSeferSaati.asmx";
+  final Map<String, LineTimetable> _timetableMemoryCache = {};
+
   Future<LineTimetable?> fetchLineTimetable(String lineCode) async {
+    final upper = lineCode.trim().toUpperCase();
+    if (upper.isEmpty) return null;
+
+    if (_timetableMemoryCache.containsKey(upper)) {
+      return _timetableMemoryCache[upper];
+    }
+
+    // 1. Try remote worker timetable endpoint
     try {
       final res = await http.get(
-        Uri.parse('$baseUrl/timetable?line=${Uri.encodeComponent(lineCode)}'),
+        Uri.parse('$baseUrl/timetable?line=${Uri.encodeComponent(upper)}'),
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'IstanbulBizim/1.0 (Mobile App; Flutter)',
+        },
       ).timeout(const Duration(seconds: 4));
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        if (data is Map<String, dynamic>) {
-          return LineTimetable.fromJson(data);
+        if (data is Map<String, dynamic> && data['entries'] is List && (data['entries'] as List).isNotEmpty) {
+          final timetable = LineTimetable.fromJson(data);
+          _timetableMemoryCache[upper] = timetable;
+          return timetable;
         }
       }
     } catch (_) {}
+
+    // 2. Direct IBB SOAP fallback
+    final direct = await _fetchDirectIbbTimetable(upper);
+    if (direct != null && direct.entries.isNotEmpty) {
+      _timetableMemoryCache[upper] = direct;
+      return direct;
+    }
+
+    return null;
+  }
+
+  Future<LineTimetable?> _fetchDirectIbbTimetable(String lineCode) async {
+    final isRail = lineCode.startsWith('M') || lineCode.startsWith('T') || lineCode.startsWith('F') || lineCode.startsWith('TF');
+    if (isRail) {
+      // Generate synthetic regular frequency for rail lines
+      final entries = <TimetableEntry>[];
+      final days = ['I', 'C', 'P'];
+      final dirs = ['D', 'G'];
+      for (final day in days) {
+        for (final dir in dirs) {
+          for (int h = 6; h <= 23; h++) {
+            final int step = (h >= 7 && h <= 9) || (h >= 17 && h <= 19) ? 4 : 7;
+            for (int m = 0; m < 60; m += step) {
+              entries.add(TimetableEntry(
+                time: '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}',
+                direction: dir,
+                dayType: day,
+                serviceType: 'Metro',
+              ));
+            }
+          }
+        }
+      }
+      return LineTimetable(
+        lineCode: lineCode,
+        entries: entries,
+        isMetro: true,
+        note: 'Metro ve tramvay hatları 3-7 dakika düzenli aralıklarla sefer yapmaktadır.',
+      );
+    }
+
+    final soapBody = '''<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetPlanlananSeferSaati_json xmlns="http://tempuri.org/">
+      <HatKodu>$lineCode</HatKodu>
+    </GetPlanlananSeferSaati_json>
+  </soap:Body>
+</soap:Envelope>''';
+
+    try {
+      final res = await http.post(
+        Uri.parse(directIbbTimetable),
+        headers: {
+          'Content-Type': 'text/xml; charset=utf-8',
+          'SOAPAction': '"http://tempuri.org/GetPlanlananSeferSaati_json"',
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
+        },
+        body: utf8.encode(soapBody),
+      ).timeout(const Duration(seconds: 10));
+
+      if (res.statusCode == 200) {
+        final bodyStr = res.body;
+        const startTag = '<GetPlanlananSeferSaati_jsonResult>';
+        const endTag = '</GetPlanlananSeferSaati_jsonResult>';
+        final startIdx = bodyStr.indexOf(startTag);
+        final endIdx = bodyStr.indexOf(endTag);
+
+        if (startIdx != -1 && endIdx != -1) {
+          final rawJson = bodyStr.substring(startIdx + startTag.length, endIdx);
+          final unescaped = rawJson
+              .replaceAll('&quot;', '"')
+              .replaceAll('&lt;', '<')
+              .replaceAll('&gt;', '>')
+              .replaceAll('&amp;', '&');
+
+          final List<dynamic> rows = jsonDecode(unescaped);
+          final entries = <TimetableEntry>[];
+
+          for (final r in rows) {
+            final time = (r['DT'] ?? r['time'] ?? '').toString().trim();
+            if (time.length < 4) continue;
+            final dir = (r['SYON'] ?? r['yon'] ?? 'D').toString().trim();
+            final day = (r['SGUNTIPI'] ?? r['gun'] ?? 'I').toString().trim();
+            final service = (r['SSERVISTIPI'] ?? r['servis_tipi'] ?? 'Normal').toString().trim();
+            final sign = r['GUZERGAH_ISARETI']?.toString().trim();
+
+            entries.add(TimetableEntry(
+              time: time,
+              direction: dir,
+              dayType: day,
+              serviceType: service,
+              routeSign: sign,
+            ));
+          }
+
+          if (entries.isNotEmpty) {
+            return LineTimetable(
+              lineCode: lineCode,
+              entries: entries,
+              isMetro: false,
+            );
+          }
+        }
+      }
+    } catch (_) {}
+
     return null;
   }
 

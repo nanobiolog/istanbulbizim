@@ -13,6 +13,7 @@ class MinimalBottomNavCard extends StatefulWidget {
   final bool isNightMode;
   final LineTimetable? timetable;
   final bool isLoadingTimetable;
+  final VoidCallback? onToggleTimetable;
   final Function(String) onDirectionChanged;
   final VoidCallback onClearSelection;
   final VoidCallback onSearchTap;
@@ -29,6 +30,7 @@ class MinimalBottomNavCard extends StatefulWidget {
     this.isNightMode = true,
     this.timetable,
     this.isLoadingTimetable = false,
+    this.onToggleTimetable,
     required this.onDirectionChanged,
     required this.onClearSelection,
     required this.onSearchTap,
@@ -49,6 +51,7 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
   DateTime? get lastUpdated => widget.lastUpdated;
   LineTimetable? get timetable => widget.timetable;
   bool get isLoadingTimetable => widget.isLoadingTimetable;
+  VoidCallback? get onToggleTimetable => widget.onToggleTimetable;
   void Function(String) get onDirectionChanged => widget.onDirectionChanged;
   VoidCallback get onClearSelection => widget.onClearSelection;
   VoidCallback get onSearchTap => widget.onSearchTap;
@@ -836,6 +839,9 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
         setState(() {
           _showTimetable = !_showTimetable;
         });
+        if (_showTimetable && widget.onToggleTimetable != null) {
+          widget.onToggleTimetable!();
+        }
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),

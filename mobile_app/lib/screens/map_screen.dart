@@ -419,6 +419,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                         isNightMode: provider.isNightMode,
                         timetable: provider.selectedLineTimetable,
                         isLoadingTimetable: provider.isLoadingTimetable,
+                        onToggleTimetable: () {
+                          final line = provider.selectedBus?.line ?? provider.selectedLineCode;
+                          if (line != null && line.isNotEmpty) {
+                            provider.loadTimetableForLine(line);
+                          }
+                        },
                         onDirectionChanged: (dir) => provider.setDirectionFilter(dir),
                         onClearSelection: () {
                           if (provider.selectedBus != null) {
