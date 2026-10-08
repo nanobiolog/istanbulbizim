@@ -73,4 +73,18 @@ class AppTheme {
       fontFamily: '-apple-system',
     );
   }
+
+  static ThemeData get darkTheme {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      scaffoldBackgroundColor: const Color(0xFF090D16),
+      colorScheme: const ColorScheme.dark(
+        primary: Color(0xFF38BDF8),
+        surface: Color(0xFF0D1117),
+        surfaceContainer: Color(0xFF161B22),
+      ),
+      fontFamily: '-apple-system',
+    );
+  }
 }

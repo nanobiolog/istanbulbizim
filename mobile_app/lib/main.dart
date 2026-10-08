@@ -31,12 +31,19 @@ class IstanbulBizimApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => TransitProvider()),
       ],
-      child: MaterialApp(
-        title: 'İstanbul Bizim',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.lightTheme,
-        home: const MapScreen(),
+      child: Consumer<TransitProvider>(
+        builder: (context, provider, _) {
+          return MaterialApp(
+            title: 'İstanbul Bizim',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
+            themeMode: provider.themeMode,
+            home: const MapScreen(),
+          );
+        },
       ),
     );
   }
 }
+

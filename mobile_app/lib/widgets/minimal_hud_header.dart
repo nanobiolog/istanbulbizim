@@ -1,8 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/transit_models.dart';
 import '../theme/app_theme.dart';
 
-class MinimalHudHeader extends StatelessWidget {
+class MinimalHudHeader extends StatefulWidget {
   final String? activeLine;
   final LineRouteDetails? routeDetails;
   final int busCount;
@@ -22,13 +23,37 @@ class MinimalHudHeader extends StatelessWidget {
     required this.onSearchTap,
   });
 
+  @override
+  State<MinimalHudHeader> createState() => _MinimalHudHeaderState();
+}
+
+class _MinimalHudHeaderState extends State<MinimalHudHeader> {
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
   String _formatLastUpdated() {
-    if (lastUpdated == null) return 'Canlı';
+    if (widget.lastUpdated == null) return 'Canlı';
     final now = DateTime.now();
-    final diff = now.difference(lastUpdated!);
-    if (diff.inSeconds < 10) return 'Az önce güncellendi';
+    final diff = now.difference(widget.lastUpdated!);
+    if (diff.inSeconds <= 0) return 'Canlı sinyal';
     if (diff.inSeconds < 60) return '${diff.inSeconds} sn önce';
-    return '${lastUpdated!.hour.toString().padLeft(2, '0')}:${lastUpdated!.minute.toString().padLeft(2, '0')}';
+    final m = diff.inMinutes;
+    final s = diff.inSeconds % 60;
+    if (m < 60) return '$m dk $s sn önce';
+    return '${widget.lastUpdated!.hour.toString().padLeft(2, '0')}:${widget.lastUpdated!.minute.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -48,7 +73,7 @@ class MinimalHudHeader extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         child: Material(
           color: Colors.transparent,
-          child: activeLine == null
+          child: widget.activeLine == null
               ? _buildDefaultHeader(context)
               : _buildLineActiveHeader(context),
         ),
@@ -154,7 +179,7 @@ class MinimalHudHeader extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          '$busCount Aktif Araç',
+                          '${widget.busCount} Aktif Araç',
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.85),
                             fontSize: 12,
@@ -193,7 +218,7 @@ class MinimalHudHeader extends StatelessWidget {
 
               // Search Button Trigger
               GestureDetector(
-                onTap: onSearchTap,
+                onTap: widget.onSearchTap,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
@@ -233,7 +258,7 @@ class MinimalHudHeader extends StatelessWidget {
 
           // Interactive Search Bar Mock Input with quick hint
           GestureDetector(
-            onTap: onSearchTap,
+            onTap: widget.onSearchTap,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
@@ -290,8 +315,8 @@ class MinimalHudHeader extends StatelessWidget {
   }
 
   Widget _buildLineActiveHeader(BuildContext context) {
-    final dRoute = routeDetails?.directions['D'];
-    final gRoute = routeDetails?.directions['G'];
+    final dRoute = widget.routeDetails?.directions['D'];
+    final gRoute = widget.routeDetails?.directions['G'];
     final destinationD = dRoute?.destination ?? 'Dönüş';
     final destinationG = gRoute?.destination ?? 'Gidiş';
     final updateTimeStr = _formatLastUpdated();
@@ -312,7 +337,7 @@ class MinimalHudHeader extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
-                  activeLine ?? '',
+                  widget.activeLine ?? '',
                   style: const TextStyle(
                     color: AppTheme.surfaceDark,
                     fontWeight: FontWeight.w900,
@@ -331,7 +356,7 @@ class MinimalHudHeader extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          '$busCount Araç Yayında',
+                          '${widget.busCount} Araç Yayında',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 13,
@@ -364,9 +389,9 @@ class MinimalHudHeader extends StatelessWidget {
                         ),
                       ],
                     ),
-                    if (routeDetails?.name != null && routeDetails!.name.isNotEmpty)
+                    if (widget.routeDetails?.name != null && widget.routeDetails!.name.isNotEmpty)
                       Text(
-                        routeDetails!.name,
+                        widget.routeDetails!.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -384,13 +409,13 @@ class MinimalHudHeader extends StatelessWidget {
                 visualDensity: VisualDensity.compact,
                 padding: EdgeInsets.zero,
                 icon: const Icon(Icons.search_rounded, color: Colors.white, size: 20),
-                onPressed: onSearchTap,
+                onPressed: widget.onSearchTap,
                 tooltip: 'Başka Hat Ara',
               ),
 
               // Close / Exit Line Button
               GestureDetector(
-                onTap: onClearLine,
+                onTap: widget.onClearLine,
                 child: Container(
                   width: 32,
                   height: 32,

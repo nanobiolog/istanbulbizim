@@ -127,4 +127,52 @@ void main() {
     expect(coords34.first[1], closeTo(29.014, 0.01));
     expect(coords34.last[1], closeTo(28.726, 0.01));
   });
+
+  test('TimetableEntry correctly parses JSON and calculates isUpcoming', () {
+    final entry = TimetableEntry.fromJson({
+      'DT': '23:59',
+      'SYON': 'D',
+      'SGUNTIPI': 'I',
+      'SSERVISTIPI': 'ÖHO',
+    });
+
+    expect(entry.time, '23:59');
+    expect(entry.direction, 'D');
+    expect(entry.dayType, 'I');
+    expect(entry.serviceType, 'ÖHO');
+
+    // 23:59 is upcoming compared to 12:00
+    final noon = DateTime(2026, 10, 8, 12, 0);
+    expect(entry.isUpcoming(noon), isTrue);
+
+    // 05:00 is past compared to 12:00
+    final earlyEntry = TimetableEntry(time: '05:00', direction: 'D', dayType: 'I');
+    expect(earlyEntry.isUpcoming(noon), isFalse);
+  });
+
+  test('LineTimetable filters entries by direction and day type', () {
+    final timetable = LineTimetable(
+      lineCode: '500T',
+      entries: [
+        TimetableEntry(time: '06:00', direction: 'D', dayType: 'I'),
+        TimetableEntry(time: '06:15', direction: 'G', dayType: 'I'),
+        TimetableEntry(time: '07:00', direction: 'D', dayType: 'C'),
+        TimetableEntry(time: '08:00', direction: 'D', dayType: 'P'),
+      ],
+      isMetro: false,
+    );
+
+    final workDayD = timetable.filter(direction: 'D', dayType: 'I');
+    expect(workDayD.length, 1);
+    expect(workDayD.first.time, '06:00');
+
+    final workDayG = timetable.filter(direction: 'G', dayType: 'I');
+    expect(workDayG.length, 1);
+    expect(workDayG.first.time, '06:15');
+
+    final saturdayD = timetable.filter(direction: 'D', dayType: 'C');
+    expect(saturdayD.length, 1);
+    expect(saturdayD.first.time, '07:00');
+  });
 }
+

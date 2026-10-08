@@ -13,10 +13,11 @@ import '../widgets/layers_bottom_sheet.dart';
 import '../widgets/line_search_modal.dart';
 import '../widgets/metro_train_detail_sheet.dart';
 import '../widgets/minimal_bottom_nav_card.dart';
-import '../widgets/minimal_hud_header.dart';
 import '../widgets/quick_action_pills.dart';
+import '../widgets/settings_bottom_sheet.dart';
 
 class MapScreen extends StatefulWidget {
+
   const MapScreen({super.key});
 
   @override
@@ -105,6 +106,19 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
   }
 
+  void _openSettingsSheet(TransitProvider provider) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SettingsBottomSheet(
+        provider: provider,
+        onClose: () => Navigator.pop(context),
+      ),
+    );
+  }
+
+
   void _fitLineRouteOnMap(TransitProvider provider) {
     final route = provider.selectedLineRoute;
     if (route == null || route.directions.isEmpty) return;
@@ -141,10 +155,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             options: MapOptions(
               initialCenter: istanbulCenter,
               initialZoom: initialZoom,
+              initialRotation: 0.0,
               minZoom: 8.0,
               maxZoom: 18.5,
-              interactionOptions: const InteractionOptions(
-                flags: InteractiveFlag.all,
+              interactionOptions: InteractionOptions(
+                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+                cursorKeyboardRotationOptions:
+                    CursorKeyboardRotationOptions.disabled(),
               ),
               onPositionChanged: (camera, _) {
                 _currentZoom = camera.zoom;
@@ -228,32 +245,87 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             ],
           ),
 
-          // ─── 2. TOP HUD NAVIGATION HEADER (Pure Black Pill banner) ───
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 6,
-            left: 0,
-            right: 0,
-            child: MinimalHudHeader(
-              activeLine: provider.selectedLineCode,
-              routeDetails: provider.selectedLineRoute,
-              busCount: provider.selectedLineCode != null
-                  ? provider.visibleBuses.length
-                  : provider.activeBusCount,
-              lastUpdated: provider.lastUpdated,
-              isNightMode: provider.isNightMode,
-              onClearLine: () => provider.selectLine(null),
-              onSearchTap: () => _openSearch(provider),
+          // ─── 2. OFFLINE BANNER (Top of screen when disconnected or API unreachable) ───
+          if (provider.isOffline)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 4,
+              left: 14,
+              right: 14,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFDC2626).withValues(alpha: 0.95),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.wifi_off_rounded, color: Colors.white, size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            'Çevrimdışı Mod (Bağlantı Yok)',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          Text(
+                            provider.lastSuccessfulSync != null
+                              ? 'Önbelleğe alınan son sefer saatleri & konumlar gösteriliyor (${provider.lastSuccessfulSync!.hour.toString().padLeft(2, '0')}:${provider.lastSuccessfulSync!.minute.toString().padLeft(2, '0')})'
+                              : 'Önbellekteki veriler ve hat tarifeleri aktif.',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () => provider.refreshFleet(),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          'Tekrar Dene',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
 
-          // ─── 3. QUICK ACTION PILLS (Under Header) ───
+          // ─── 3. CLOSEST BUS LINES IN FIELD VIEW AREA (Dynamic fast-select pills) ───
           Positioned(
-            top: MediaQuery.of(context).padding.top +
-                (provider.selectedLineCode != null ? 104 : 94),
+            top: MediaQuery.of(context).padding.top + (provider.isOffline ? 48 : 8),
             left: 0,
             right: 0,
             child: QuickActionPills(
-              popularLines: provider.popularLines,
+              nearbyLines: provider.nearbyBusLines,
               selectedLine: provider.selectedLineCode,
               onSelectLine: (line) {
                 provider.selectLine(line);
@@ -262,10 +334,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 });
               },
               onClearLine: () => provider.selectLine(null),
+              onSearchTap: () => _openSearch(provider),
               showMetro: provider.showMetroLines,
               onToggleMetro: () => provider.toggleMetroLines(),
               showTrains: provider.showMetroTrains,
               onToggleTrains: () => provider.toggleMetroTrains(),
+              isNightMode: provider.isNightMode,
             ),
           ),
 
@@ -283,6 +357,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               isRefreshing: provider.isLoading,
               hasUserLocation: provider.userLocation != null,
               isNightMode: provider.isNightMode,
+              onOpenSettings: () => _openSettingsSheet(provider),
               onToggleNightMode: () => provider.toggleNightMode(),
               onOpenLayers: () => _openLayersSheet(provider),
               onRefresh: () => provider.refreshFleet(),
@@ -299,6 +374,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 );
               },
               onRecenter: () async {
+                _mapController.rotate(0.0);
                 final loc = await provider.locateUser();
                 if (loc != null) {
                   _animatedMapMove(loc, 15.5);
@@ -341,6 +417,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                         selectedDirection: provider.selectedDirection,
                         lastUpdated: provider.lastUpdated,
                         isNightMode: provider.isNightMode,
+                        timetable: provider.selectedLineTimetable,
+                        isLoadingTimetable: provider.isLoadingTimetable,
                         onDirectionChanged: (dir) => provider.setDirectionFilter(dir),
                         onClearSelection: () {
                           if (provider.selectedBus != null) {
@@ -352,6 +430,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                         onSearchTap: () => _openSearch(provider),
                       ),
           ),
+
         ],
       ),
     );

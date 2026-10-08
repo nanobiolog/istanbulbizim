@@ -11,14 +11,31 @@ class TransitProvider extends ChangeNotifier {
 
   // State
   List<BusVehicle> _buses = [];
+  List<BusVehicle> _fleetBuses = [];
+  List<NearbyBusLine> _nearbyBusLines = [];
+  LatLng _lastComputedCenter = const LatLng(0, 0);
+  double _lastComputedZoom = 0;
+  Timer? _dragDebounceTimer;
   bool _isLoading = false;
   String? _errorMessage;
   String? _cartoApiKey;
 
-  // Selected Line Filter
+  // Offline banner & network state
+  bool _isOffline = false;
+  DateTime? _lastSuccessfulSync;
+
+  // User Settings & Preferences
+  ThemeMode _themeMode = ThemeMode.dark; // Default dark/night mode
+  bool _autoRefreshEnabled = true; // App auto-sync enable/disable toggle
+  int _refreshIntervalSec = 15; // 10s, 15s, 30s
+  bool _highContrastTiles = true;
+
+  // Selected Line Filter & Timetables
   String? _selectedLineCode;
   LineRouteDetails? _selectedLineRoute;
   String _selectedDirection = 'ALL'; // 'ALL', 'D', 'G'
+  LineTimetable? _selectedLineTimetable;
+  bool _isLoadingTimetable = false;
 
   // Selected Bus / Train / Bus Stop for Detail Sheets
   BusVehicle? _selectedBus;
@@ -53,6 +70,7 @@ class TransitProvider extends ChangeNotifier {
   DateTime? _lastUpdated;
 
   TransitProvider() {
+
     _init();
   }
 
@@ -60,12 +78,24 @@ class TransitProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   String? get cartoApiKey => _cartoApiKey;
+  bool get isOffline => _isOffline;
+  DateTime? get lastSuccessfulSync => _lastSuccessfulSync;
+
+  // Preferences getters
+  ThemeMode get themeMode => _themeMode;
+  bool get autoRefreshEnabled => _autoRefreshEnabled;
+  int get refreshIntervalSec => _refreshIntervalSec;
+  bool get highContrastTiles => _highContrastTiles;
+
   String? get selectedLineCode => _selectedLineCode;
   LineRouteDetails? get selectedLineRoute => _selectedLineRoute;
   String get selectedDirection => _selectedDirection;
+  LineTimetable? get selectedLineTimetable => _selectedLineTimetable;
+  bool get isLoadingTimetable => _isLoadingTimetable;
   BusVehicle? get selectedBus => _selectedBus;
   MetroTrainVehicle? get selectedTrain => _selectedTrain;
   BusStop? get selectedStop => _selectedStop;
+
 
   bool get isNightMode => _isNightMode;
   bool get showBuses => _showBuses;
@@ -82,6 +112,7 @@ class TransitProvider extends ChangeNotifier {
   double get currentZoom => _currentZoom;
   DateTime? get lastUpdated => _lastUpdated;
   int get activeBusCount => _buses.length;
+  List<NearbyBusLine> get nearbyBusLines => _nearbyBusLines;
 
   /// Map Tile Layer URL: Switches between Carto Dark All and Light All Retina tiles
   String get tileUrl {
@@ -209,18 +240,128 @@ class TransitProvider extends ChangeNotifier {
 
     await refreshFleet();
 
-    // Start background sync every 15 seconds
-    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      refreshFleet(silent: true);
-    });
+    _restartRefreshTimer();
 
     _initLocation();
   }
 
+  void _restartRefreshTimer() {
+    _refreshTimer?.cancel();
+    if (_autoRefreshEnabled) {
+      _refreshTimer = Timer.periodic(Duration(seconds: _refreshIntervalSec), (_) {
+        if (_autoRefreshEnabled) {
+          refreshFleet(silent: true);
+        }
+      });
+    }
+  }
+
+
   void updateCameraPosition(LatLng center, double zoom) {
     _cameraCenter = center;
     _currentZoom = zoom;
-    notifyListeners();
+
+    final distMoved = _distanceMeters(
+      _lastComputedCenter.latitude,
+      _lastComputedCenter.longitude,
+      center.latitude,
+      center.longitude,
+    );
+    final zoomDiff = (_lastComputedZoom - zoom).abs();
+
+    if (distMoved > 250 || zoomDiff > 0.35) {
+      _computeNearbyLines();
+      notifyListeners();
+    } else {
+      _dragDebounceTimer?.cancel();
+      _dragDebounceTimer = Timer(const Duration(milliseconds: 140), () {
+        _computeNearbyLines();
+        notifyListeners();
+      });
+    }
+  }
+
+  void _computeNearbyLines() {
+    _lastComputedCenter = _cameraCenter;
+    _lastComputedZoom = _currentZoom;
+
+    final pool = _fleetBuses.isNotEmpty ? _fleetBuses : _buses;
+    if (pool.isEmpty) {
+      if (_nearbyBusLines.isEmpty) {
+        _nearbyBusLines = popularLines
+            .map((l) => NearbyBusLine(lineCode: l, busCount: 0, distanceMeters: 0))
+            .toList();
+      }
+      return;
+    }
+
+    // Dynamic viewport radius according to current map zoom
+    final double viewRadius = (4500.0 * math.pow(2.0, 13.0 - _currentZoom)).clamp(700.0, 10000.0);
+    const double expandedRadius = 8000.0;
+
+    final map = <String, _LineStats>{};
+
+    for (final bus in pool) {
+      final code = bus.line.trim().toUpperCase();
+      if (code.isEmpty) continue;
+
+      final dist = _distanceMeters(
+        _cameraCenter.latitude,
+        _cameraCenter.longitude,
+        bus.lat,
+        bus.lon,
+      );
+
+      final stats = map.putIfAbsent(code, () => _LineStats(code));
+      if (dist <= viewRadius) {
+        stats.inViewCount++;
+      }
+      if (dist <= expandedRadius) {
+        stats.nearbyCount++;
+      }
+      if (dist < stats.minDistance) {
+        stats.minDistance = dist;
+      }
+    }
+
+    // 1. Lines with vehicles directly in field view radius, sorted by closest distance to center
+    final inViewLines = map.values.where((s) => s.inViewCount > 0).toList();
+    inViewLines.sort((a, b) => a.minDistance.compareTo(b.minDistance));
+
+    final results = <NearbyBusLine>[];
+    for (final s in inViewLines) {
+      results.add(NearbyBusLine(
+        lineCode: s.code,
+        busCount: s.inViewCount,
+        distanceMeters: s.minDistance,
+      ));
+    }
+
+    // 2. If fewer than 12 lines directly in viewport, supplement with closest nearby lines
+    if (results.length < 12) {
+      final remaining = map.values
+          .where((s) => s.inViewCount == 0 && s.nearbyCount > 0)
+          .toList();
+      remaining.sort((a, b) => a.minDistance.compareTo(b.minDistance));
+
+      for (final s in remaining) {
+        if (results.length >= 16) break;
+        results.add(NearbyBusLine(
+          lineCode: s.code,
+          busCount: s.nearbyCount,
+          distanceMeters: s.minDistance,
+        ));
+      }
+    }
+
+    // Fallback if none found
+    if (results.isEmpty) {
+      results.addAll(popularLines.map(
+        (l) => NearbyBusLine(lineCode: l, busCount: 0, distanceMeters: 0),
+      ));
+    }
+
+    _nearbyBusLines = results;
   }
 
   Future<void> refreshFleet({bool silent = false}) async {
@@ -231,16 +372,31 @@ class TransitProvider extends ChangeNotifier {
     }
 
     try {
+      List<BusVehicle> raw;
       if (_selectedLineCode != null) {
-        _buses = await _apiService.fetchBusesForLine(_selectedLineCode!);
+        raw = await _apiService.fetchBusesForLine(_selectedLineCode!);
       } else {
-        _buses = await _apiService.fetchFleetBuses();
+        raw = await _apiService.fetchFleetBuses();
+        _fleetBuses = raw;
       }
+      _buses = _enrichBusesWithNextStops(raw);
       _lastUpdated = DateTime.now();
+      _lastSuccessfulSync = DateTime.now();
+      _isOffline = false;
       _errorMessage = null;
+      _computeNearbyLines();
+
+      // Keep active selected bus updated with latest telemetry
+      if (_selectedBus != null) {
+        final match = _buses.where((b) => b.id == _selectedBus!.id).firstOrNull;
+        if (match != null) {
+          _selectedBus = match;
+        }
+      }
     } catch (_) {
+      _isOffline = true;
       if (!silent) {
-        _errorMessage = 'Veriler güncellenirken hata oluştu';
+        _errorMessage = 'İnternet bağlantısı kurulamadı. Çevrimdışı modda son önbellek gösteriliyor.';
       }
     } finally {
       _isLoading = false;
@@ -248,10 +404,128 @@ class TransitProvider extends ChangeNotifier {
     }
   }
 
+  /// Calculates destination, upcoming next stop and live ETA for buses
+  List<BusVehicle> _enrichBusesWithNextStops(List<BusVehicle> list) {
+    if (list.isEmpty) return list;
+
+    return list.map((bus) {
+      String dest = bus.destination;
+      String nextStop = bus.nextStop;
+      int? etaSec = bus.nextStopEtaSec;
+      int? nextDistM = bus.nextStopDistM;
+      String dirName = bus.directionName;
+      String headsign = bus.headsign;
+
+      // 1. If line route is currently loaded and matches this bus line
+      final route = (_selectedLineCode != null &&
+              bus.line.toUpperCase() == _selectedLineCode!.toUpperCase())
+          ? _selectedLineRoute
+          : null;
+
+      if (route != null && route.directions.isNotEmpty) {
+        LineDirectionRoute? matchedDir;
+        if (bus.direction.isNotEmpty && route.directions.containsKey(bus.direction)) {
+          matchedDir = route.directions[bus.direction];
+        } else if (route.directions.containsKey('D')) {
+          matchedDir = route.directions['D'];
+        } else if (route.directions.isNotEmpty) {
+          matchedDir = route.directions.values.first;
+        }
+
+        if (matchedDir != null) {
+          if (dest.isEmpty) {
+            dest = matchedDir.destination.isNotEmpty ? matchedDir.destination : matchedDir.name;
+          }
+          if (dirName.isEmpty) dirName = matchedDir.name;
+          if (headsign.isEmpty) headsign = matchedDir.headsign;
+
+          final stops = matchedDir.stops;
+          if (stops.isNotEmpty) {
+            // Find closest upcoming stop along the route
+            double closestDist = double.infinity;
+            int closestIdx = -1;
+
+            for (int i = 0; i < stops.length; i++) {
+              final s = stops[i];
+              final d = _distanceMeters(bus.lat, bus.lon, s.lat, s.lon);
+              if (d < closestDist) {
+                closestDist = d;
+                closestIdx = i;
+              }
+            }
+
+            if (closestIdx != -1) {
+              // If within 60 meters, bus is at this stop; next stop is the following one
+              BusStop targetStop = stops[closestIdx];
+              double targetDist = closestDist;
+
+              if (closestDist < 60 && closestIdx + 1 < stops.length) {
+                targetStop = stops[closestIdx + 1];
+                targetDist = _distanceMeters(bus.lat, bus.lon, targetStop.lat, targetStop.lon);
+              }
+
+              nextStop = targetStop.name;
+              nextDistM = targetDist.round();
+
+              // Realistic urban bus speed (accounting for traffic and dwell)
+              final effectiveSpeedKmh = bus.speed > 12
+                  ? math.max(16.0, bus.speed * 0.9)
+                  : (bus.speed > 3 ? math.max(12.0, bus.speed * 1.2) : 15.0);
+              final speedMs = (effectiveSpeedKmh * 1000) / 3600;
+
+              if (closestDist <= 45 && bus.speed <= 5) {
+                etaSec = 0; // At the stop
+              } else {
+                etaSec = math.max(15, (targetDist / speedMs).round());
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Fallback: Find nearest bus stop in Istanbul bus stops database
+      if (nextStop.isEmpty && _busStops.isNotEmpty) {
+        double minD = double.infinity;
+        BusStop? nearest;
+
+        for (final s in _busStops) {
+          final d = _distanceMeters(bus.lat, bus.lon, s.lat, s.lon);
+          if (d < minD && d < 3000) {
+            minD = d;
+            nearest = s;
+          }
+        }
+
+        if (nearest != null) {
+          nextStop = nearest.name;
+          nextDistM = minD.round();
+          final speedMs = bus.speed > 5 ? (bus.speed / 3.6) : 5.0;
+          etaSec = math.max(20, (minD / speedMs).round());
+        }
+      }
+
+      if (dest.isEmpty) {
+        dest = headsign.isNotEmpty
+            ? headsign
+            : (bus.direction == 'D' ? 'Dönüş İstikameti' : (bus.direction == 'G' ? 'Gidiş İstikameti' : ''));
+      }
+
+      return bus.copyWith(
+        destination: dest,
+        nextStop: nextStop,
+        nextStopEtaSec: etaSec,
+        nextStopDistM: nextDistM,
+        directionName: dirName,
+        headsign: headsign,
+      );
+    }).toList();
+  }
+
   Future<void> selectLine(String? lineCode) async {
     if (lineCode == null || lineCode.isEmpty) {
       _selectedLineCode = null;
       _selectedLineRoute = null;
+      _selectedLineTimetable = null;
       _selectedDirection = 'ALL';
       _selectedBus = null;
       await refreshFleet();
@@ -263,20 +537,47 @@ class TransitProvider extends ChangeNotifier {
     _selectedBus = null;
     _selectedTrain = null;
     _selectedStop = null;
+    _selectedLineTimetable = null;
     _isLoading = true;
     notifyListeners();
 
     try {
       _selectedLineRoute = await _apiService.fetchLineRoute(upper);
-      _buses = await _apiService.fetchBusesForLine(upper);
+      final raw = await _apiService.fetchBusesForLine(upper);
+      _buses = _enrichBusesWithNextStops(raw);
       _lastUpdated = DateTime.now();
+      _lastSuccessfulSync = DateTime.now();
+      _isOffline = false;
+      _computeNearbyLines();
     } catch (_) {
+      _isOffline = true;
       _errorMessage = 'Hat güzergahı alınamadı: $upper';
     } finally {
       _isLoading = false;
       notifyListeners();
     }
+
+    // Eagerly prefetch timetable for this line in the background
+    loadTimetableForLine(upper);
   }
+
+  Future<LineTimetable?> loadTimetableForLine(String lineCode) async {
+    _isLoadingTimetable = true;
+    notifyListeners();
+    try {
+      final timetable = await _apiService.fetchLineTimetable(lineCode);
+      if (_selectedLineCode == lineCode.toUpperCase()) {
+        _selectedLineTimetable = timetable;
+      }
+      return timetable;
+    } catch (_) {
+      return null;
+    } finally {
+      _isLoadingTimetable = false;
+      notifyListeners();
+    }
+  }
+
 
   void setDirectionFilter(String dir) {
     _selectedDirection = dir;
@@ -312,6 +613,30 @@ class TransitProvider extends ChangeNotifier {
 
   void toggleNightMode() {
     _isNightMode = !_isNightMode;
+    _themeMode = _isNightMode ? ThemeMode.dark : ThemeMode.light;
+    notifyListeners();
+  }
+
+  void setThemeMode(ThemeMode mode) {
+    _themeMode = mode;
+    _isNightMode = (mode == ThemeMode.dark);
+    notifyListeners();
+  }
+
+  void toggleAutoRefresh([bool? enabled]) {
+    _autoRefreshEnabled = enabled ?? !_autoRefreshEnabled;
+    _restartRefreshTimer();
+    notifyListeners();
+  }
+
+  void setRefreshInterval(int seconds) {
+    _refreshIntervalSec = seconds;
+    _restartRefreshTimer();
+    notifyListeners();
+  }
+
+  void toggleHighContrastTiles([bool? enabled]) {
+    _highContrastTiles = enabled ?? !_highContrastTiles;
     notifyListeners();
   }
 
@@ -334,6 +659,7 @@ class TransitProvider extends ChangeNotifier {
     _showBusStops = !_showBusStops;
     notifyListeners();
   }
+
 
   // ─── 60 FPS METRO TRAIN SIMULATION ENGINE ───
   void _initMetroTrainSimulation() {
@@ -590,7 +916,17 @@ class TransitProvider extends ChangeNotifier {
   void dispose() {
     _refreshTimer?.cancel();
     _trainTicker?.cancel();
+    _dragDebounceTimer?.cancel();
     _positionSubscription?.cancel();
     super.dispose();
   }
+}
+
+class _LineStats {
+  final String code;
+  int inViewCount = 0;
+  int nearbyCount = 0;
+  double minDistance = double.infinity;
+
+  _LineStats(this.code);
 }

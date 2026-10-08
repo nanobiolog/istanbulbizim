@@ -243,6 +243,22 @@ class TransitApiService {
     return direct;
   }
 
+  Future<LineTimetable?> fetchLineTimetable(String lineCode) async {
+    try {
+      final res = await http.get(
+        Uri.parse('$baseUrl/timetable?line=${Uri.encodeComponent(lineCode)}'),
+      ).timeout(const Duration(seconds: 4));
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data is Map<String, dynamic>) {
+          return LineTimetable.fromJson(data);
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   int _findClosestCorridorIndex(List<List<double>> corr, double lat, double lon) {
     double bestDist = double.infinity;
     int bestIdx = 0;

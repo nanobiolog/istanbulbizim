@@ -8,6 +8,7 @@ class FloatingMapControls extends StatelessWidget {
   final VoidCallback onRefresh;
   final VoidCallback? onToggleNightMode;
   final VoidCallback? onOpenLayers;
+  final VoidCallback? onOpenSettings;
   final bool isNightMode;
   final bool isRefreshing;
   final bool hasUserLocation;
@@ -20,6 +21,7 @@ class FloatingMapControls extends StatelessWidget {
     required this.onRefresh,
     this.onToggleNightMode,
     this.onOpenLayers,
+    this.onOpenSettings,
     this.isNightMode = false,
     this.isRefreshing = false,
     this.hasUserLocation = false,
@@ -30,6 +32,20 @@ class FloatingMapControls extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // 0. Settings Button (Right side, top of the controls column)
+        if (onOpenSettings != null) ...[
+          _buildCircleButton(
+            onTap: onOpenSettings!,
+            icon: Icon(
+              Icons.settings_rounded,
+              color: isNightMode ? const Color(0xFF38BDF8) : AppTheme.accentBlack,
+              size: 24,
+            ),
+            darkStyle: isNightMode,
+          ),
+          const SizedBox(height: 10),
+        ],
+
         // 1. Night Mode Toggle Button (Moon Icon matching media_1791311536821.png)
         if (onToggleNightMode != null) ...[
           _buildCircleButton(
@@ -57,6 +73,7 @@ class FloatingMapControls extends StatelessWidget {
           ),
           const SizedBox(height: 10),
         ],
+
 
         // 3. Zoom In / Zoom Out Combined Pill
         Container(

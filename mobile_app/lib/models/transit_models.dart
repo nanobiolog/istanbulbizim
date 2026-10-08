@@ -15,6 +15,11 @@ class BusVehicle {
   final String headsign;
   final double? bearing;
 
+  final String destination;
+  final String nextStop;
+  final int? nextStopEtaSec;
+  final int? nextStopDistM;
+
   BusVehicle({
     required this.id,
     required this.lat,
@@ -29,6 +34,10 @@ class BusVehicle {
     this.directionName = '',
     this.headsign = '',
     this.bearing,
+    this.destination = '',
+    this.nextStop = '',
+    this.nextStopEtaSec,
+    this.nextStopDistM,
   });
 
   factory BusVehicle.fromJson(Map<String, dynamic> json) {
@@ -46,7 +55,61 @@ class BusVehicle {
       directionName: json['dir_name']?.toString() ?? '',
       headsign: json['headsign']?.toString() ?? '',
       bearing: (json['bearing'] as num?)?.toDouble(),
+      destination: json['destination']?.toString() ?? json['dest']?.toString() ?? '',
+      nextStop: json['next_stop']?.toString() ?? json['stop']?.toString() ?? '',
+      nextStopEtaSec: (json['next_stop_eta_sec'] as num?)?.toInt(),
+      nextStopDistM: (json['next_stop_dist_m'] as num?)?.toInt(),
     );
+  }
+
+  BusVehicle copyWith({
+    String? id,
+    double? lat,
+    double? lon,
+    double? speed,
+    String? time,
+    int? ageSeconds,
+    String? operator,
+    String? plate,
+    String? line,
+    String? direction,
+    String? directionName,
+    String headsign = '',
+    double? bearing,
+    String? destination,
+    String? nextStop,
+    int? nextStopEtaSec,
+    int? nextStopDistM,
+  }) {
+    return BusVehicle(
+      id: id ?? this.id,
+      lat: lat ?? this.lat,
+      lon: lon ?? this.lon,
+      speed: speed ?? this.speed,
+      time: time ?? this.time,
+      ageSeconds: ageSeconds ?? this.ageSeconds,
+      operator: operator ?? this.operator,
+      plate: plate ?? this.plate,
+      line: line ?? this.line,
+      direction: direction ?? this.direction,
+      directionName: directionName ?? this.directionName,
+      headsign: headsign.isNotEmpty ? headsign : this.headsign,
+      bearing: bearing ?? this.bearing,
+      destination: destination ?? this.destination,
+      nextStop: nextStop ?? this.nextStop,
+      nextStopEtaSec: nextStopEtaSec ?? this.nextStopEtaSec,
+      nextStopDistM: nextStopDistM ?? this.nextStopDistM,
+    );
+  }
+
+  /// Human-readable next stop ETA (e.g. "45 sn", "2 dk", "Şimdi")
+  String get nextStopEtaText {
+    if (nextStopEtaSec == null) return '';
+    final s = nextStopEtaSec!;
+    if (s <= 10) return 'Varıyor / Şimdi';
+    if (s < 60) return '$s sn sonra';
+    final m = (s / 60).round();
+    return '$m dk sonra';
   }
 
   // High-contrast and traffic speed scale matching the website
@@ -354,3 +417,105 @@ class LineInfo {
     'type': type,
   };
 }
+
+class NearbyBusLine {
+  final String lineCode;
+  final int busCount;
+  final double distanceMeters;
+
+  const NearbyBusLine({
+    required this.lineCode,
+    required this.busCount,
+    required this.distanceMeters,
+  });
+}
+
+class TimetableEntry {
+  final String time; // "HH:mm" e.g. "07:15"
+  final String direction; // 'D' or 'G'
+  final String dayType; // 'I' (İş Günü), 'C' (Cumartesi), 'P' (Pazar)
+  final String serviceType; // e.g. "ÖHO", "İETT", "Normal"
+  final String? routeSign;
+
+  const TimetableEntry({
+    required this.time,
+    required this.direction,
+    required this.dayType,
+    this.serviceType = 'Normal',
+    this.routeSign,
+  });
+
+  factory TimetableEntry.fromJson(Map<String, dynamic> json) {
+    return TimetableEntry(
+      time: json['time']?.toString() ?? json['DT']?.toString() ?? json['saat']?.toString() ?? '',
+      direction: json['direction']?.toString() ?? json['SYON']?.toString() ?? json['yon']?.toString() ?? 'D',
+      dayType: json['day_type']?.toString() ?? json['SGUNTIPI']?.toString() ?? json['gun']?.toString() ?? 'I',
+      serviceType: json['service_type']?.toString() ?? json['SSERVISTIPI']?.toString() ?? 'Normal',
+      routeSign: json['route_sign']?.toString() ?? json['GUZERGAH_ISARETI']?.toString(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'time': time,
+    'direction': direction,
+    'day_type': dayType,
+    'service_type': serviceType,
+    if (routeSign != null) 'route_sign': routeSign,
+  };
+
+  /// Returns true if this departure is in the future relative to now
+  bool isUpcoming([DateTime? now]) {
+    final current = now ?? DateTime.now();
+    final parts = time.split(':');
+    if (parts.length < 2) return false;
+    final h = int.tryParse(parts[0]) ?? 0;
+    final m = int.tryParse(parts[1]) ?? 0;
+    final currentMinutes = current.hour * 60 + current.minute;
+    final departureMinutes = h * 60 + m;
+    return departureMinutes >= currentMinutes;
+  }
+}
+
+class LineTimetable {
+  final String lineCode;
+  final List<TimetableEntry> entries;
+  final bool isMetro;
+  final String? note;
+
+  const LineTimetable({
+    required this.lineCode,
+    required this.entries,
+    this.isMetro = false,
+    this.note,
+  });
+
+  factory LineTimetable.fromJson(Map<String, dynamic> json) {
+    final rawEntries = (json['entries'] as List<dynamic>?) ?? [];
+    return LineTimetable(
+      lineCode: json['line_code']?.toString() ?? '',
+      entries: rawEntries.map((e) => TimetableEntry.fromJson(e as Map<String, dynamic>)).toList(),
+      isMetro: json['is_metro'] == true,
+      note: json['note']?.toString(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'line_code': lineCode,
+    'entries': entries.map((e) => e.toJson()).toList(),
+    'is_metro': isMetro,
+    if (note != null) 'note': note,
+  };
+
+  List<TimetableEntry> filter({String? direction, String? dayType}) {
+    return entries.where((e) {
+      if (direction != null && direction != 'ALL' && e.direction != direction) {
+        return false;
+      }
+      if (dayType != null && e.dayType != dayType) {
+        return false;
+      }
+      return true;
+    }).toList();
+  }
+}
+
