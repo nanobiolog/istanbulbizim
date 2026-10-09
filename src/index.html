@@ -2136,6 +2136,44 @@
       0%, 100% { transform: translateY(0); }
       50% { transform: translateY(6px); }
     }
+    /* ── Live ETA, traffic and timetables (monochrome + coloured line identity) ── */
+    .eta-chip { display:inline-flex; align-items:center; gap:3px; padding:1px 6px; border-radius:999px; font-size:10px; font-weight:800; font-variant-numeric:tabular-nums; background:#18181b; color:#fafafa; border:1px solid #3f3f46; white-space:nowrap; }
+    .eta-chip.conf-high { border-color:#22c55e; }
+    .eta-chip.conf-med { border-color:#a1a1aa; }
+    .eta-chip.conf-low { border-color:#52525b; color:#a1a1aa; border-style:dashed; }
+    .eta-chip.imminent { background:#fafafa; color:#09090b; border-color:#fafafa; animation:etaBeat 1s ease-in-out infinite; }
+    @keyframes etaBeat { 50% { opacity:.55; } }
+    .traffic-pill { align-items:center; gap:6px; padding:4px 10px; border-radius:999px; font-size:11px; font-weight:700; background:#18181b; color:#fafafa; border:1px solid #3f3f46; }
+    .traffic-pill .tp-dot { width:8px; height:8px; border-radius:50%; background:#22c55e; }
+    .traffic-pill.yogun .tp-dot { background:#f59e0b; }
+    .traffic-pill.cok_yogun .tp-dot { background:#ef4444; animation:etaBeat 1s infinite; }
+    .traffic-pill .tp-sub { color:#a1a1aa; font-weight:600; }
+    @media (max-width:768px) { .traffic-pill .tp-sub { display:none; } }
+    .timetable-wrapper { padding:0 12px 8px; }
+    .tt-toggle { width:100%; display:flex; justify-content:space-between; align-items:center; padding:8px 12px; border-radius:10px; background:#18181b; color:#fafafa; border:1px solid #3f3f46; font-size:12px; font-weight:700; cursor:pointer; }
+    .tt-toggle.open .tt-chev { transform:rotate(180deg); }
+    .timetable-panel { margin-top:6px; padding:10px; border-radius:10px; background:#09090b; border:1px solid #27272a; color:#fafafa; }
+    .tt-head { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
+    .tt-badge { font-size:10px; font-weight:800; padding:2px 8px; border-radius:999px; text-transform:uppercase; letter-spacing:.04em; }
+    .tt-badge.official { background:#fafafa; color:#09090b; }
+    .tt-badge.est { background:transparent; color:#f59e0b; border:1px dashed #f59e0b; }
+    .tt-src { font-size:10px; color:#71717a; text-align:right; }
+    .tt-row { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
+    .tt-pill { padding:4px 10px; border-radius:999px; font-size:11px; font-weight:700; background:#18181b; color:#a1a1aa; border:1px solid #3f3f46; cursor:pointer; }
+    .tt-pill.active { background:#fafafa; color:#09090b; border-color:#fafafa; }
+    .tt-next { font-size:12px; margin:8px 0; display:flex; gap:8px; align-items:center; }
+    .tt-next.muted, .tt-loading { color:#a1a1aa; font-size:12px; }
+    .tt-note { font-size:10px; color:#f59e0b; margin-bottom:6px; }
+    .tt-grid { display:flex; flex-wrap:wrap; gap:4px; max-height:150px; overflow-y:auto; position:relative; }
+    .tt-time { font-size:11px; font-weight:700; font-variant-numeric:tabular-nums; padding:2px 7px; border-radius:6px; background:#18181b; color:#fafafa; border:1px solid #27272a; }
+    .tt-time.past { opacity:.35; }
+    .tt-time.next { background:#fafafa; color:#09090b; }
+    .tt-time.est { border-style:dashed; }
+    .mtt-dir { margin-top:8px; }
+    .mtt-label { font-size:11px; font-weight:700; margin-bottom:4px; }
+    .mtt-times { display:flex; flex-wrap:wrap; gap:4px; }
+    .mtt-times .tt-time small { margin-left:4px; font-size:9px; }
+
   </style>
 </head>
 <body>
@@ -2203,6 +2241,7 @@
           <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
           <span>Yükle</span>
         </button>
+        <div class="traffic-pill" id="traffic-pill" style="display:none"></div>
         <div class="status-pill" id="status-pill">
           <span class="pulse-dot"></span>
           <span id="txt-status-pill">GPS Aktif</span>
@@ -2270,6 +2309,11 @@
       <button class="dir-tab active" data-dir="ALL" id="tab-dir-all">Tüm Yönler</button>
       <button class="dir-tab dir-tab-d" data-dir="D" id="tab-dir-d">➔ Dönüş</button>
       <button class="dir-tab dir-tab-g" data-dir="G" id="tab-dir-g">➔ Gidiş</button>
+    </div>
+
+    <div id="timetable-wrapper" class="timetable-wrapper" style="display:none">
+      <button id="btn-timetable" class="tt-toggle" type="button">🕒 Sefer Saatleri <span class="tt-chev">▾</span></button>
+      <div id="timetable-panel" class="timetable-panel" style="display:none"></div>
     </div>
 
     <!-- Statistics Overview -->
@@ -3144,7 +3188,7 @@
           const b = fleetBuses[i];
           if (doorSet.has(b.id)) {
             const match = matchBusDirection(b, dirs, code);
-            buses.push({
+            buses.push(LiveEta.apply({
               id: b.id,
               lat: b.lat,
               lon: b.lon,
@@ -3162,8 +3206,9 @@
               op: b.op || "İETT",
               p: b.p || "",
               a: b.a || 0,
-              bearing: b.bearing || 0
-            });
+              h: b.h,
+              bearing: (typeof b.h === "number" ? b.h : (b.bearing || 0))
+            }, dirs, code));
           }
         }
 
@@ -3359,6 +3404,9 @@
         const statusHtml = isWaiting
           ? `<span style="color:#f59e0b;font-weight:700">⏸️ Durakta Bekliyor (Yolcu İndirme/Bindirme)</span>`
           : ((b.s || 0) >= 4 ? `<span style="color:#10b981;font-weight:600">▶️ Seyir Halinde</span>` : `<span style="color:#94a3b8">Hareketsiz / Beklemede</span>`);
+        const nextStopHtml = b.next_stop
+          ? `${b.next_stop} ${b.eta_at ? etaChipHtml(b) : ""}`
+          : "";
         const stopDistanceNote = (b.stop_dist_m && b.stop_dist_m < 500) ? `<small style="color:#94a3b8;margin-left:4px">(${b.stop_dist_m} m)</small>` : "";
 
         if (window.innerWidth <= 768) {
@@ -3368,7 +3416,7 @@
             : "Eşleşme yok";
           el("insp-speed").textContent = isWaiting ? "⏸️ Durakta Bekliyor" : speedText;
           el("insp-time").textContent = timeText;
-          el("insp-op").innerHTML = `${opText} <br><small style="color:#94a3b8">Durak: ${stopText} ${stopDistanceNote}</small>`;
+          el("insp-op").innerHTML = `${opText} <br><small style="color:#94a3b8">Durak: ${stopText} ${stopDistanceNote}</small>${nextStopHtml ? `<br><small style="color:#e4e4e7">Sonraki: ${nextStopHtml}</small>` : ""}`;
 
           const btnFilter = el("btn-insp-filter");
           if (mappedLine) {
@@ -3400,6 +3448,7 @@
                   <div><b>Hat:</b> ${mappedLine ? `<span style="color:#38bdf8;font-weight:700">${mappedLine}</span>` : "Yok"}</div>
                   <div><b>Gittiği Yön:</b> <span style="color:#f59e0b;font-weight:600">${dirText}</span></div>
                   <div><b>Yakın Durak:</b> <span>${stopText} ${stopDistanceNote}</span></div>
+                  ${nextStopHtml ? `<div style="grid-column: span 2"><b>Sonraki Durak:</b> <span>${nextStopHtml}</span></div>` : ""}
                   <div style="grid-column: span 2"><b>Durum:</b> <span id="popup-bus-status">${statusHtml}</span></div>
                   <div><b>Hız:</b> <span id="popup-bus-speed">${speedText}</span></div>
                   <div><b>Zaman:</b> <span id="popup-bus-time">${timeText}</span></div>
@@ -3592,6 +3641,36 @@
         }
       }
 
+      function stopArrivalsHtml(arrivals, pending) {
+        if (arrivals.length > 0) {
+          return arrivals.map(arr => {
+            const cd = formatCountdownText(Math.max(0, Math.round((arr.target_time - Date.now()) / 1000)));
+            const distKm = (arr.dist_m / 1000).toFixed(1);
+            const away = arr.stops_away ? ` • ${arr.stops_away} durak` : "";
+            const col = LiveEta.lineColor(arr.line);
+            return `
+              <div class="stop-arrival-row" onclick="window.filterLine('${arr.line}')" title="${arr.line} hattını filtrele">
+                <div class="arrival-left">
+                  <div class="arrival-badge" style="background:${col};color:#09090b">${arr.line}</div>
+                  <div class="arrival-info">
+                    <div class="arrival-headsign">${arr.headsign || ""}</div>
+                    <div class="arrival-details">
+                      <span>🚌 ${arr.bus_id}</span>
+                      <span>•</span>
+                      <span>${arr.speed} km/s</span>${away}
+                    </div>
+                  </div>
+                </div>
+                <div class="arrival-countdown">
+                  <span id="cd-val-${arr.bus_id}" class="countdown-pill ${cd.cls}">⏱️ ${cd.text}</span>
+                  <div class="countdown-dist">${distKm} km uzakta</div>
+                </div>
+              </div>`;
+          }).join("");
+        }
+        return `<div class="tt-loading">${pending ? "Güzergâh ve trafik verisiyle hesaplanıyor…" : "Bu durağa yaklaşan canlı otobüs tespit edilemedi."}</div>`;
+      }
+
       function openStopDetails(stop) {
         const stopName = stop.n || stop.name || "İETT Durağı";
         const stopCode = stop.c || stop.code || "";
@@ -3600,41 +3679,8 @@
         const lat = stop.lat;
         const lon = stop.lon;
 
-        const arrivals = calculateArrivalsForStop(stop);
-        const disruptions = getDisruptionsForStop(stop, arrivals);
-
-        let arrivalsHtml = "";
-        if (arrivals.length > 0) {
-          arrivalsHtml = arrivals.map(arr => {
-            const cd = formatCountdownText(arr.est_sec);
-            const distKm = (arr.dist_m / 1000).toFixed(1);
-            return `
-              <div class="stop-arrival-row" onclick="window.filterLine('${arr.line}')" title="${arr.line} hattını filtrele">
-                <div class="arrival-left">
-                  <div class="arrival-badge">${arr.line}</div>
-                  <div class="arrival-info">
-                    <div class="arrival-headsign">${arr.headsign}</div>
-                    <div class="arrival-details">
-                      <span>🚌 ${arr.bus_id}</span>
-                      <span>•</span>
-                      <span>${arr.speed} km/s</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="arrival-countdown">
-                  <span id="cd-val-${arr.bus_id}" class="countdown-pill ${cd.cls}">⏱️ ${cd.text}</span>
-                  <div class="countdown-dist">${distKm} km uzakta</div>
-                </div>
-              </div>
-            `;
-          }).join("");
-        } else {
-          arrivalsHtml = `
-            <div style="padding:12px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;text-align:center;color:#64748b;font-size:12px">
-              Bu durağa 5 km mesafede yaklaşan canlı otobüs tespit edilemedi veya araçlar ilk kalkış peronunda beklemede.
-            </div>
-          `;
-        }
+        const localArrivals = calculateArrivalsForStop(stop);
+        const disruptions = getDisruptionsForStop(stop, localArrivals);
 
         let disruptionsHtml = "";
         if (disruptions.length > 0) {
@@ -3652,17 +3698,13 @@
                   <div class="disruption-msg">${d.msg}</div>
                 </div>
               `).join("")}
-            </div>
-          `;
+            </div>`;
         }
 
-        const popupContent = `
+        const buildContent = (arrivals, pending, sourceNote) => `
           <div class="stop-popup-card">
             <div class="stop-popup-header">
-              <div class="stop-popup-title">
-                <span>🚏</span>
-                <span>${stopName}</span>
-              </div>
+              <div class="stop-popup-title"><span>🚏</span><span>${stopName}</span></div>
               <div class="stop-popup-subtitle">
                 ${stopCode ? `<span>Kod: <b>${stopCode}</b></span> • ` : ""}
                 <span>${district || "İstanbul"}</span>
@@ -3672,28 +3714,47 @@
             <div class="stop-popup-body">
               <div class="stop-section-title">
                 <span>En Yakın Gelen Otobüsler</span>
-                <span style="font-size:10px;font-weight:600;color:#0284c7">Canlı Geri Sayım</span>
+                <span style="font-size:10px;font-weight:600;color:#0284c7">${sourceNote}</span>
               </div>
-              <div class="stop-arrivals-list">
-                ${arrivalsHtml}
-              </div>
+              <div class="stop-arrivals-list">${stopArrivalsHtml(arrivals, pending)}</div>
               ${disruptionsHtml}
             </div>
-          </div>
-        `;
+          </div>`;
 
-        if (activeStopCountdownTimer) {
-          clearInterval(activeStopCountdownTimer);
-          activeStopCountdownTimer = null;
-        }
+        if (activeStopCountdownTimer) { clearInterval(activeStopCountdownTimer); activeStopCountdownTimer = null; }
+        if (window._stopRefreshTimer) { clearInterval(window._stopRefreshTimer); window._stopRefreshTimer = null; }
 
-        activeStopPopupData = { stop, arrivals };
-        activeStopPopup = L.popup({ autoPanPadding: [25, 25], maxWidth: 360, minWidth: 290 })
+        // 1) instant: local straight-line estimate so the popup never waits on the network
+        activeStopPopupData = { stop, arrivals: localArrivals };
+        const popup = L.popup({ autoPanPadding: [25, 25], maxWidth: 360, minWidth: 290 })
           .setLatLng([lat, lon])
-          .setContent(popupContent)
+          .setContent(buildContent(localArrivals, !!stopCode, stopCode ? "Hesaplanıyor…" : "Canlı Geri Sayım"))
           .openOn(map);
-
+        activeStopPopup = popup;
         activeStopCountdownTimer = setInterval(updateActiveStopPopupCountdowns, 1000);
+
+        // 2) refine: route-aware, traffic-aware server ETA (refreshed every 15 s while open)
+        if (!stopCode) return;
+        const load = async () => {
+          if (activeStopPopup !== popup || !map.hasLayer(popup)) {
+            clearInterval(window._stopRefreshTimer); window._stopRefreshTimer = null; return;
+          }
+          try {
+            const r = await fetch(`/stop/arrivals?code=${encodeURIComponent(stopCode)}`);
+            if (!r.ok) throw new Error(r.status);
+            const d = await r.json();
+            if (activeStopPopup !== popup) return;
+            const now = Date.now();
+            const arr = (d.arrivals || []).map(x => Object.assign({}, x, { est_sec: x.eta_sec, target_time: now + x.eta_sec * 1000 }));
+            activeStopPopupData = { stop, arrivals: arr };
+            popup.setContent(buildContent(arr, false, "Canlı · rota + trafik"));
+            if (!activeStopCountdownTimer) activeStopCountdownTimer = setInterval(updateActiveStopPopupCountdowns, 1000);
+          } catch (e) {
+            if (activeStopPopup === popup && localArrivals.length) popup.setContent(buildContent(localArrivals, false, "Canlı Geri Sayım (yaklaşık)"));
+          }
+        };
+        load();
+        window._stopRefreshTimer = setInterval(load, 15000);
       }
 
       // Render standalone citywide bus stops when zoomed in (zoom >= 14)
@@ -3966,11 +4027,13 @@
 
         // Update Line Banner
         bannerLineCode.textContent = selectedLineData.code;
+        bannerLineCode.style.color = LiveEta.lineColor(selectedLineData.code);
         const lineTitle = selectedLineData.name ? `${selectedLineData.code} - ${selectedLineData.name}` : `${selectedLineData.code} Hattı`;
         bannerLineTitle.textContent = lineTitle;
         bannerLineSub.textContent = `${buses.length} / ${selectedLineData.assigned_count || buses.length} Canlı Araç`;
         selectedLineBanner.style.display = "flex";
 
+        setTimetableVisible(true);
         // Setup Direction Tabs
         dirTabsWrapper.style.display = "flex";
         const countD = buses.filter(b => b.dir === "D").length;
@@ -4237,10 +4300,11 @@
                   <span class="legend-dot" style="background:${col}"></span>
                   <div>
                     <div class="bus-id">${b.id} ${b.p ? `<span class="bus-plate">(${b.p})</span>` : ""} ${waitBadge}</div>
-                    <div class="bus-plate">${b.stop ? `🚏 ${b.stop}` : (b.op || "İETT")} • <span class="bus-card-age" data-bus-time="${b.t || b.time || ''}">${formatBusAge(b.t || b.time, b.a)}</span></div>
+                    <div class="bus-plate">${(b.next_stop || b.stop) ? `🚏 ${b.next_stop || b.stop}` : (b.op || "İETT")} • <span class="bus-card-age" data-bus-time="${b.t || b.time || ''}">${formatBusAge(b.t || b.time, b.a)}</span>${b.stops_left ? ` • ${b.stops_left} durak kaldı` : ""}</div>
                   </div>
                 </div>
                 <div class="bus-speed-badge">
+                  ${etaChipHtml(b)}
                   <span>${b.s || 0}</span> <small style="font-size:10px;color:#94a3b8">km/s</small>
                 </div>
               </div>
@@ -4406,6 +4470,7 @@
 
             if (data.directions || data.buses) {
               setStoredRoute(code, data);
+              LiveEta.adoptServer(data);
               selectedLineData = data;
               renderSelectedLine(isSilent);
               txtStatusMsg.textContent = `${code} aktif (${(data.buses || []).length} araç)`;
@@ -4438,6 +4503,7 @@
         currentSearchRequestId++;
         selectedLineCode = null;
         selectedLineData = null;
+        setTimetableVisible(false);
         currentlyDrawnRouteCode = null;
         currentlyDrawnRouteDir = null;
         cachedRouteCoords = [];
@@ -4524,7 +4590,7 @@
           if (doorSet.has(b.id)) {
             const prev = (selectedLineData.buses || []).find(x => x.id === b.id);
             const match = matchBusDirection(b, selectedLineData.directions, selectedLineCode);
-            matchingBuses.push({
+            matchingBuses.push(LiveEta.apply({
               id: b.id,
               lat: b.lat,
               lon: b.lon,
@@ -4540,8 +4606,9 @@
               op: b.op || "İETT",
               p: b.p || "",
               a: b.a || 0,
-              bearing: b.bearing || 0
-            });
+              h: b.h,
+              bearing: (typeof b.h === "number" ? b.h : (b.bearing || 0))
+            }, selectedLineData.directions, selectedLineCode));
           }
         }
 
@@ -4631,6 +4698,7 @@
             lineJoin: "round"
           });
           linePoly.bindTooltip(`<b>${lineCode} Hattı</b>`, { sticky: true });
+          linePoly.on("click", (e) => openMetroTimetablePopup(lineCode, e.latlng));
           metroRailLayer.addLayer(linePoly);
 
           // Station points
@@ -5641,6 +5709,428 @@
         }
       }
 
+      // ─── LIVE TRAFFIC + ROUTE-AWARE ETA (client mirror of src/engine.js) ───
+      const LiveEta = (function () {
+        const CELL_LAT = 0.004, CELL_LON = 0.0053, MUL = 10000;
+        const KX = 111320 * Math.cos(41 * Math.PI / 180), KY = 110540;
+        const PRIOR = {
+          I: [31, 32, 33, 33, 32, 30, 26, 20, 16, 17, 19, 20, 20, 20, 20, 19, 17, 15, 14, 16, 20, 24, 27, 29],
+          C: [30, 31, 32, 33, 32, 31, 29, 26, 23, 21, 20, 19, 19, 19, 19, 19, 19, 19, 19, 20, 22, 24, 26, 28],
+          P: [30, 31, 32, 33, 33, 32, 31, 29, 27, 25, 24, 23, 22, 22, 22, 22, 22, 22, 22, 23, 24, 26, 28, 29]
+        };
+        const GH32 = "0123456789bcdefghjkmnpqrstuvwxyz";
+        let cells = new Map();
+        let city = null;
+        let profile = null;
+        let profileTried = false;
+        const indexCache = new Map();
+
+        function istNow() {
+          const d = new Date(Date.now() + 10800000);
+          const dow = d.getUTCDay();
+          return { hour: d.getUTCHours(), dayType: dow === 0 ? "P" : dow === 6 ? "C" : "I" };
+        }
+        function isPeak(t) { return t.dayType === "I" && ((t.hour >= 7 && t.hour <= 9) || (t.hour >= 16 && t.hour <= 19)); }
+        function clampN(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+        function geohash(lat, lon, p) {
+          let latR = [-90, 90], lonR = [-180, 180], bit = 0, ch = 0, even = true, out = "";
+          while (out.length < p) {
+            if (even) { const m = (lonR[0] + lonR[1]) / 2; if (lon >= m) { ch = (ch << 1) | 1; lonR[0] = m; } else { ch <<= 1; lonR[1] = m; } }
+            else { const m = (latR[0] + latR[1]) / 2; if (lat >= m) { ch = (ch << 1) | 1; latR[0] = m; } else { ch <<= 1; latR[1] = m; } }
+            even = !even;
+            if (++bit === 5) { out += GH32[ch]; bit = 0; ch = 0; }
+          }
+          return out;
+        }
+
+        function prior(lat, lon, t) {
+          const di = t.dayType === "I" ? 0 : t.dayType === "C" ? 1 : 2;
+          if (profile && profile.cells) {
+            const row = profile.cells[geohash(lat, lon, 5)];
+            if (row && row[di] && row[di][t.hour] > 0) return row[di][t.hour];
+            if (profile.city && profile.city[di] && profile.city[di][t.hour] > 0) return profile.city[di][t.hour];
+          }
+          return PRIOR[t.dayType][t.hour];
+        }
+
+        function speedAt(lat, lon, t) {
+          const pr = prior(lat, lon, t);
+          const ci = Math.floor(lat / CELL_LAT), cj = Math.floor(lon / CELL_LON);
+          let sw = 0, sv = 0;
+          for (let di = -1; di <= 1; di++) {
+            for (let dj = -1; dj <= 1; dj++) {
+              const c = cells.get((ci + di) * MUL + (cj + dj));
+              if (!c) continue;
+              const w = (di === 0 && dj === 0 ? 1 : 0.35) * Math.min(c.n, 8);
+              sw += w; sv += w * c.v;
+            }
+          }
+          if (sw === 0) return clampN(pr, 5, 55);
+          const wl = Math.min(0.85, sw / 10);
+          return clampN(wl * (sv / sw) + (1 - wl) * pr, 5, 55);
+        }
+
+        function buildIndex(dir) {
+          const pts = (dir.coordinates && dir.coordinates.length >= 2) ? dir.coordinates : (dir.stops || []).map(s => [s.lat, s.lon]);
+          const n = pts.length;
+          if (n < 2) return null;
+          const xs = new Float64Array(n), ys = new Float64Array(n), cum = new Float64Array(n);
+          for (let i = 0; i < n; i++) {
+            xs[i] = pts[i][1] * KX; ys[i] = pts[i][0] * KY;
+            if (i > 0) cum[i] = cum[i - 1] + Math.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]);
+          }
+          const idx = { pts, xs, ys, cum, length: cum[n - 1], stops: [] };
+          let prev = 0;
+          for (const s of (dir.stops || [])) {
+            const p = project(idx, s.lat, s.lon, prev - 200, Infinity);
+            const along = Math.max(prev, p.along);
+            idx.stops.push({ seq: s.seq, code: s.code, name: s.name, lat: s.lat, lon: s.lon, along });
+            prev = along;
+          }
+          return idx;
+        }
+
+        function project(idx, lat, lon, lo, hi) {
+          const x = lon * KX, y = lat * KY;
+          const { xs, ys, cum } = idx;
+          let best = Infinity, bestAlong = 0, bestSeg = 0;
+          for (let i = 0; i < xs.length - 1; i++) {
+            if (cum[i + 1] < lo || cum[i] > hi) continue;
+            const dx = xs[i + 1] - xs[i], dy = ys[i + 1] - ys[i];
+            const l2 = dx * dx + dy * dy;
+            let u = l2 > 0 ? ((x - xs[i]) * dx + (y - ys[i]) * dy) / l2 : 0;
+            u = u < 0 ? 0 : u > 1 ? 1 : u;
+            const d = Math.hypot(x - (xs[i] + u * dx), y - (ys[i] + u * dy));
+            if (d < best) { best = d; bestAlong = cum[i] + u * Math.sqrt(l2); bestSeg = i; }
+          }
+          return { along: bestAlong, off: best === Infinity ? 99999 : best, seg: bestSeg };
+        }
+
+        function segBearing(idx, seg) {
+          const i = clampN(seg, 0, idx.xs.length - 2);
+          return (Math.atan2(idx.xs[i + 1] - idx.xs[i], idx.ys[i + 1] - idx.ys[i]) * 180 / Math.PI + 360) % 360;
+        }
+
+        function posAt(idx, along) {
+          const a = clampN(along, 0, idx.length);
+          let lo = 0, hi = idx.cum.length - 1;
+          while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (idx.cum[mid] <= a) lo = mid; else hi = mid; }
+          const span = idx.cum[hi] - idx.cum[lo];
+          const u = span > 0 ? (a - idx.cum[lo]) / span : 0;
+          return [idx.pts[lo][0] + (idx.pts[hi][0] - idx.pts[lo][0]) * u, idx.pts[lo][1] + (idx.pts[hi][1] - idx.pts[lo][1]) * u];
+        }
+
+        function travel(idx, a0, a1, t) {
+          if (a1 <= a0) return 0;
+          let sec = 0, a = a0;
+          while (a < a1) {
+            const b = Math.min(a1, a + 300);
+            const p = posAt(idx, (a + b) / 2);
+            sec += (b - a) / (speedAt(p[0], p[1], t) / 3.6);
+            a = b;
+          }
+          return sec + (a1 - a0) / 1000 * (isPeak(t) ? 12 : 7);
+        }
+
+        function timeline(idx, fromAlong, t, untilI) {
+          const out = [];
+          const dw = isPeak(t) ? 24 : 16;
+          let a = fromAlong, sec = 0;
+          const last = untilI === undefined ? idx.stops.length - 1 : untilI;
+          for (let i = 0; i <= last && i < idx.stops.length; i++) {
+            const s = idx.stops[i];
+            if (s.along < fromAlong - 25) continue;
+            const target = Math.max(s.along, a);
+            sec += travel(idx, a, target, t);
+            a = target;
+            out.push({ i, sec: Math.round(sec), dist: Math.max(0, Math.round(s.along - fromAlong)) });
+            sec += dw;
+          }
+          return out;
+        }
+
+        function indexFor(code, dk, d) {
+          const key = [code, dk, (d.stops || []).length, (d.coordinates || []).length].join("|");
+          let ix = indexCache.get(key);
+          if (ix === undefined) {
+            ix = buildIndex(d);
+            if (indexCache.size > 300) indexCache.clear();
+            indexCache.set(key, ix);
+          }
+          return ix;
+        }
+
+        function angDiff(a, b) { return Math.abs(((a - b + 540) % 360) - 180); }
+
+        function locate(bus, indexes) {
+          const moving = (bus.s || 0) >= 6 && typeof bus.h === "number";
+          let best = null;
+          for (const dk of Object.keys(indexes)) {
+            const idx = indexes[dk];
+            const p = project(idx, bus.lat, bus.lon, -Infinity, Infinity);
+            let score = p.off;
+            if (moving) {
+              const d = angDiff(bus.h, segBearing(idx, p.seg));
+              if (d > 100) score += 250; else if (d > 60) score += 60;
+            }
+            if (!best || score < best.score) best = { dk, idx, p, score };
+          }
+          return best;
+        }
+
+        function conf(age, off) {
+          if (age <= 45 && off <= 50) return "high";
+          if (age <= 120 && off <= 120) return "med";
+          return "low";
+        }
+
+        // Mutates + returns `bus`: adds next_stop, next_stop_eta_sec, eta_at, terminal_eta_at, stops_left, eta_conf
+        function apply(bus, dirs, code) {
+          if (!dirs) return bus;
+          const indexes = {};
+          let any = false;
+          for (const dk of Object.keys(dirs)) {
+            const ix = indexFor(code, dk, dirs[dk]);
+            if (ix) { indexes[dk] = ix; any = true; }
+          }
+          if (!any) return bus;
+          const loc = locate(bus, indexes);
+          if (!loc || loc.p.off > 400) return bus;
+          const t = istNow();
+          const tl = timeline(loc.idx, loc.p.along, t);
+          if (!tl.length) return bus;
+          const age = getBusAgeSec(bus.t || bus.time, bus.a);
+          const comp = Math.min(age, 120);
+          let next = tl[0];
+          const atStop = next.dist <= 35 && (bus.s || 0) < 8;
+          if (atStop && tl.length > 1) next = tl[1];
+          const stop = loc.idx.stops[next.i];
+          const eta = atStop && next === tl[0] ? 0 : Math.max(0, next.sec - comp);
+          const d = dirs[loc.dk];
+          bus.dir = loc.dk;
+          if (d) { bus.dir_name = d.destination || bus.dir_name; bus.headsign = d.headsign || bus.headsign; }
+          bus.color = loc.dk === "G" ? "#a855f7" : "#06b6d4";
+          bus.next_stop = stop.name;
+          bus.next_stop_dist_m = next.dist;
+          bus.next_stop_eta_sec = eta;
+          bus.eta_at = Date.now() + eta * 1000;
+          bus.terminal_eta_at = Date.now() + Math.max(0, tl[tl.length - 1].sec - comp) * 1000;
+          bus.stops_left = tl.length;
+          bus.eta_conf = conf(age, loc.p.off);
+          if (atStop) bus.waiting_at_stop = true;
+          return bus;
+        }
+
+        // Server already computed ETA for /line buses → convert to absolute timestamps so counters tick.
+        function adoptServer(data) {
+          if (!data || !Array.isArray(data.buses)) return;
+          const now = Date.now();
+          for (const b of data.buses) {
+            if (typeof b.next_stop_eta_sec === "number") {
+              b.eta_at = now + b.next_stop_eta_sec * 1000;
+              if (typeof b.terminal_eta_sec === "number") b.terminal_eta_at = now + b.terminal_eta_sec * 1000;
+              b.waiting_at_stop = b.waiting_at_stop || b.at_stop === true;
+            }
+            if (typeof b.h !== "number" && typeof b.bearing === "number") b.h = b.bearing;
+          }
+        }
+
+        async function loadTraffic() {
+          try {
+            const r = await fetch("/traffic");
+            if (!r.ok) return;
+            const d = await r.json();
+            const m = new Map();
+            for (const c of d.cells || []) m.set(c[0] * MUL + c[1], { v: c[2], n: c[3] });
+            cells = m;
+            city = d.city || null;
+            if (d.has_ibb_profile && !profile && !profileTried) {
+              profileTried = true;
+              fetch("/traffic/profile").then(x => x.json()).then(p => { if (p && p.cells) profile = p; }).catch(() => {});
+            }
+            renderTrafficPill();
+          } catch (e) { /* keep last field */ }
+        }
+
+        function renderTrafficPill() {
+          const pill = document.getElementById("traffic-pill");
+          if (!pill || !city) return;
+          const label = city.level === "akici" ? "Akıcı" : city.level === "yogun" ? "Yoğun" : "Çok yoğun";
+          pill.className = "traffic-pill " + city.level;
+          pill.style.display = "inline-flex";
+          pill.innerHTML = `<span class="tp-dot"></span><span>Trafik ${label}</span><span class="tp-sub">${Math.round(city.median_moving_kmh)} km/s</span>`;
+          pill.title = `Hareketli otobüslerin medyan hızı ${city.median_moving_kmh} km/s (bu saat için beklenen ~${city.hour_prior_kmh} km/s). ${city.vehicles} araçtan canlı hesaplanır.`;
+        }
+
+        // Stable, high-contrast colour per line (monochrome UI + coloured line identity)
+        function lineColor(code) {
+          const c = String(code || "").toUpperCase();
+          if (metroColors && metroColors[c]) return metroColors[c];
+          if (c.startsWith("34")) return "#fb7185";
+          let h = 0;
+          for (let i = 0; i < c.length; i++) h = (h * 31 + c.charCodeAt(i)) % 360;
+          return `hsl(${h}, 72%, 62%)`;
+        }
+
+        return { apply, adoptServer, loadTraffic, lineColor, istNow, cityInfo: () => city };
+      })();
+
+      function fmtEta(ms) {
+        const s = Math.round(ms / 1000);
+        if (s <= 10) return "Şimdi";
+        if (s < 60) return `${s} sn`;
+        const m = Math.floor(s / 60);
+        if (m < 10) return `${m} dk ${String(s % 60).padStart(2, "0")} sn`;
+        if (m < 90) return `${m} dk`;
+        return `${Math.floor(m / 60)} sa ${m % 60} dk`;
+      }
+
+      function etaChipHtml(b) {
+        if (!b || !b.eta_at) return "";
+        const conf = b.eta_conf || "med";
+        return `<span class="eta-chip conf-${conf}" data-eta-at="${b.eta_at}" data-eta-bus="${b.id}" title="Sonraki durağa tahmini varış (${conf === "high" ? "yüksek" : conf === "med" ? "orta" : "düşük"} güven)">⏱ ${fmtEta(b.eta_at - Date.now())}</span>`;
+      }
+
+      function tickEtaChips() {
+        const now = Date.now();
+        document.querySelectorAll("[data-eta-at]").forEach(node => {
+          const busId = node.getAttribute("data-eta-bus");
+          if (busId) {
+            const fb = findFreshBus(busId);
+            if (fb && fb.eta_at) node.setAttribute("data-eta-at", String(fb.eta_at));
+          }
+          const at = Number(node.getAttribute("data-eta-at"));
+          if (!at) return;
+          const txt = fmtEta(at - now);
+          const prefix = node.classList.contains("eta-chip") ? "⏱ " : "";
+          if (node.textContent !== prefix + txt) node.textContent = prefix + txt;
+          node.classList.toggle("imminent", at - now <= 60000);
+        });
+      }
+
+      // ─── TIMETABLES (bus: İBB GetPlanlananSeferSaati · rail: Metro İstanbul GetTimeTable) ───
+      const ttCache = new Map();
+      const ttState = { day: null, dir: "G", open: false };
+
+      async function getTimetable(code) {
+        const hit = ttCache.get(code);
+        if (hit && Date.now() - hit.at < 30 * 60000) return hit.data;
+        const r = await fetch(`/timetable?line=${encodeURIComponent(code)}`);
+        if (!r.ok) throw new Error("timetable " + r.status);
+        const data = await r.json();
+        ttCache.set(code, { at: Date.now(), data });
+        return data;
+      }
+
+      function depEpoch(timeStr) {
+        const p = String(timeStr).split(":").map(Number);
+        const nowIst = Date.now() + 10800000;
+        const dayStart = nowIst - (nowIst % 86400000) - 10800000;
+        return dayStart + ((p[0] || 0) * 3600 + (p[1] || 0) * 60) * 1000;
+      }
+
+      function upcomingDepartures(entries, day, dir, n) {
+        const now = Date.now();
+        return entries
+          .filter(e => e.day_type === day && (!dir || e.direction === dir))
+          .map(e => Object.assign({ at: depEpoch(e.time) }, e))
+          .filter(e => e.at >= now - 30000)
+          .sort((a, b) => a.at - b.at)
+          .slice(0, n);
+      }
+
+      function todayDayType() { return LiveEta.istNow().dayType; }
+
+      async function renderTimetablePanel() {
+        const panel = el("timetable-panel");
+        if (!panel || !selectedLineCode) return;
+        if (!ttState.day) ttState.day = todayDayType();
+        const code = selectedLineCode;
+        panel.innerHTML = `<div class="tt-loading">Sefer saatleri yükleniyor…</div>`;
+        let data;
+        try { data = await getTimetable(code); } catch (e) {
+          panel.innerHTML = `<div class="tt-loading">Sefer saatleri alınamadı.</div>`;
+          return;
+        }
+        if (code !== selectedLineCode) return;
+        const entries = data.entries || [];
+        if (!entries.length) {
+          panel.innerHTML = `<div class="tt-loading">${data.note || "Bu hat için planlı sefer saati bulunamadı."}</div>`;
+          return;
+        }
+        const dirs = (selectedLineData && selectedLineData.directions) || {};
+        const dirLabel = (d) => {
+          const meta = (data.directions || []).find(x => x.dir === d);
+          const route = dirs[d];
+          return (route && route.destination) || (meta && meta.name) || (d === "G" ? "Gidiş" : "Dönüş");
+        };
+        if (!entries.some(e => e.direction === ttState.dir)) ttState.dir = entries[0].direction;
+        const list = entries.filter(e => e.day_type === ttState.day && e.direction === ttState.dir).sort((a, b) => a.time.localeCompare(b.time));
+        const now = Date.now();
+        const nextIdx = ttState.day === todayDayType() ? list.findIndex(e => depEpoch(e.time) >= now - 30000) : -1;
+        const nextEntry = nextIdx >= 0 ? list[nextIdx] : null;
+        const anyEst = list.some(e => e.estimated);
+        const official = data.official === true && !anyEst;
+        const dayBtn = (k, label) => `<button class="tt-pill ${ttState.day === k ? "active" : ""}" data-tt-day="${k}">${label}</button>`;
+        const dirBtn = (k) => `<button class="tt-pill ${ttState.dir === k ? "active" : ""}" data-tt-dir="${k}">➔ ${dirLabel(k)}</button>`;
+        const dirKeys = Array.from(new Set(entries.map(e => e.direction))).sort();
+        panel.innerHTML = `
+          <div class="tt-head">
+            <span class="tt-badge ${official ? "official" : "est"}">${official ? "Resmî tarife" : "Tahmini sıklık"}</span>
+            <span class="tt-src">${data.source || ""}</span>
+          </div>
+          <div class="tt-row">${dayBtn("I", "İş Günü")}${dayBtn("C", "Cumartesi")}${dayBtn("P", "Pazar")}</div>
+          <div class="tt-row">${dirKeys.map(dirBtn).join("")}</div>
+          ${nextEntry ? `<div class="tt-next">Sonraki sefer <b>${nextEntry.time}</b> <span class="eta-chip imminent-able" data-eta-at="${depEpoch(nextEntry.time)}">${fmtEta(depEpoch(nextEntry.time) - now)}</span></div>` : `<div class="tt-next muted">${ttState.day === todayDayType() ? "Bugün için kalan sefer yok" : "Seçili gün tipi"}</div>`}
+          ${data.note ? `<div class="tt-note">${data.note}</div>` : ""}
+          <div class="tt-grid">${list.map((e, i) => `<span class="tt-time ${nextIdx >= 0 && i < nextIdx ? "past" : ""} ${i === nextIdx ? "next" : ""} ${e.estimated ? "est" : ""}">${e.time}</span>`).join("")}</div>`;
+        panel.querySelectorAll("[data-tt-day]").forEach(b => b.onclick = () => { ttState.day = b.getAttribute("data-tt-day"); renderTimetablePanel(); });
+        panel.querySelectorAll("[data-tt-dir]").forEach(b => b.onclick = () => { ttState.dir = b.getAttribute("data-tt-dir"); renderTimetablePanel(); });
+        const nx = panel.querySelector(".tt-time.next");
+        if (nx && nx.scrollIntoView) { try { nx.parentElement.scrollTop = Math.max(0, nx.offsetTop - 40); } catch (_) {} }
+      }
+
+      function setTimetableVisible(show) {
+        const wrap = el("timetable-wrapper");
+        if (wrap) wrap.style.display = show ? "block" : "none";
+        if (!show) { ttState.open = false; const p = el("timetable-panel"); if (p) p.style.display = "none"; }
+      }
+
+      async function openMetroTimetablePopup(lineCode, latlng) {
+        const color = (metroColors && metroColors[lineCode]) || "#e4e4e7";
+        const popup = L.popup({ maxWidth: 320, minWidth: 250 }).setLatLng(latlng)
+          .setContent(`<div class="popup-box"><div class="popup-header"><span style="color:${color}">🚇 ${lineCode}</span></div><div class="tt-loading">Sefer saatleri yükleniyor…</div></div>`)
+          .openOn(map);
+        try {
+          const data = await getTimetable(lineCode);
+          const day = todayDayType();
+          const dirs = Array.from(new Set((data.entries || []).map(e => e.direction))).sort();
+          const rows = dirs.map(d => {
+            const ups = upcomingDepartures(data.entries, day, d, 4);
+            const meta = (data.directions || []).find(x => x.dir === d);
+            const label = meta ? meta.name : (d === "G" ? "Gidiş" : "Dönüş");
+            return `<div class="mtt-dir"><div class="mtt-label">➔ ${label}</div><div class="mtt-times">${ups.length ? ups.map(u => `<span class="tt-time ${u.estimated ? "est" : ""}">${u.time}<small class="eta-chip" data-eta-at="${u.at}">${fmtEta(u.at - Date.now())}</small></span>`).join("") : "<span class='tt-loading'>Bugün kalan sefer yok</span>"}</div></div>`;
+          }).join("");
+          popup.setContent(`<div class="popup-box"><div class="popup-header"><span style="color:${color}">🚇 ${lineCode}</span><span class="tt-badge ${data.official ? "official" : "est"}">${data.official ? "Resmî tarife" : "Tahmini"}</span></div>${rows}</div>`);
+        } catch (e) {
+          popup.setContent(`<div class="popup-box"><div class="popup-header"><span>🚇 ${lineCode}</span></div><div class="tt-loading">Sefer saatleri alınamadı.</div></div>`);
+        }
+      }
+
+
+      (function wireTimetableToggle() {
+        const btn = document.getElementById("btn-timetable");
+        if (!btn) return;
+        btn.addEventListener("click", () => {
+          ttState.open = !ttState.open;
+          const panel = el("timetable-panel");
+          panel.style.display = ttState.open ? "block" : "none";
+          btn.classList.toggle("open", ttState.open);
+          if (ttState.open) { ttState.day = null; renderTimetablePanel(); }
+        });
+      })();
+
       // ─── INITIALIZATION ───
       async function init() {
         // Load bus lines mapping and stop database
@@ -5677,10 +6167,13 @@
         setInterval(fetchFleet, POLL_INTERVAL_MS);
 
         // 1-Second Smooth UI, Live Bus Ages & Train Tick
+        LiveEta.loadTraffic();
+        setInterval(LiveEta.loadTraffic, 20000);
         setInterval(() => {
           updateFleetAgeDisplay();
           updateLiveAges();
           tickTrains();
+          tickEtaChips();
         }, 1000);
       }
 

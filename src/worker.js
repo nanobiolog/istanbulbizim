@@ -169,6 +169,7 @@ async function refreshFleet(env) {
       });
     }
 
+    await annotateFleet(out, inMemoryBusesRaw, env);
     const m = { t: Date.now(), count: out.length };
     const raw = JSON.stringify(out);
     inMemoryBusesRaw = raw;
@@ -374,8 +375,8 @@ async function fetchRoadGeometry(stops) {
 }
 
 // Fetch line route, stops, and directions from IETT ibb.asmx (cached for 24h)
-async function fetchLineRoute(code, env) {
-  const key = "route_v4:" + code;
+async function fetchLineRoute(code, env, opts = {}) {
+  const key = (opts.fast ? "route_fast_v1:" : "route_v4:") + code;
   let cached = await env.LIVE.get(key, "json");
   if (cached && cached.directions) return cached;
 
@@ -441,7 +442,7 @@ async function fetchLineRoute(code, env) {
       let roadCoords = null;
       if (isMetrobus) {
         roadCoords = getMetrobusGeometry(stops, k);
-      } else {
+      } else if (!opts.fast) {
         try {
           roadCoords = await fetchRoadGeometry(stops);
         } catch (e) {}
@@ -672,6 +673,7 @@ async function handleLine(env, url) {
         existing.op = b.op || existing.op;
         existing.p = b.p || existing.p;
         existing.a = b.a || 0;
+        existing.h = b.h;
       } else {
         const match = matchBusDirection(b, routeData.directions);
         busMap.set(b.id, {
@@ -689,13 +691,24 @@ async function handleLine(env, url) {
           s: b.s,
           op: b.op || "İETT",
           p: b.p || "",
-          a: b.a || 0
+          a: b.a || 0,
+          h: b.h
         });
       }
     }
   }
 
   const buses = Array.from(busMap.values());
+  let trafficInfo = null;
+  if (routeData && routeData.directions && Object.keys(routeData.directions).length) {
+    try {
+      const field = await enrichLineBusesEta(buses, routeData, env);
+      if (field && field.city) trafficInfo = { level: field.city.level, median_moving_kmh: field.city.median_moving_kmh, hour_prior_kmh: field.city.hour_prior_kmh };
+    } catch (e) {
+      console.warn("ETA enrich failed:", String(e));
+    }
+  }
+  for (const b of buses) { if (typeof b.h === "number") b.bearing = b.h; }
   const meta = inMemoryMeta || (await env.LIVE.get("meta", { type: "json", cacheTtl: 30 })) || { t: Date.now() };
 
   return json({
@@ -706,6 +719,8 @@ async function handleLine(env, url) {
     count: buses.length,
     assigned_count: assignedDoors.length,
     updated_at: meta.t || Date.now(),
+    server_time: Date.now(),
+    traffic: trafficInfo,
     source: "İETT Canlı GPS + Hat Güzergahı"
   }, 200, { "cache-control": "no-cache, no-store, must-revalidate" });
 }
@@ -816,7 +831,17 @@ async function handleTimetable(env, url) {
   // 1. Check if rail line (Metro / Tram / Funicular)
   const isRail = lineCode.startsWith("M") || lineCode.startsWith("T") || lineCode.startsWith("F") || lineCode.startsWith("TF");
   if (isRail) {
-    return json(generateMetroTimetable(lineCode), 200, { "cache-control": "public, max-age=86400" });
+    try {
+      const official = await getMetroTimetable(lineCode, env);
+      return json(official, 200, { "cache-control": "public, max-age=1800, stale-while-revalidate=3600" });
+    } catch (e) {
+      console.warn(`Metro timetable ${lineCode} fallback:`, String(e));
+    }
+    const est = generateMetroTimetable(lineCode);
+    est.official = false;
+    est.entries = est.entries.map(x => Object.assign({}, x, { estimated: true }));
+    est.note = "Resmî tarife alınamadı — gösterilen saatler tahmini sıklıktır.";
+    return json(est, 200, { "cache-control": "public, max-age=300" });
   }
 
   // 2. Check KV cache for bus line timetable (TTL: 12 hours)
@@ -866,6 +891,8 @@ async function handleTimetable(env, url) {
           const result = {
             line_code: lineCode,
             is_metro: false,
+            official: true,
+            source: "İBB GetPlanlananSeferSaati_json",
             entries,
             total_departures: entries.length,
             updated_at: Date.now()
@@ -896,6 +923,7 @@ async function handleFeed(request, env) {
     const data = await request.json();
     if (!Array.isArray(data.buses)) return json({ error: "Invalid payload: buses array required" }, 400);
 
+    await annotateFleet(data.buses, inMemoryBusesRaw, env);
     const now = (typeof data.pushed_at === "number" && data.pushed_at > 0) ? data.pushed_at : Date.now();
     const m = { t: now, count: data.buses.length };
     const raw = JSON.stringify(data.buses);

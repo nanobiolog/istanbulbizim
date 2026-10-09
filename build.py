@@ -17,6 +17,17 @@ def main():
     with open(os.path.join(SRC_DIR, "worker.js"), "r", encoding="utf-8") as f:
         worker_code = f.read()
 
+    with open(os.path.join(SRC_DIR, "engine.js"), "r", encoding="utf-8") as f:
+        engine_code = f.read()
+
+    # Optional historical speed profile built from the IBB hourly traffic-density dataset
+    # (python3 tools/build_traffic_profile.py). Absent -> engine uses its seed hourly prior.
+    traffic_profile = None
+    profile_path = os.path.join(SRC_DIR, "traffic_profile.json")
+    if os.path.exists(profile_path):
+        with open(profile_path, "r", encoding="utf-8") as f:
+            traffic_profile = json.load(f)
+
     with open(os.path.join(SRC_DIR, "bus_lines_map.json"), "r", encoding="utf-8") as f:
         bus_lines_map = json.load(f)
 
@@ -56,6 +67,14 @@ function b64ToUint8Array(b64) {
     bytes[i] = bin.charCodeAt(i);
   }
   return bytes;
+}
+
+const STATIC_JSON = {};
+function staticJson(name, obj, cacheControl) {
+  if (!STATIC_JSON[name]) STATIC_JSON[name] = JSON.stringify(obj);
+  return new Response(STATIC_JSON[name], {
+    headers: Object.assign({ "content-type": "application/json; charset=utf-8", "cache-control": cacheControl }, CORS)
+  });
 }
 
 export default {
@@ -107,12 +126,31 @@ export default {
     if (path === "/lines") return handleLines(env);
     if (path === "/lines/map") return handleLinesMap(env);
     if (path === "/doors/map") return handleDoorsMap(env);
-    if (path === "/metro/stations") return json(METRO_STATIONS, 200, { "cache-control": "public, max-age=86400" });
-    if (path === "/metro/colors") return json(METRO_COLORS, 200, { "cache-control": "public, max-age=86400" });
-    if (path === "/metrobus/corridor") return json(METROBUS_CORRIDOR, 200, { "cache-control": "public, max-age=604800" });
+    if (path === "/metro/stations") return staticJson("metro_stations", METRO_STATIONS, "public, max-age=86400, stale-while-revalidate=604800");
+    if (path === "/metro/colors") return staticJson("metro_colors", METRO_COLORS, "public, max-age=86400, stale-while-revalidate=604800");
+    if (path === "/metrobus/corridor") return staticJson("metrobus_corridor", METROBUS_CORRIDOR, "public, max-age=604800, stale-while-revalidate=604800");
+    if (path === "/traffic") return handleTraffic(env);
+    if (path === "/bus/eta") return handleBusEta(env, url);
+    if (path === "/stop/arrivals") return handleStopArrivals(env, url);
+    if (path === "/diag") return handleDiag(env, url);
+    if (path === "/traffic/profile") return json(TRAFFIC_PROFILE || { v: 0, cells: {} }, 200, { "cache-control": "public, max-age=86400" });
+    if (path === "/bootstrap") {
+      const key = env.CARTO_API_KEY || env.CARTO_KEY || "";
+      const f = await getFleet(env);
+      const field = await getTrafficField(env);
+      return json({
+        server_time: Date.now(),
+        carto_key: key,
+        has_key: Boolean(key),
+        tile_proxy: url.origin + "/tile/{style}/{z}/{x}/{y}@2x.png",
+        fleet: { updated_at: f.t, count: f.list.length },
+        traffic: field.city,
+        min_poll_ms: 10000
+      }, 200, { "cache-control": "public, max-age=300, stale-while-revalidate=3600" });
+    }
     if (path === "/feed/buses") return handleFeed(request, env);
     if (path === "/feed/mapping") return handleFeedMapping(request, env);
-    if (path === "/stops") return json(BUS_STOPS, 200, { "cache-control": "public, max-age=86400" });
+    if (path === "/stops") return staticJson("bus_stops", BUS_STOPS, "public, max-age=86400, stale-while-revalidate=604800");
     if (path === "/disruptions") return handleDisruptions(env, url);
     if (path === "/timetable") return handleTimetable(env, url);
     if (path.startsWith("/tile/")) {
@@ -129,6 +167,7 @@ export default {
         const tileUrl = `https://${sub}.basemaps.cartocdn.com/rastertiles/${style}/${z}/${x}/${y}${query}`;
         try {
           const tileRes = await fetch(tileUrl, {
+            cf: { cacheTtl: 604800, cacheEverything: true },
             headers: {
               "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
               "Referer": "https://istanbulbizim.nano-carbay.workers.dev/"
@@ -171,7 +210,7 @@ export default {
       });
     }
 
-    return json({ error: "Not found", routes: ["/", "/manifest.json", "/sw.js", "/icon.svg", "/buses", "/line?code=15B", "/line/route?code=15B", "/lines", "/lines/map", "/stops", "/disruptions", "/metro/stations", "/metro/colors", "/status", "/config/carto", "/tile/voyager/{z}/{x}/{y}"] }, 404);
+    return json({ error: "Not found", routes: ["/", "/bootstrap", "/traffic", "/bus/eta?line=15B&id=A-100", "/stop/arrivals?code=100022", "/diag", "/manifest.json", "/sw.js", "/icon.svg", "/buses", "/line?code=15B", "/line/route?code=15B", "/lines", "/lines/map", "/stops", "/disruptions", "/metro/stations", "/metro/colors", "/status", "/config/carto", "/tile/voyager/{z}/{x}/{y}"] }, 404);
   },
 
   async scheduled(event, env, ctx) {
@@ -189,6 +228,9 @@ export default {
     bundle_parts = [
         worker_code.strip(),
         "\n\n",
+        engine_code.strip(),
+        "\n\n",
+        f"const TRAFFIC_PROFILE = {json.dumps(traffic_profile, ensure_ascii=False, separators=(',', ':'))};\n",
         f"const BUS_LINES_MAP = {json.dumps(bus_lines_map, ensure_ascii=False)};\n",
         f"const DOOR_LINES_MAP = {json.dumps(door_lines_map, ensure_ascii=False)};\n",
         f"const BUS_STOPS = {json.dumps(bus_stops, ensure_ascii=False)};\n",
