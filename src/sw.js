@@ -1,9 +1,9 @@
-// İstanbul Bizim — PWA Service Worker v2
+// İstanbul Bizim — PWA Service Worker v4
 // • App shell: network-first, cache fallback (offline start)
 // • Live data (/buses /line /traffic /stop/arrivals /bus/eta /feed /status /disruptions /diag): network only
 // • Slow-changing data (/stops /lines /metro/* /line/route /timetable /bootstrap …): stale-while-revalidate
 // • Map tiles (/tile/* and cartocdn): cache-first in a size-capped tile cache → no blank map on flaky data
-const VERSION = 'v2';
+const VERSION = 'v4';
 const SHELL = 'ib-shell-' + VERSION;
 const DATA = 'ib-data-' + VERSION;
 const TILES = 'ib-tiles-' + VERSION;
@@ -56,12 +56,20 @@ async function staleWhileRevalidate(request) {
 async function tileFirst(request) {
   const cache = await caches.open(TILES);
   const hit = await cache.match(request);
-  if (hit) return hit;
+  if (hit) {
+    const cl = hit.headers.get("content-length");
+    if (cl !== "103") return hit;
+    await cache.delete(request);
+  }
   try {
     const res = await fetch(request);
     if (res && (res.status === 200 || res.type === 'opaque')) {
-      cache.put(request, res.clone());
-      trim(TILES, TILE_LIMIT);
+      const cl = res.headers.get("content-length");
+      // Never cache the 103-byte "API KEY REQUIRED" watermark
+      if (cl !== "103") {
+        cache.put(request, res.clone());
+        trim(TILES, TILE_LIMIT);
+      }
     }
     return res;
   } catch (e) {

@@ -2574,9 +2574,12 @@
 
       L.control.zoom({ position: "bottomright" }).addTo(map);
 
-      // Basemap Tiles (Carto Retina Dark & Positron without requiring API key)
-      const cartoKeyParam = "__CARTO_KEY__";
-      const keySuffix = (cartoKeyParam && !cartoKeyParam.startsWith("__")) ? `?key=${cartoKeyParam}` : "";
+      // Basemap Tiles (Carto Retina Dark & Positron with dynamic key detection & proxy fallback)
+      let cartoKeyParam = "__CARTO_KEY__";
+      if (!cartoKeyParam || cartoKeyParam.startsWith("__")) {
+        cartoKeyParam = "";
+      }
+      let keySuffix = cartoKeyParam ? `?key=${cartoKeyParam}` : "";
 
       const darkTile = L.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png${keySuffix}`, {
         subdomains: "abcd",
@@ -2589,6 +2592,23 @@
         maxZoom: 19,
         attribution: '&copy; <a href="https://carto.com/">CARTO</a> | Veri: İBB Açık Veri & İETT'
       });
+
+      function applyCartoKey(key) {
+        if (!key || key === cartoKeyParam) return;
+        cartoKeyParam = key;
+        keySuffix = `?key=${key}`;
+        darkTile.setUrl(`https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png${keySuffix}`);
+        lightTile.setUrl(`https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png${keySuffix}`);
+      }
+
+      if (!cartoKeyParam) {
+        fetch("/config/carto")
+          .then(r => r.json())
+          .then(d => {
+            if (d && d.carto_key) applyCartoKey(d.carto_key);
+          })
+          .catch(() => {});
+      }
 
       let currentTheme = localStorage.getItem("theme") || "dark";
       if (currentTheme === "light") {

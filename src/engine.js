@@ -29,6 +29,32 @@ const PRIOR_P = [30, 31, 32, 33, 33, 32, 31, 29, 27, 25, 24, 23, 22, 22, 22, 22,
 
 function clampN(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
+function resolveCartoKey(env) {
+  if (!env) return "";
+  const explicit = [
+    env.CART0_API_KEY,
+    env.CARTO_API_KEY,
+    env.CART0_KEY,
+    env.CARTO_KEY,
+    env.carto_api_key,
+    env.cart0_api_key,
+    env.carto_key,
+    env.cart0_key
+  ];
+  for (const c of explicit) {
+    if (typeof c === "string" && c.trim()) return c.trim();
+  }
+  try {
+    for (const [k, v] of Object.entries(env)) {
+      const norm = k.toLowerCase().replace(/0/g, "o");
+      if (norm.includes("carto") && (norm.includes("key") || norm.includes("api"))) {
+        if (typeof v === "string" && v.trim()) return v.trim();
+      }
+    }
+  } catch (e) {}
+  return "";
+}
+
 function medianOf(arr) {
   if (!arr.length) return 0;
   const a = arr.slice().sort((x, y) => x - y);
@@ -815,8 +841,8 @@ async function handleDiag(env, url) {
   }));
 
   tests.push(timed("secrets / KV", async () => {
-    const key = env.CARTO_API_KEY || env.CARTO_KEY || "";
-    await env.LIVE.get("meta");
+    const key = resolveCartoKey(env);
+    await env.LIVE.get("meta").catch(() => null);
     return { ok: !!key, detail: `CARTO key ${key ? "present" : "MISSING"}, IBB key ${(env.IBB_API_KEY || env.IBB_SECRET) ? "present" : "absent (optional)"}` };
   }));
 
