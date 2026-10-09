@@ -66,7 +66,7 @@ class _BusStopDetailSheetState extends State<BusStopDetailSheet> {
     });
   }
 
-  /// Server arrivals when available, otherwise the straight-line local estimate (never blank).
+  /// Server arrivals when available, or route-verified local arrivals (never arbitrary radius buses).
   List<_Row> _rows() {
     final srv = _server;
     if (srv != null && srv.isNotEmpty) {
@@ -75,12 +75,17 @@ class _BusStopDetailSheetState extends State<BusStopDetailSheet> {
           .toList();
     }
     if (srv != null && srv.isEmpty && !_loading) return const [];
-    final now = DateTime.now();
-    return provider.getApproachingBusesForStop(stop).map((item) {
-      final bus = item['bus'] as BusVehicle;
-      return _Row(bus.line, bus.headsign.isNotEmpty ? bus.headsign : 'Kapı: ${bus.id}', bus.speed.round(),
-          item['dist_m'] as int, now.add(Duration(seconds: item['est_sec'] as int)), 0);
-    }).toList();
+    // Only return local rows if verified to serve this stop
+    final localApproaching = provider.getApproachingBusesForStop(stop);
+    if (localApproaching.isNotEmpty) {
+      final now = DateTime.now();
+      return localApproaching.map((item) {
+        final bus = item['bus'] as BusVehicle;
+        return _Row(bus.line, bus.headsign.isNotEmpty ? bus.headsign : 'Kapı: ${bus.id}', bus.speed.round(),
+            item['dist_m'] as int, now.add(Duration(seconds: item['est_sec'] as int)), 0);
+      }).toList();
+    }
+    return const [];
   }
 
   @override
@@ -157,6 +162,32 @@ class _BusStopDetailSheetState extends State<BusStopDetailSheet> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                      if (stop.direction.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0284C7).withValues(alpha: 0.18),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.45)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.navigation_rounded, size: 12, color: Color(0xFF38BDF8)),
+                              const SizedBox(width: 4),
+                              Text(
+                                '➔ ${stop.direction} Yönü',
+                                style: const TextStyle(
+                                  color: Color(0xFF38BDF8),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -192,7 +223,7 @@ class _BusStopDetailSheetState extends State<BusStopDetailSheet> {
                 Text(
                   _loading && _server == null
                       ? 'Yaklaşan Otobüsler hesaplanıyor…'
-                      : 'Yaklaşan Canlı Otobüsler (${approaching.length})',
+                      : 'Bu Duraktan Geçen Canlı Otobüsler (${approaching.length})',
                   style: const TextStyle(
                     color: AppTheme.textLight,
                     fontWeight: FontWeight.w700,
@@ -204,7 +235,36 @@ class _BusStopDetailSheetState extends State<BusStopDetailSheet> {
             const SizedBox(height: 10),
 
             // Approaching Buses List
-            if (approaching.isEmpty)
+            if (_loading && _server == null && approaching.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.03),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.cardBorderDark),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'Bu duraktan geçen hatlar ve varışlar hesaplanıyor…',
+                      style: TextStyle(
+                        color: AppTheme.textMutedDark,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (approaching.isEmpty)
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
@@ -217,7 +277,7 @@ class _BusStopDetailSheetState extends State<BusStopDetailSheet> {
                   ),
                 ),
                 child: const Text(
-                  'Bu durağa 4.5 km mesafede yaklaşan canlı otobüs tespit edilemedi veya araçlar ilk kalkış peronunda beklemede.',
+                  'Bu duraktan geçen hatlarda şu anda yaklaşan aktif canlı araç bulunmuyor.',
                   style: TextStyle(
                     color: AppTheme.textMutedDark,
                     fontSize: 12,

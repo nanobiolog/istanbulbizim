@@ -58,7 +58,9 @@ class MetroTrainDetailSheet extends StatelessWidget {
                     children: [
                       Flexible(
                         child: Text(
-                          '${train.lineCode} Metro Treni',
+                          train.lineCode == 'B1' || train.lineCode == 'MARMARAY'
+                              ? 'Marmaray Treni'
+                              : '${train.lineCode} Metro Treni',
                           style: const TextStyle(
                             color: AppTheme.textLight,
                             fontWeight: FontWeight.w800,
@@ -172,7 +174,9 @@ class MetroTrainDetailSheet extends StatelessWidget {
                   child: _buildDetailItem(
                     label: 'Hat',
                     valueWidget: Text(
-                      train.lineCode,
+                      train.lineCode == 'B1' || train.lineCode == 'MARMARAY'
+                          ? 'Marmaray (B1)'
+                          : train.lineCode,
                       style: TextStyle(
                         color: train.color,
                         fontWeight: FontWeight.w800,
@@ -184,11 +188,13 @@ class MetroTrainDetailSheet extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: _buildDetailItem(
-                    label: 'Sistem',
+                    label: 'İşletmeci',
                     valueWidget: Text(
-                      train.systemType,
+                      train.lineCode == 'B1' || train.lineCode == 'MARMARAY'
+                          ? 'TCDD Taşımacılık'
+                          : 'Metro İstanbul',
                       style: const TextStyle(
-                        color: AppTheme.textMutedDark,
+                        color: AppTheme.textLight,
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
                       ),
@@ -196,6 +202,19 @@ class MetroTrainDetailSheet extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 10),
+
+            _buildDetailItem(
+              label: 'Sistem',
+              valueWidget: Text(
+                train.systemType,
+                style: const TextStyle(
+                  color: AppTheme.textMutedDark,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
             ),
             const SizedBox(height: 10),
 

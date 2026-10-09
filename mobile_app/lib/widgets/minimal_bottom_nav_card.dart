@@ -908,7 +908,8 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
 
   Widget _buildTimetableExpandButton(String lineCode) {
     final isNight = widget.isNightMode;
-    final isMetro = lineCode.startsWith('M') || lineCode.startsWith('T') || lineCode.startsWith('F');
+    final isMarmaray = lineCode.toUpperCase() == 'B1' || lineCode.toUpperCase() == 'MARMARAY';
+    final isMetro = lineCode.startsWith('M') || lineCode.startsWith('T') || lineCode.startsWith('F') || isMarmaray;
 
     return GestureDetector(
       onTap: () {
@@ -943,7 +944,9 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                isMetro ? Icons.subway_rounded : Icons.schedule_rounded,
+                isMarmaray
+                    ? Icons.directions_railway_rounded
+                    : (isMetro ? Icons.subway_rounded : Icons.schedule_rounded),
                 size: 16,
                 color: _showTimetable
                     ? (isNight ? Colors.white : Colors.white)
@@ -959,7 +962,9 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
                   Row(
                     children: [
                       Text(
-                        isMetro ? 'Metro Sefer Saatleri & Aralıkları' : 'İETT Kalkış & Sefer Saatleri',
+                        isMarmaray
+                            ? 'Marmaray Sefer Saatleri & Aralıkları'
+                            : (isMetro ? 'Metro Sefer Saatleri & Aralıkları' : 'İETT Kalkış & Sefer Saatleri'),
                         style: TextStyle(
                           color: _showTimetable
                               ? (isNight ? Colors.white : Colors.white)
@@ -976,7 +981,7 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          isMetro ? 'METRO' : 'İBB PORTAL',
+                          isMarmaray ? 'TCDD' : (isMetro ? 'METRO' : 'İBB PORTAL'),
                           style: TextStyle(
                             fontSize: 9,
                             fontWeight: FontWeight.w800,
@@ -1018,6 +1023,8 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
     final isNight = widget.isNightMode;
     final timetable = widget.timetable;
     final isLoading = widget.isLoadingTimetable;
+    final isMarmaray = lineCode.toUpperCase() == 'B1' || lineCode.toUpperCase() == 'MARMARAY';
+    final isMetro = lineCode.startsWith('M') || lineCode.startsWith('T') || lineCode.startsWith('F') || isMarmaray;
 
     if (isLoading) {
       return Container(
@@ -1033,7 +1040,9 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
             ),
             const SizedBox(width: 12),
             Text(
-              'İBB Sefer Saatleri Alınıyor...',
+              isMarmaray
+                  ? 'Marmaray Sefer Saatleri Alınıyor...'
+                  : (isMetro ? 'Metro Sefer Saatleri Alınıyor...' : 'İBB Sefer Saatleri Alınıyor...'),
               style: TextStyle(
                 color: isNight ? Colors.white70 : AppTheme.textSecondary,
                 fontSize: 12.5,

@@ -127,7 +127,9 @@ export default {
     if (path === "/lines/map") return handleLinesMap(env);
     if (path === "/doors/map") return handleDoorsMap(env);
     if (path === "/metro/stations") return staticJson("metro_stations", METRO_STATIONS, "public, max-age=86400, stale-while-revalidate=604800");
+    if (path === "/marmaray/stations") return staticJson("marmaray_stations", METRO_STATIONS["B1"] || [], "public, max-age=86400, stale-while-revalidate=604800");
     if (path === "/metro/colors") return staticJson("metro_colors", METRO_COLORS, "public, max-age=86400, stale-while-revalidate=604800");
+    if (path === "/marmaray/timetable") return handleTimetable(env, new URL(request.url.replace("/marmaray/timetable", "/timetable?code=B1")));
     if (path === "/metrobus/corridor") return staticJson("metrobus_corridor", METROBUS_CORRIDOR, "public, max-age=604800, stale-while-revalidate=604800");
     if (path === "/traffic") return handleTraffic(env);
     if (path === "/bus/eta") return handleBusEta(env, url);

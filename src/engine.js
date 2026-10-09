@@ -510,18 +510,31 @@ async function handleStopArrivals(env, url) {
   // 1. candidate lines from nearby vehicles (door → assigned lines)
   const byLine = new Map();
   for (const b of fleet.list) {
-    if (Math.abs(b.lat - stop.lat) > 0.065 || Math.abs(b.lon - stop.lon) > 0.085) continue;
+    if (Math.abs(b.lat - stop.lat) > 0.08 || Math.abs(b.lon - stop.lon) > 0.10) continue;
     const lines = DOOR_LINES_MAP[b.id];
     if (!lines) continue;
     const d = haversineMeters(b.lat, b.lon, stop.lat, stop.lon);
-    for (const ln of lines.slice(0, 2)) {
+    for (const ln of lines.slice(0, 3)) {
       let e = byLine.get(ln);
       if (!e) { e = { line: ln, minD: Infinity, buses: [] }; byLine.set(ln, e); }
       e.minD = Math.min(e.minD, d);
       e.buses.push(b);
     }
   }
-  const candidates = Array.from(byLine.values()).sort((a, b) => a.minD - b.minD).slice(0, 14);
+
+  // Ensure Metrobüs lines are included for Metrobüs corridor stops (codes starting with 900)
+  if (String(stop.c).startsWith("900")) {
+    for (const mbLine of ["34G", "34AS", "34BZ", "34", "34Z", "34B", "34C"]) {
+      if (!byLine.has(mbLine)) {
+        const mbBuses = fleet.list.filter(b => (DOOR_LINES_MAP[b.id] || []).includes(mbLine));
+        if (mbBuses.length > 0) {
+          byLine.set(mbLine, { line: mbLine, minD: 0, buses: mbBuses });
+        }
+      }
+    }
+  }
+
+  const candidates = Array.from(byLine.values()).sort((a, b) => a.minD - b.minD).slice(0, 28);
 
   // 2. route per line (cached) + along-route ETA
   let skipped = 0;
@@ -537,7 +550,7 @@ async function handleStopArrivals(env, url) {
       if (!idx) continue;
       let si = idx.stops.findIndex(s => String(s.code) === code);
       if (si < 0) {
-        si = idx.stops.findIndex(s => haversineMeters(s.lat, s.lon, stop.lat, stop.lon) <= 40 && norm(s.name) === norm(stop.n));
+        si = idx.stops.findIndex(s => haversineMeters(s.lat, s.lon, stop.lat, stop.lon) <= 100 && norm(s.name) === norm(stop.n));
       }
       if (si >= 0) serving[dk] = si;
     }
@@ -574,13 +587,20 @@ async function handleStopArrivals(env, url) {
   arrivals.sort((x, y) => x.eta_sec - y.eta_sec);
 
   const body = {
-    stop: { code: stop.c, name: stop.n, district: stop.d, lat: stop.lat, lon: stop.lon },
+    stop: {
+      code: stop.c,
+      name: stop.n,
+      district: stop.d,
+      direction: stop.y || "",
+      lat: stop.lat,
+      lon: stop.lon
+    },
     server_time: Date.now(),
     updated_at: fleet.t,
     traffic: field.city ? { level: field.city.level, median_moving_kmh: field.city.median_moving_kmh } : null,
     candidate_lines: candidates.length,
     skipped_lines: skipped,
-    arrivals: arrivals.slice(0, 14)
+    arrivals: arrivals.slice(0, 16)
   };
   arrivalsCache.set(code, { at: Date.now(), snapshot: inMemoryMeta ? inMemoryMeta.t : 0, body });
   if (arrivalsCache.size > 300) arrivalsCache.clear();
@@ -684,6 +704,11 @@ function synthRailEntries(lineCode, dayTypes, dirs) {
 }
 
 async function getMetroTimetable(lineCode, env) {
+  const normCode = String(lineCode || "").toUpperCase().trim();
+  if (normCode === "B1" || normCode === "MARMARAY") {
+    return generateMetroTimetable("B1");
+  }
+
   const t = istanbulNow();
   const cacheKey = `metro_tt_v1:${lineCode}:${t.dateKey}`;
   try {

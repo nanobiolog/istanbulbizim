@@ -17,19 +17,19 @@
   <style>
     :root {
       --bg-dark: #000000;
-      --card-bg: rgba(14, 14, 17, 0.92);
+      --card-bg: rgba(12, 12, 15, 0.95);
       --card-border: rgba(255, 255, 255, 0.12);
-      --card-border-focus: rgba(255, 255, 255, 0.4);
-      --accent: #27272a;
-      --accent-hover: #3f3f46;
+      --card-border-focus: rgba(255, 255, 255, 0.5);
+      --accent: #ffffff;
+      --accent-hover: #f4f4f5;
       --accent-glow: rgba(255, 255, 255, 0.15);
-      --text: #fafafa;
+      --text: #ffffff;
       --text-muted: #a1a1aa;
       --text-dim: #71717a;
-      --success: #e4e4e7;
-      --warning: #d4d4d8;
-      --danger: #f43f5e;
-      --metrobus: #e4e4e7;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --metrobus: #ffffff;
       --panel-width: 380px;
       --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
@@ -39,6 +39,10 @@
       margin: 0;
       padding: 0;
       -webkit-tap-highlight-color: transparent;
+    }
+
+    button, input, select, textarea {
+      font-family: inherit;
     }
 
     html, body {
@@ -77,8 +81,8 @@
       transition: background 0.15s, color 0.15s;
     }
     .leaflet-bar a:hover {
-      background: rgba(30, 41, 59, 0.95) !important;
-      color: #38bdf8 !important;
+      background: #18181b !important;
+      color: #ffffff !important;
     }
 
     /* Floating Map Action Buttons (Top/Bottom Right) */
@@ -109,8 +113,8 @@
       transition: transform 0.15s, background 0.15s, border-color 0.15s;
     }
     .btn-circle:hover {
-      background: rgba(30, 41, 59, 0.95);
-      border-color: rgba(56, 189, 248, 0.4);
+      background: #18181b;
+      border-color: rgba(255, 255, 255, 0.35);
       transform: translateY(-1px);
     }
     .btn-circle:active {
@@ -393,15 +397,16 @@
       background: #ffffff;
       color: #09090b;
       border-color: #ffffff;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+      box-shadow: none !important;
     }
     .chip.metrobus-chip {
-      color: #e4e4e7;
+      color: #ffffff;
     }
     .chip.metrobus-chip.active {
       background: #ffffff;
       color: #09090b;
       border-color: #ffffff;
+      box-shadow: none !important;
     }
 
     /* Stats Grid */
@@ -536,6 +541,7 @@
     /* Direction Tabs for Filtered Line */
     .dir-tabs-wrapper {
       display: flex;
+      align-items: center;
       gap: 6px;
       margin-top: 6px;
       overflow-x: auto;
@@ -550,38 +556,50 @@
       flex: 1 0 auto;
       min-width: max-content;
       max-width: 280px;
-      padding: 6px 12px;
+      min-height: 32px;
+      padding: 0 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       border-radius: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.05);
       color: var(--text-muted);
+      font-family: inherit;
       font-size: 11px;
       font-weight: 700;
+      line-height: 1;
       cursor: pointer;
       text-align: center;
       white-space: nowrap;
       text-overflow: ellipsis;
       overflow: hidden;
+      touch-action: manipulation;
       transition: all 0.15s;
+      box-shadow: none !important;
     }
     .dir-tab:hover {
-      background: rgba(30, 41, 59, 0.9);
+      background: rgba(255, 255, 255, 0.12);
       color: #ffffff;
+      border-color: rgba(255, 255, 255, 0.25);
     }
     .dir-tab.active {
-      background: rgba(2, 132, 199, 0.35);
-      border-color: #38bdf8;
-      color: #ffffff;
+      background: #ffffff;
+      border-color: #ffffff;
+      color: #09090b;
+      box-shadow: none !important;
     }
     .dir-tab-d.active {
-      background: rgba(6, 182, 212, 0.3);
-      border-color: #06b6d4;
-      color: #22d3ee;
+      background: #ffffff;
+      border-color: #ffffff;
+      color: #09090b;
+      box-shadow: none !important;
     }
     .dir-tab-g.active {
-      background: rgba(168, 85, 247, 0.3);
-      border-color: #a855f7;
-      color: #c084fc;
+      background: #ffffff;
+      border-color: #ffffff;
+      color: #09090b;
+      box-shadow: none !important;
     }
 
     /* Bus Animated Directional Markers */
@@ -792,10 +810,10 @@
       border-radius: 4px;
     }
     .bus-card {
-      padding: 8px 12px;
+      padding: 9px 12px;
       border-radius: 10px;
-      background: rgba(30, 41, 59, 0.5);
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -803,8 +821,8 @@
       transition: background 0.15s, border-color 0.15s, transform 0.1s;
     }
     .bus-card:hover {
-      background: rgba(51, 65, 85, 0.7);
-      border-color: rgba(56, 189, 248, 0.3);
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.2);
       transform: translateX(2px);
     }
     .bus-card-left {
@@ -813,7 +831,7 @@
       gap: 8px;
     }
     .bus-id {
-      font-weight: 700;
+      font-weight: 800;
       font-size: 13px;
       color: #ffffff;
     }
@@ -824,7 +842,7 @@
     .bus-speed-badge {
       font-size: 12px;
       font-weight: 700;
-      color: #38bdf8;
+      color: #ffffff;
       display: flex;
       align-items: center;
       gap: 4px;
@@ -860,14 +878,16 @@
       bottom: calc(16px + var(--safe-bottom));
       left: 16px;
       right: 16px;
-      background: rgba(15, 23, 42, 0.96);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border: 1px solid rgba(56, 189, 248, 0.4);
-      border-radius: 18px;
-      padding: 16px;
+      max-width: 480px;
+      margin: 0 auto;
+      background: rgba(12, 12, 15, 0.96);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 22px;
+      padding: 16px 18px;
       z-index: 1200;
-      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.7);
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.06);
       animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
     @keyframes slideUp {
@@ -876,28 +896,29 @@
     }
     .inspector-header {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: space-between;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
     .inspector-title {
-      font-size: 18px;
+      font-size: 17px;
       font-weight: 800;
       color: #ffffff;
       display: flex;
       align-items: center;
       gap: 8px;
+      letter-spacing: -0.01em;
     }
     .inspector-close {
-      width: 36px;
-      height: 36px;
-      min-width: 36px;
-      min-height: 36px;
+      width: 32px;
+      height: 32px;
+      min-width: 32px;
+      min-height: 32px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.1);
-      border: 0;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.14);
       color: #fafafa;
-      font-size: 18px;
+      font-size: 15px;
       font-weight: 700;
       cursor: pointer;
       display: flex;
@@ -907,7 +928,7 @@
       transition: background 0.15s, transform 0.1s;
     }
     .inspector-close:hover, .inspector-close:active {
-      background: rgba(255, 255, 255, 0.22);
+      background: rgba(255, 255, 255, 0.18);
       transform: scale(0.96);
     }
     .inspector-grid {
@@ -918,21 +939,23 @@
       font-size: 12px;
     }
     .inspector-row {
-      background: rgba(30, 41, 59, 0.6);
-      padding: 8px 10px;
-      border-radius: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      background: rgba(255, 255, 255, 0.04);
+      padding: 9px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
     }
     .inspector-row-label {
       font-size: 10px;
-      color: var(--text-muted);
+      color: #a1a1aa;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 2px;
+      letter-spacing: 0.06em;
+      margin-bottom: 3px;
+      font-weight: 700;
     }
     .inspector-row-val {
       font-weight: 700;
       color: #ffffff;
+      font-size: 13px;
     }
     .inspector-actions {
       display: flex;
@@ -940,84 +963,92 @@
     }
     .btn-inspector-action {
       flex: 1;
-      height: 38px;
-      border-radius: 10px;
+      height: 40px;
+      border-radius: 12px;
       border: 0;
-      background: #0284c7;
-      color: #ffffff;
+      background: #ffffff;
+      color: #09090b;
       font-size: 13px;
-      font-weight: 700;
+      font-weight: 800;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 6px;
-      transition: background 0.15s;
+      transition: background 0.15s, transform 0.1s;
     }
     .btn-inspector-action:hover {
-      background: #0369a1;
+      background: #f4f4f5;
+      transform: translateY(-1px);
+    }
+    .btn-inspector-action:active {
+      transform: scale(0.98);
     }
 
     /* Popups (Desktop) */
     .leaflet-popup-content-wrapper {
-      background: rgba(15, 23, 42, 0.95) !important;
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+      background: rgba(12, 12, 16, 0.96) !important;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
       color: #f8fafc !important;
-      border: 1px solid rgba(255, 255, 255, 0.15) !important;
-      border-radius: 14px !important;
-      box-shadow: 0 16px 32px rgba(0, 0, 0, 0.6) !important;
+      border: 1px solid rgba(255, 255, 255, 0.16) !important;
+      border-radius: 18px !important;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.8) !important;
+      padding: 4px;
     }
     .leaflet-popup-tip {
-      background: rgba(15, 23, 42, 0.95) !important;
+      background: rgba(12, 12, 16, 0.96) !important;
     }
     .popup-box {
       font-size: 12px;
       line-height: 1.5;
-      padding: 4px 2px;
+      padding: 6px 4px;
     }
     .popup-header {
       font-size: 15px;
       font-weight: 800;
-      color: #38bdf8;
+      color: #ffffff;
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 6px;
-      padding-bottom: 4px;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
     .popup-badge {
-      background: #0284c7;
-      color: #fff;
+      background: #ffffff;
+      color: #09090b;
       font-size: 11px;
+      font-weight: 800;
       padding: 2px 7px;
       border-radius: 6px;
     }
     .popup-details {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 4px 8px;
+      gap: 6px 10px;
       margin-bottom: 8px;
     }
     .btn-popup-filter {
       width: 100%;
-      height: 32px;
-      border-radius: 8px;
+      height: 34px;
+      border-radius: 10px;
       border: 0;
-      background: #0284c7;
-      color: #ffffff;
+      background: #ffffff;
+      color: #09090b;
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 800;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 4px;
-      margin-top: 6px;
+      margin-top: 8px;
+      transition: background 0.15s, transform 0.1s;
     }
     .btn-popup-filter:hover {
-      background: #0369a1;
+      background: #f4f4f5;
+      transform: translateY(-1px);
     }
 
     /* GPS Locator User Pulse Marker */
@@ -1485,53 +1516,90 @@
       background: rgba(255, 255, 255, 0.15);
     }
 
-    /* BUS STOP POPUP & LIVE ARRIVAL COUNTDOWN STYLES */
+    /* BUS STOP POPUP & LIVE ARRIVAL COUNTDOWN STYLES (Modern B&W) */
     .stop-popup-card {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       min-width: 290px;
       max-width: 360px;
       padding: 0;
-      color: #0f172a;
+      color: #ffffff;
+      background: transparent;
       box-sizing: border-box;
     }
     .stop-popup-header {
-      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+      background: #09090b;
       color: #ffffff;
-      padding: 10px 14px;
-      border-radius: 8px 8px 0 0;
+      padding: 12px 14px;
+      border-radius: 14px 14px 0 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
       display: flex;
       flex-direction: column;
       gap: 3px;
     }
     .stop-popup-title {
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 800;
       letter-spacing: -0.01em;
       display: flex;
       align-items: center;
       gap: 6px;
+      color: #ffffff;
     }
     .stop-popup-subtitle {
       font-size: 11px;
-      color: rgba(255, 255, 255, 0.85);
+      color: #a1a1aa;
       display: flex;
       align-items: center;
       gap: 6px;
     }
+    .stop-direction-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 5px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(2, 132, 199, 0.18);
+      border: 1px solid rgba(2, 132, 199, 0.45);
+      color: #38bdf8;
+      font-size: 11px;
+      font-weight: 700;
+      width: fit-content;
+    }
+    .opposite-stop-btn {
+      margin-top: 6px;
+      padding: 5px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px dashed rgba(255, 255, 255, 0.22);
+      color: #cbd5e1;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: all 0.15s;
+    }
+    .opposite-stop-btn:hover {
+      background: rgba(255, 255, 255, 0.14);
+      border-color: rgba(255, 255, 255, 0.45);
+      color: #ffffff;
+    }
     .stop-popup-body {
-      padding: 10px 12px;
-      background: #ffffff;
-      border-radius: 0 0 8px 8px;
+      padding: 12px 14px;
+      background: #0e0e12;
+      border-radius: 0 0 14px 14px;
       max-height: 380px;
       overflow-y: auto;
     }
     .stop-section-title {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: #64748b;
-      margin-bottom: 6px;
+      letter-spacing: 0.06em;
+      color: #a1a1aa;
+      margin-bottom: 8px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -1546,16 +1614,16 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 7px 10px;
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
       transition: all 0.15s ease;
       cursor: pointer;
     }
     .stop-arrival-row:hover {
-      background: #f1f5f9;
-      border-color: #cbd5e1;
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.2);
       transform: translateY(-1px);
     }
     .arrival-left {
@@ -1570,8 +1638,8 @@
       justify-content: center;
       font-size: 12px;
       font-weight: 800;
-      color: #ffffff;
-      background: #0284c7;
+      color: #09090b;
+      background: #ffffff;
       padding: 3px 8px;
       border-radius: 6px;
       letter-spacing: 0.02em;
@@ -1585,7 +1653,7 @@
     .arrival-headsign {
       font-size: 12px;
       font-weight: 700;
-      color: #1e293b;
+      color: #ffffff;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -1593,7 +1661,7 @@
     }
     .arrival-details {
       font-size: 10px;
-      color: #64748b;
+      color: #a1a1aa;
       font-weight: 500;
       display: flex;
       align-items: center;
@@ -1607,29 +1675,29 @@
       display: inline-flex;
       align-items: center;
       gap: 3px;
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 800;
       padding: 3px 8px;
       border-radius: 999px;
-      background: #ecfdf5;
-      color: #059669;
-      border: 1px solid #a7f3d0;
+      background: rgba(16, 185, 129, 0.18);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.4);
       font-variant-numeric: tabular-nums;
     }
     .countdown-pill.approaching {
-      background: #fef3c7;
-      color: #b45309;
-      border-color: #fde68a;
+      background: rgba(245, 158, 11, 0.18);
+      color: #fbbf24;
+      border-color: rgba(245, 158, 11, 0.4);
       animation: pulseAlert 1.5s infinite;
     }
     .countdown-pill.here {
-      background: #fee2e2;
-      color: #b91c1c;
-      border-color: #fca5a5;
+      background: rgba(239, 68, 68, 0.18);
+      color: #f87171;
+      border-color: rgba(239, 68, 68, 0.4);
     }
     .countdown-dist {
       font-size: 10px;
-      color: #64748b;
+      color: #a1a1aa;
       margin-top: 2px;
       text-align: right;
     }
@@ -1925,7 +1993,8 @@
         padding-bottom: 4px;
       }
       .dir-tab {
-        padding: 6px 10px;
+        min-height: 32px;
+        padding: 0 10px;
         font-size: 11px;
         max-width: 250px;
       }
@@ -2268,6 +2337,7 @@
     <div class="quick-chips-wrapper">
       <button class="chip active" data-filter="all">Tüm Filo</button>
       <button class="chip metrobus-chip" data-line="34G">⚡ Metrobüs</button>
+      <button class="chip marmaray-chip" data-line="B1" style="border-color: #b4192d88; color: #fca5a5;">🚆 Marmaray</button>
       <button class="chip" data-line="500T">500T</button>
       <button class="chip" data-line="15B">15B</button>
       <button class="chip" data-line="16D">16D</button>
@@ -3432,11 +3502,11 @@
         if (window.innerWidth <= 768) {
           el("insp-title").textContent = `Araç: ${b.id} ${b.p ? `(${b.p})` : ""}`;
           el("insp-line").innerHTML = mappedLine 
-            ? `<span style="color:#38bdf8;font-weight:800;font-size:14px">${mappedLine}</span> <small style="color:#94a3b8">(${dirText})</small>` 
+            ? `<span class="line-badge" style="background:#ffffff;color:#09090b;font-weight:900;padding:2px 7px;border-radius:6px;font-size:13px">${mappedLine}</span> <small style="color:#a1a1aa">(${dirText})</small>` 
             : "Eşleşme yok";
           el("insp-speed").textContent = isWaiting ? "⏸️ Durakta Bekliyor" : speedText;
           el("insp-time").textContent = timeText;
-          el("insp-op").innerHTML = `${opText} <br><small style="color:#94a3b8">Durak: ${stopText} ${stopDistanceNote}</small>${nextStopHtml ? `<br><small style="color:#e4e4e7">Sonraki: ${nextStopHtml}</small>` : ""}`;
+          el("insp-op").innerHTML = `${opText} <br><small style="color:#a1a1aa">Durak: ${stopText} ${stopDistanceNote}</small>${nextStopHtml ? `<br><small style="color:#ffffff;font-weight:600">Sonraki: ${nextStopHtml}</small>` : ""}`;
 
           const btnFilter = el("btn-insp-filter");
           if (mappedLine) {
@@ -3465,14 +3535,14 @@
                   ${b.p ? `<span class="popup-badge">${b.p}</span>` : ""}
                 </div>
                 <div class="popup-details">
-                  <div><b>Hat:</b> ${mappedLine ? `<span style="color:#38bdf8;font-weight:700">${mappedLine}</span>` : "Yok"}</div>
-                  <div><b>Gittiği Yön:</b> <span style="color:#f59e0b;font-weight:600">${dirText}</span></div>
-                  <div><b>Yakın Durak:</b> <span>${stopText} ${stopDistanceNote}</span></div>
-                  ${nextStopHtml ? `<div style="grid-column: span 2"><b>Sonraki Durak:</b> <span>${nextStopHtml}</span></div>` : ""}
+                  <div><b>Hat:</b> ${mappedLine ? `<span style="background:#ffffff;color:#09090b;font-weight:800;padding:1px 6px;border-radius:5px;font-size:11px">${mappedLine}</span>` : "Yok"}</div>
+                  <div><b>Gittiği Yön:</b> <span style="color:#ffffff;font-weight:600">${dirText}</span></div>
+                  <div><b>Yakın Durak:</b> <span style="color:#a1a1aa">${stopText} ${stopDistanceNote}</span></div>
+                  ${nextStopHtml ? `<div style="grid-column: span 2"><b>Sonraki Durak:</b> <span style="color:#ffffff;font-weight:600">${nextStopHtml}</span></div>` : ""}
                   <div style="grid-column: span 2"><b>Durum:</b> <span id="popup-bus-status">${statusHtml}</span></div>
-                  <div><b>Hız:</b> <span id="popup-bus-speed">${speedText}</span></div>
-                  <div><b>Zaman:</b> <span id="popup-bus-time">${timeText}</span></div>
-                  <div><b>Operatör:</b> ${opText}</div>
+                  <div><b>Hız:</b> <span id="popup-bus-speed" style="font-weight:700">${speedText}</span></div>
+                  <div><b>Zaman:</b> <span id="popup-bus-time" style="color:#a1a1aa">${timeText}</span></div>
+                  <div><b>Operatör:</b> <span style="color:#a1a1aa">${opText}</span></div>
                 </div>
                 ${lineAction}
               </div>
@@ -3481,39 +3551,73 @@
         }
       }
 
+      // ─── FIND OPPOSITE DIRECTION STOP ACROSS THE STREET ───
+      function findOppositeStop(stop) {
+        if (!allBusStops || !stop) return null;
+        const stopName = (stop.n || stop.name || "").trim().toLowerCase();
+        const stopCode = String(stop.c || stop.code || "").trim();
+        const lat = stop.lat;
+        const lon = stop.lon;
+        if (!stopName || !lat || !lon) return null;
+
+        let bestMatch = null;
+        let minD = Infinity;
+
+        for (let i = 0; i < allBusStops.length; i++) {
+          const s = allBusStops[i];
+          if (String(s.c) === stopCode) continue;
+          const sName = (s.n || "").trim().toLowerCase();
+          if (sName === stopName) {
+            const d = geoDistanceMeters(lat, lon, s.lat, s.lon);
+            if (d <= 250 && d < minD) {
+              minD = d;
+              bestMatch = s;
+            }
+          }
+        }
+        return bestMatch;
+      }
+
       // ─── ACCURATE BUS STOP ARRIVAL & REAL COUNTDOWN ENGINE ───
       function calculateArrivalsForStop(stop) {
         if (!stop || !Array.isArray(fleetBuses) || fleetBuses.length === 0) return [];
+        try {
+          const arrivals = [];
+          const stopLat = stop.lat;
+          const stopLon = stop.lon;
+          const stopCode = String(stop.c || stop.code || "").trim();
+          const stopName = (stop.n || stop.name || "").trim().toLowerCase();
 
-        const arrivals = [];
-        const MAX_SEARCH_RADIUS_METERS = 5000; // Search incoming buses within 5km of stop
-        const stopLat = stop.lat;
-        const stopLon = stop.lon;
+          for (let i = 0; i < fleetBuses.length; i++) {
+            const b = fleetBuses[i];
+            const distM = geoDistanceMeters(b.lat, b.lon, stopLat, stopLon);
+            if (distM > 5000) continue;
 
-        for (let i = 0; i < fleetBuses.length; i++) {
-          const b = fleetBuses[i];
-          const distM = geoDistanceMeters(b.lat, b.lon, stopLat, stopLon);
-          if (distM > MAX_SEARCH_RADIUS_METERS) continue;
+            const lines = (b.line ? [b.line] : (doorLineMap[b.id] ? [doorLineMap[b.id]] : []));
+            if (lines.length === 0) continue;
 
-          // Determine lines mapped to this bus
-          const lines = (b.line ? [b.line] : (doorLineMap[b.id] ? [doorLineMap[b.id]] : []));
-          if (lines.length === 0) continue;
+            for (const lineCode of lines) {
+              // Check route: ONLY include if this line is confirmed to serve this stop!
+              let route = getStoredRoute(lineCode);
+              if (!route && selectedLineData && selectedLineData.code === lineCode) {
+                route = selectedLineData;
+              }
 
-          for (const lineCode of lines) {
-            // Check if this line actually stops at this stop
-            const cachedRoute = getStoredRoute(lineCode);
-            let dirMatch = null;
-            let stopIdx = -1;
-            let dirStops = [];
+              // CRITICAL: Do NOT show buses by raw proximity radius if we don't have confirmation that this line serves this stop!
+              if (!route || !route.directions) {
+                continue;
+              }
 
-            if (cachedRoute && cachedRoute.directions) {
-              for (const [dirKey, dirObj] of Object.entries(cachedRoute.directions)) {
+              let dirMatch = null;
+              let stopIdx = -1;
+              let dirStops = [];
+
+              for (const [dirKey, dirObj] of Object.entries(route.directions)) {
                 if (!dirObj.stops) continue;
                 const idx = dirObj.stops.findIndex(st => {
-                  return (stop.c && (st.code === stop.c || st.c === stop.c)) ||
-                         (st.name && stop.n && st.name.trim().toLowerCase() === stop.n.trim().toLowerCase()) ||
-                         (st.name && stop.name && st.name.trim().toLowerCase() === stop.name.trim().toLowerCase()) ||
-                         geoDistanceMeters(st.lat, st.lon, stopLat, stopLon) <= 35;
+                  return (stopCode && (String(st.code) === stopCode || String(st.c) === stopCode)) ||
+                         (st.name && stopName && st.name.trim().toLowerCase() === stopName) ||
+                         geoDistanceMeters(st.lat, st.lon, stopLat, stopLon) <= 45;
                 });
                 if (idx !== -1) {
                   dirMatch = dirObj;
@@ -3523,81 +3627,80 @@
                 }
               }
 
-              // If bus has moved past this stop index on the route, skip it
-              if (dirMatch && stopIdx > 0) {
-                // Find nearest stop to current bus position along this line
-                let minBusStopDist = Infinity;
-                let busStopIdx = -1;
-                for (let si = 0; si < dirStops.length; si++) {
-                  const s = dirStops[si];
-                  const d = (s.lat - b.lat) ** 2 + (s.lon - b.lon) ** 2;
-                  if (d < minBusStopDist) {
-                    minBusStopDist = d;
-                    busStopIdx = si;
-                  }
+              // This line does NOT stop at this bus stop! Do NOT show it!
+              if (stopIdx === -1 || !dirMatch) continue;
+
+              // Check if bus is past this stop
+              let busStopIdx = -1;
+              let minBusStopDist = Infinity;
+              for (let si = 0; si < dirStops.length; si++) {
+                const s = dirStops[si];
+                const d = (s.lat - b.lat) ** 2 + (s.lon - b.lon) ** 2;
+                if (d < minBusStopDist) {
+                  minBusStopDist = d;
+                  busStopIdx = si;
                 }
-                // If bus is past this stop, it is traveling away
-                if (busStopIdx > stopIdx) continue;
               }
+              // If bus has already passed this stop along the line, it is traveling away!
+              if (busStopIdx > stopIdx) continue;
+
+              const currentSpeedKmh = b.s || 0;
+              let effectiveSpeedKmh = 22;
+              if (currentSpeedKmh > 12) {
+                effectiveSpeedKmh = Math.max(16, currentSpeedKmh * 0.9);
+              } else if (currentSpeedKmh > 0) {
+                effectiveSpeedKmh = Math.max(10, currentSpeedKmh * 1.3);
+              } else {
+                effectiveSpeedKmh = 14;
+              }
+
+              const estimatedRouteDistM = Math.round(distM * 1.25);
+              const intermediateStopsCount = Math.max(0, stopIdx - busStopIdx);
+              const dwellDelaySec = intermediateStopsCount * 22;
+              const speedMs = (effectiveSpeedKmh * 1000) / 3600;
+              let totalEstSec = Math.round(estimatedRouteDistM / speedMs) + dwellDelaySec;
+
+              const isAtStop = distM <= 65 && currentSpeedKmh <= 6;
+              if (isAtStop) {
+                totalEstSec = 0;
+              } else {
+                totalEstSec = Math.max(15, totalEstSec);
+              }
+
+              const headsign = dirMatch.destination || dirMatch.headsign || dirMatch.name || "Şehir İçi";
+
+              arrivals.push({
+                line: lineCode,
+                bus_id: b.id,
+                plate: b.p || "",
+                speed: currentSpeedKmh,
+                dist_m: Math.round(distM),
+                stops_away: intermediateStopsCount,
+                headsign: headsign,
+                est_sec: totalEstSec,
+                target_time: Date.now() + (totalEstSec * 1000),
+                is_at_stop: isAtStop,
+                bus_data: b
+              });
             }
-
-            // Estimate speed taking into account traffic and traffic light halts
-            const currentSpeedKmh = b.s || 0;
-            let effectiveSpeedKmh = 22; // Istanbul average bus operating speed (km/h)
-            if (currentSpeedKmh > 12) {
-              effectiveSpeedKmh = Math.max(16, currentSpeedKmh * 0.9);
-            } else if (currentSpeedKmh > 0) {
-              effectiveSpeedKmh = Math.max(10, currentSpeedKmh * 1.3);
-            } else {
-              effectiveSpeedKmh = 14; // Stationary / loading passengers
-            }
-
-            // Estimate route path distance: route polyline path if available, or direct distance with urban curvature factor (1.25x)
-            const estimatedRouteDistM = Math.round(distM * 1.25);
-            // Dwell time for stops between bus and target stop (approx 20 sec per stop)
-            const intermediateStopsCount = (stopIdx !== -1 && dirStops.length > 0) ? Math.max(0, stopIdx - (busStopIdx || 0)) : Math.round(distM / 400);
-            const dwellDelaySec = intermediateStopsCount * 22;
-
-            const speedMs = (effectiveSpeedKmh * 1000) / 3600;
-            let totalEstSec = Math.round(estimatedRouteDistM / speedMs) + dwellDelaySec;
-
-            // Bus is right at the stop!
-            const isAtStop = distM <= 65 && currentSpeedKmh <= 6;
-            if (isAtStop) {
-              totalEstSec = 0;
-            } else {
-              totalEstSec = Math.max(15, totalEstSec);
-            }
-
-            const headsign = dirMatch ? (dirMatch.destination || dirMatch.headsign || dirMatch.name) : "Şehir İçi";
-
-            arrivals.push({
-              line: lineCode,
-              bus_id: b.id,
-              plate: b.p || "",
-              speed: currentSpeedKmh,
-              dist_m: Math.round(distM),
-              headsign: headsign,
-              est_sec: totalEstSec,
-              target_time: Date.now() + (totalEstSec * 1000),
-              is_at_stop: isAtStop,
-              bus_data: b
-            });
           }
-        }
 
-        // Sort by shortest arrival time, keep fastest bus per line
-        arrivals.sort((a, b) => a.est_sec - b.est_sec);
-        const seenLines = new Set();
-        const dedupedArrivals = [];
-        for (const arr of arrivals) {
-          if (!seenLines.has(arr.line)) {
-            seenLines.add(arr.line);
-            dedupedArrivals.push(arr);
+          // Sort by shortest arrival time, keep fastest bus per line
+          arrivals.sort((a, b) => a.est_sec - b.est_sec);
+          const seenLines = new Set();
+          const dedupedArrivals = [];
+          for (const arr of arrivals) {
+            if (!seenLines.has(arr.line)) {
+              seenLines.add(arr.line);
+              dedupedArrivals.push(arr);
+            }
           }
-        }
 
-        return dedupedArrivals.slice(0, 8);
+          return dedupedArrivals.slice(0, 8);
+        } catch (e) {
+          console.error("calculateArrivalsForStop error:", e);
+          return [];
+        }
       }
 
       function getDisruptionsForStop(stop, arrivals) {
@@ -3662,7 +3765,7 @@
       }
 
       function stopArrivalsHtml(arrivals, pending) {
-        if (arrivals.length > 0) {
+        if (arrivals && arrivals.length > 0) {
           return arrivals.map(arr => {
             const cd = formatCountdownText(Math.max(0, Math.round((arr.target_time - Date.now()) / 1000)));
             const distKm = (arr.dist_m / 1000).toFixed(1);
@@ -3688,123 +3791,170 @@
               </div>`;
           }).join("");
         }
-        return `<div class="tt-loading">${pending ? "Güzergâh ve trafik verisiyle hesaplanıyor…" : "Bu durağa yaklaşan canlı otobüs tespit edilemedi."}</div>`;
+        return `<div class="tt-loading">${pending ? "⏱️ Bu duraktan geçen hatlar ve canlı varış süreleri hesaplanıyor…" : "Bu duraktan geçen hatlarda şu anda yaklaşan aktif canlı araç bulunmuyor."}</div>`;
       }
 
       function openStopDetails(stop) {
-        const stopName = stop.n || stop.name || "İETT Durağı";
-        const stopCode = stop.c || stop.code || "";
-        const district = stop.d || stop.district || "";
-        const direction = stop.y || stop.yon || "";
-        const lat = stop.lat;
-        const lon = stop.lon;
+        if (!stop) return;
+        try {
+          const stopName = stop.n || stop.name || "İETT Durağı";
+          const stopCode = stop.c || stop.code || "";
+          const district = stop.d || stop.district || "";
+          const direction = stop.y || stop.yon || stop.direction || "";
+          const lat = Number(stop.lat);
+          const lon = Number(stop.lon);
 
-        const localArrivals = calculateArrivalsForStop(stop);
-        const disruptions = getDisruptionsForStop(stop, localArrivals);
+          if (!lat || !lon) return;
 
-        let disruptionsHtml = "";
-        if (disruptions.length > 0) {
-          disruptionsHtml = `
-            <div class="stop-disruptions-container">
-              <div class="stop-section-title" style="color:#dc2626">
-                <span>⚠️ İBB Arıza, Kaza & Yol Kapanmaları (${disruptions.length})</span>
-              </div>
-              ${disruptions.map(d => `
-                <div class="disruption-card ${d.category}">
-                  <div class="disruption-hdr">
-                    <span>${d.category_icon} ${d.line ? `[${d.line}] ` : ""}${d.category_title}</span>
-                    <span class="disruption-time">${d.time || ""}</span>
-                  </div>
-                  <div class="disruption-msg">${d.msg}</div>
+          const oppositeStop = findOppositeStop(stop);
+          const localArrivals = calculateArrivalsForStop(stop);
+          const disruptions = getDisruptionsForStop(stop, localArrivals);
+
+          let disruptionsHtml = "";
+          if (disruptions.length > 0) {
+            disruptionsHtml = `
+              <div class="stop-disruptions-container">
+                <div class="stop-section-title" style="color:#dc2626">
+                  <span>⚠️ İBB Arıza, Kaza & Yol Kapanmaları (${disruptions.length})</span>
                 </div>
-              `).join("")}
+                ${disruptions.map(d => `
+                  <div class="disruption-card ${d.category}">
+                    <div class="disruption-hdr">
+                      <span>${d.category_icon} ${d.line ? `[${d.line}] ` : ""}${d.category_title}</span>
+                      <span class="disruption-time">${d.time || ""}</span>
+                    </div>
+                    <div class="disruption-msg">${d.msg}</div>
+                  </div>
+                `).join("")}
+              </div>`;
+          }
+
+          let oppositeHtml = "";
+          if (oppositeStop) {
+            const oppDir = oppositeStop.y || oppositeStop.direction || "Karşı Yön";
+            oppositeHtml = `
+              <div class="opposite-stop-btn" onclick="window.inspectStopByCode('${oppositeStop.c}')" title="Karşı yöndeki durağı görüntüle">
+                <span>🔄 <b>Karşı Yön Durağı:</b> ➔ ${oppDir} Yönü</span>
+                <span style="font-size:10px;opacity:0.75">Kod: ${oppositeStop.c} ➔</span>
+              </div>`;
+          }
+
+          const buildContent = (arrivals, pending, sourceNote) => `
+            <div class="stop-popup-card">
+              <div class="stop-popup-header">
+                <div class="stop-popup-title"><span>🚏</span><span>${stopName}</span></div>
+                <div class="stop-popup-subtitle">
+                  ${stopCode ? `<span>Kod: <b>${stopCode}</b></span> • ` : ""}
+                  <span>${district || "İstanbul"}</span>
+                </div>
+                ${direction ? `<div class="stop-direction-badge"><span>➔</span><span>${direction} Yönü</span></div>` : ""}
+                ${oppositeHtml}
+              </div>
+              <div class="stop-popup-body">
+                <div class="stop-section-title">
+                  <span>Bu Duraktan Geçen Yaklaşan Otobüsler</span>
+                  <span style="font-size:10px;font-weight:600;color:#0284c7">${sourceNote}</span>
+                </div>
+                <div class="stop-arrivals-list">${stopArrivalsHtml(arrivals, pending)}</div>
+                ${disruptionsHtml}
+              </div>
             </div>`;
+
+          if (activeStopCountdownTimer) { clearInterval(activeStopCountdownTimer); activeStopCountdownTimer = null; }
+          if (window._stopRefreshTimer) { clearInterval(window._stopRefreshTimer); window._stopRefreshTimer = null; }
+
+          activeStopPopupData = { stop, arrivals: localArrivals };
+          const popup = L.popup({ autoPanPadding: [25, 25], maxWidth: 360, minWidth: 290 })
+            .setLatLng([lat, lon])
+            .setContent(buildContent(localArrivals, localArrivals.length === 0, localArrivals.length ? "Canlı Geri Sayım" : "Hesaplanıyor…"))
+            .openOn(map);
+          activeStopPopup = popup;
+          if (localArrivals.length > 0) {
+            activeStopCountdownTimer = setInterval(updateActiveStopPopupCountdowns, 1000);
+          }
+
+          if (!stopCode) return;
+          const load = async () => {
+            if (activeStopPopup !== popup || !map.hasLayer(popup)) {
+              clearInterval(window._stopRefreshTimer); window._stopRefreshTimer = null; return;
+            }
+            try {
+              const r = await fetch(`/stop/arrivals?code=${encodeURIComponent(stopCode)}`);
+              if (!r.ok) throw new Error(r.status);
+              const d = await r.json();
+              if (activeStopPopup !== popup) return;
+              const now = Date.now();
+              const arr = (d.arrivals || []).map(x => Object.assign({}, x, { est_sec: x.eta_sec, target_time: now + x.eta_sec * 1000 }));
+              activeStopPopupData = { stop, arrivals: arr };
+              popup.setContent(buildContent(arr, false, "Canlı · güzergah ve trafik"));
+              if (!activeStopCountdownTimer && arr.length > 0) {
+                activeStopCountdownTimer = setInterval(updateActiveStopPopupCountdowns, 1000);
+              }
+            } catch (e) {
+              if (activeStopPopup === popup) {
+                popup.setContent(buildContent(localArrivals, false, localArrivals.length ? "Canlı Geri Sayım" : "Aktif araç yok"));
+              }
+            }
+          };
+          load();
+          window._stopRefreshTimer = setInterval(load, 15000);
+        } catch (err) {
+          console.error("openStopDetails error:", err);
         }
-
-        const buildContent = (arrivals, pending, sourceNote) => `
-          <div class="stop-popup-card">
-            <div class="stop-popup-header">
-              <div class="stop-popup-title"><span>🚏</span><span>${stopName}</span></div>
-              <div class="stop-popup-subtitle">
-                ${stopCode ? `<span>Kod: <b>${stopCode}</b></span> • ` : ""}
-                <span>${district || "İstanbul"}</span>
-                ${direction ? `<span>(${direction} Yönü)</span>` : ""}
-              </div>
-            </div>
-            <div class="stop-popup-body">
-              <div class="stop-section-title">
-                <span>En Yakın Gelen Otobüsler</span>
-                <span style="font-size:10px;font-weight:600;color:#0284c7">${sourceNote}</span>
-              </div>
-              <div class="stop-arrivals-list">${stopArrivalsHtml(arrivals, pending)}</div>
-              ${disruptionsHtml}
-            </div>
-          </div>`;
-
-        if (activeStopCountdownTimer) { clearInterval(activeStopCountdownTimer); activeStopCountdownTimer = null; }
-        if (window._stopRefreshTimer) { clearInterval(window._stopRefreshTimer); window._stopRefreshTimer = null; }
-
-        // 1) instant: local straight-line estimate so the popup never waits on the network
-        activeStopPopupData = { stop, arrivals: localArrivals };
-        const popup = L.popup({ autoPanPadding: [25, 25], maxWidth: 360, minWidth: 290 })
-          .setLatLng([lat, lon])
-          .setContent(buildContent(localArrivals, !!stopCode, stopCode ? "Hesaplanıyor…" : "Canlı Geri Sayım"))
-          .openOn(map);
-        activeStopPopup = popup;
-        activeStopCountdownTimer = setInterval(updateActiveStopPopupCountdowns, 1000);
-
-        // 2) refine: route-aware, traffic-aware server ETA (refreshed every 15 s while open)
-        if (!stopCode) return;
-        const load = async () => {
-          if (activeStopPopup !== popup || !map.hasLayer(popup)) {
-            clearInterval(window._stopRefreshTimer); window._stopRefreshTimer = null; return;
-          }
-          try {
-            const r = await fetch(`/stop/arrivals?code=${encodeURIComponent(stopCode)}`);
-            if (!r.ok) throw new Error(r.status);
-            const d = await r.json();
-            if (activeStopPopup !== popup) return;
-            const now = Date.now();
-            const arr = (d.arrivals || []).map(x => Object.assign({}, x, { est_sec: x.eta_sec, target_time: now + x.eta_sec * 1000 }));
-            activeStopPopupData = { stop, arrivals: arr };
-            popup.setContent(buildContent(arr, false, "Canlı · rota + trafik"));
-            if (!activeStopCountdownTimer) activeStopCountdownTimer = setInterval(updateActiveStopPopupCountdowns, 1000);
-          } catch (e) {
-            if (activeStopPopup === popup && localArrivals.length) popup.setContent(buildContent(localArrivals, false, "Canlı Geri Sayım (yaklaşık)"));
-          }
-        };
-        load();
-        window._stopRefreshTimer = setInterval(load, 15000);
       }
 
-      // Render standalone citywide bus stops when zoomed in (zoom >= 14)
+      // Render citywide bus stops when zoomed in (zoom >= 13.5) with Canvas renderer
+      let stopsCanvasRenderer = null;
       function renderAllBusStops() {
         allStopsLayer.clearLayers();
         if (!chkStops || !chkStops.checked || selectedLineCode) return;
         if (!allBusStops || allBusStops.length === 0) return;
 
         const zoom = map.getZoom();
-        if (zoom < 14) return; // Keep map performant when zoomed out
+        if (zoom < 13.5) return; // Keep map clean when zoomed out
 
-        const bounds = map.getBounds().pad(0.1);
-        let renderedStopsCount = 0;
+        if (!stopsCanvasRenderer) {
+          stopsCanvasRenderer = L.canvas({ padding: 0.25 });
+        }
 
+        const bounds = map.getBounds().pad(0.08);
+        const center = map.getCenter();
+        const stopRadius = zoom >= 16 ? 5 : (zoom >= 15 ? 4 : 3);
+
+        const visibleStops = [];
         for (let i = 0; i < allBusStops.length; i++) {
           const s = allBusStops[i];
-          if (!bounds.contains([s.lat, s.lon])) continue;
+          if (bounds.contains([s.lat, s.lon])) {
+            visibleStops.push(s);
+          }
+        }
 
-          renderedStopsCount++;
-          if (renderedStopsCount > 400) break; // Limit viewport markers for 60fps
+        // In ultra-dense regions at zoom 13.5-14.5, sort from center outward so immediate stops are never omitted
+        const maxStopsToRender = zoom >= 15 ? 2000 : 900;
+        let stopsToRender = visibleStops;
+        if (visibleStops.length > maxStopsToRender) {
+          stopsToRender = visibleStops
+            .map(s => ({ s, d: (s.lat - center.lat) ** 2 + (s.lon - center.lng) ** 2 }))
+            .sort((a, b) => a.d - b.d)
+            .slice(0, maxStopsToRender)
+            .map(x => x.s);
+        }
 
+        for (let i = 0; i < stopsToRender.length; i++) {
+          const s = stopsToRender[i];
           const stopMarker = L.circleMarker([s.lat, s.lon], {
-            radius: zoom >= 16 ? 5 : 3.5,
+            renderer: stopsCanvasRenderer,
+            radius: stopRadius,
             weight: 1.5,
             color: "#0284c7",
             fillColor: "#ffffff",
             fillOpacity: 0.95
           });
 
-          stopMarker.bindTooltip(`<b>🚏 ${s.n}</b>${s.d ? `<br><small style="color:#64748b">${s.d}</small>` : ""}`, {
+          const dirText = s.y ? `<br><span style="color:#0284c7;font-weight:700">➔ ${s.y} Yönü</span>` : "";
+          const distText = s.d ? `<br><small style="color:#64748b">${s.d} • Kod: ${s.c}</small>` : `<br><small style="color:#64748b">Kod: ${s.c}</small>`;
+
+          stopMarker.bindTooltip(`<b>🚏 ${s.n}</b>${dirText}${distText}`, {
             direction: "top",
             offset: [0, -4]
           });
@@ -3821,6 +3971,15 @@
       window.filterLine = function(code) {
         map.closePopup();
         searchLine(code);
+      };
+
+      window.inspectStopByCode = function(code) {
+        if (!allBusStops || !code) return;
+        const target = allBusStops.find(s => String(s.c) === String(code));
+        if (target) {
+          map.setView([target.lat, target.lon], Math.max(map.getZoom(), 16));
+          openStopDetails(target);
+        }
       };
 
 
@@ -3908,14 +4067,16 @@
               waitNotice = `<div style="margin-top:5px;padding:3px 7px;background:#fef3c7;border:1px solid #f59e0b;border-radius:5px;color:#78350f;font-size:11px;font-weight:600;line-height:1.4"><b>⏸️ Durakta Bekleyen Araç:</b> ${waitingBus.id} ${waitingBus.p ? `(${waitingBus.p})` : ""}</div>`;
             }
 
+            const stopDir = s.y || s.direction || dir.destination || "";
+            const dirLabel = stopDir ? `<br><span style="color:${color};font-weight:700">➔ ${stopDir} Yönü</span>` : "";
             const label = isTerminal
-              ? `<b>🚩 ${idx === 0 ? "Başlangıç Durağı" : "Son Durak"}</b><br>${s.name}${waitNotice}`
-              : `<b>🚏 ${s.seq || (idx + 1)}. ${s.name}</b>${s.district ? `<br><small style="color:#94a3b8">${s.district}</small>` : ""}${waitNotice}`;
+              ? `<b>🚩 ${idx === 0 ? "Başlangıç Durağı" : "Son Durak"}</b><br>${s.name}${dirLabel}${waitNotice}`
+              : `<b>🚏 ${s.seq || (idx + 1)}. ${s.name}</b>${dirLabel}${s.district ? `<br><small style="color:#94a3b8">${s.district}</small>` : ""}${waitNotice}`;
 
             stopDot.bindTooltip(label, { direction: "top", offset: [0, -4] });
             stopDot.on("click", (e) => {
               L.DomEvent.stopPropagation(e);
-              openStopDetails(s);
+              openStopDetails(Object.assign({}, s, { y: stopDir, c: s.code || s.c || "" }));
             });
             routeLayer.addLayer(stopDot);
           });
@@ -3927,7 +4088,7 @@
         return allCoords;
       }
 
-      // ─── RENDER ALL BUSES (FULL FLEET) ───
+      // ─── RENDER BUSES (SMART VIEWPORT CULLING & ZOOM GATING) ───
       function renderBuses() {
         if (!chkBuses.checked || selectedLineCode) {
           for (const [id, item] of busAnimMap.entries()) {
@@ -3937,16 +4098,43 @@
           return;
         }
 
+        const zoom = map.getZoom();
         const showStale = chkStale.checked;
         const currentIds = new Set();
-        let renderedCount = 0;
         const now = performance.now();
 
+        // Prevent showing all 4,500+ buses at once.
+        // Viewport bounds culling and zoom-based density limit:
+        const bounds = map.getBounds().pad(0.08);
+        const center = map.getCenter();
+        const maxBuses = zoom >= 14 ? 140 : (zoom >= 13 ? 90 : (zoom >= 11.5 ? 45 : 20));
+
+        const candidates = [];
         for (let i = 0; i < fleetBuses.length; i++) {
           const b = fleetBuses[i];
           const age = getBusAgeSec(b.t, b.a);
           if (!showStale && age > 600) continue;
 
+          // If zoomed in (zoom >= 11.5), only consider buses inside map viewport
+          if (zoom >= 11.5) {
+            if (!bounds.contains([b.lat, b.lon])) continue;
+          } else {
+            // If zoomed out, only show key rapid transit buses (e.g. 34 Metrobüs corridor, 500T, E-10)
+            const line = b.line || doorLineMap[b.id] || "";
+            if (!line.startsWith("34") && line !== "500T" && line !== "E-10") continue;
+          }
+
+          const dist = geoDistanceMeters(center.lat, center.lng, b.lat, b.lon);
+          candidates.push({ bus: b, dist });
+        }
+
+        // Sort by distance to map center so the most relevant local buses are rendered
+        candidates.sort((a, b) => a.dist - b.dist);
+        const visibleList = candidates.slice(0, maxBuses).map(c => c.bus);
+
+        let renderedCount = 0;
+        for (let i = 0; i < visibleList.length; i++) {
+          const b = visibleList[i];
           currentIds.add(b.id);
           renderedCount++;
           const col = getBusColor(b.s);
@@ -3954,11 +4142,11 @@
           let item = busAnimMap.get(b.id);
           if (!item) {
             const marker = L.circleMarker([b.lat, b.lon], {
-              radius: 4,
-              weight: 1,
+              radius: 4.5,
+              weight: 1.5,
               color: "#ffffff",
               fillColor: col,
-              fillOpacity: 0.85
+              fillOpacity: 0.95
             });
 
             marker.on("click", (e) => {
@@ -4016,7 +4204,7 @@
           }
         }
 
-        // Cleanup stale markers
+        // Cleanup stale / out-of-viewport markers
         for (const [id, item] of busAnimMap.entries()) {
           if (!currentIds.has(id)) {
             if (item.marker) busesLayer.removeLayer(item.marker);
@@ -4024,9 +4212,9 @@
           }
         }
 
-        statBuses.innerHTML = `${renderedCount.toLocaleString("tr-TR")} <small>araç</small>`;
-        if (modalStatBuses) modalStatBuses.textContent = renderedCount.toLocaleString("tr-TR");
-        if (mobileFleetText) mobileFleetText.textContent = `${renderedCount.toLocaleString("tr-TR")} İETT • ${activeTrains.length} Tren Canlı`;
+        statBuses.innerHTML = `${fleetBuses.length.toLocaleString("tr-TR")} <small>araç</small>`;
+        if (modalStatBuses) modalStatBuses.textContent = fleetBuses.length.toLocaleString("tr-TR");
+        if (mobileFleetText) mobileFleetText.textContent = `${fleetBuses.length.toLocaleString("tr-TR")} İETT • ${activeTrains.length} Tren Canlı`;
         startAnimationLoop();
       }
 
@@ -4694,6 +4882,9 @@
           ]);
           metroNetwork = await stnsRes.json();
           metroColors = await colorsRes.json();
+          if (allLineCodes && allLineCodes.length > 0) {
+            allLineCodes = Array.from(new Set([...allLineCodes, "B1", "MARMARAY", ...Object.keys(metroNetwork)])).sort();
+          }
           renderMetroLines();
           initTrainSimulation();
         } catch (e) {
@@ -4713,24 +4904,30 @@
           // Track polyline
           const linePoly = L.polyline(latlngs, {
             color: color,
-            weight: 3.5,
+            weight: (lineCode === "B1" || lineCode === "MARMARAY") ? 4.0 : 3.5,
             opacity: 0.9,
             lineJoin: "round"
           });
-          linePoly.bindTooltip(`<b>${lineCode} Hattı</b>`, { sticky: true });
+          const lineTitle = (lineCode === "B1" || lineCode === "MARMARAY") ? "Marmaray (Halkalı - Gebze Banliyö)" : `${lineCode} Hattı`;
+          linePoly.bindTooltip(`<b>${lineTitle}</b>`, { sticky: true });
           linePoly.on("click", (e) => openMetroTimetablePopup(lineCode, e.latlng));
           metroRailLayer.addLayer(linePoly);
 
           // Station points
           stations.forEach(stn => {
             const stnDot = L.circleMarker([stn.lat, stn.lon], {
-              radius: 3,
+              radius: (lineCode === "B1" || lineCode === "MARMARAY") ? 3.5 : 3.0,
               weight: 1.5,
               color: "#ffffff",
               fillColor: color,
               fillOpacity: 1
             });
-            stnDot.bindTooltip(`<b>${lineCode}</b> - ${stn.name}`, { direction: "top", offset: [0, -3] });
+            const stnLabel = (lineCode === "B1" || lineCode === "MARMARAY") ? "Marmaray" : lineCode;
+            stnDot.bindTooltip(`<b>${stnLabel}</b> - ${stn.name}`, { direction: "top", offset: [0, -3] });
+            stnDot.on("click", (e) => {
+              L.DomEvent.stopPropagation(e);
+              openMetroTimetablePopup(lineCode, e.latlng);
+            });
             metroRailLayer.addLayer(stnDot);
           });
         }
@@ -4739,6 +4936,20 @@
       // ─── METRO LIVE TRAIN KINEMATICS & ESTIMATED STOP TIME ENGINE ───
       function getLineKinematics(lineCode) {
         const code = String(lineCode || "").toUpperCase().trim();
+
+        // 0. Marmaray Banliyö Treni (TCDD E32000 EMU)
+        if (code === "B1" || code === "MARMARAY") {
+          return {
+            systemType: "Marmaray Banliyö Treni (TCDD)",
+            accRate: 0.95, // 0,9 - 1,0 m/s²
+            decRate: 1.05, // 1,0 - 1,1 m/s²
+            accRangeMin: 0.90,
+            accRangeMax: 1.00,
+            decRangeMin: 1.00,
+            decRangeMax: 1.10,
+            specText: "Marmaray TCDD EMU (Hızlanma: 0,9-1,0 • Fren: 1,0-1,1 m/s²)"
+          };
+        }
 
         // 1. Sürücüsüz Metrolar (M5 Üsküdar-Çekmeköy, M8 Bostancı-Dudullu)
         if (code === "M5" || code === "M8") {
@@ -4863,12 +5074,13 @@
       function createTrainMarkerHtml(t) {
         const p = getTrainDisplayProps(t);
         const shortStn = (t.targetStnName || "").replace(/\s*-\s*/g, " ").slice(0, 10);
+        const lineLabel = t.line === "B1" ? "MARMARAY" : t.line;
         return `
           <div class="metro-train-marker" data-train-id="${t.id}">
             <div class="train-beacon-pulse ${p.accClass}"></div>
             <div class="train-pill-body" style="background:${t.color}; box-shadow: 0 0 10px ${t.color}88">
               <span class="train-marker-icon">🚆</span>
-              <span class="train-marker-line">${t.line}</span>
+              <span class="train-marker-line">${lineLabel}</span>
               <span class="train-marker-arrow ${p.accClass}">${p.arrowIcon}</span>
             </div>
             <div class="train-floating-tag">
@@ -4943,10 +5155,11 @@
 
       function getTrainTooltipHtml(t) {
         const p = getTrainDisplayProps(t);
+        const displayLine = t.line === "B1" ? "MARMARAY" : t.line;
         return `
           <div style="font-size:11px;line-height:1.4">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
-              <span style="background:${t.color};color:#fff;padding:1px 5px;border-radius:4px;font-weight:800">${t.line}</span>
+              <span style="background:${t.color};color:#fff;padding:1px 5px;border-radius:4px;font-weight:800">${displayLine}</span>
               <b style="color:#fff">${t.id}</b>
               <span class="tag-acc ${p.accClass}" style="margin-left:auto;font-weight:700">${p.statusIcon} ${p.statusTitle}</span>
             </div>
@@ -4958,10 +5171,13 @@
       }
 
       function getTrainPopupHtml(t, p) {
+        const isMarmaray = t.line === "B1" || t.line === "MARMARAY";
+        const trainTitle = isMarmaray ? "Marmaray Banliyö Treni" : `${t.line} Metro Treni`;
+        const operatorName = isMarmaray ? "TCDD Taşımacılık" : "Metro İstanbul";
         return `
           <div class="popup-box metro-train-popup">
             <div class="popup-header" style="color:${t.color}">
-              <span>🚆 ${t.line} Metro Treni</span>
+              <span>🚆 ${trainTitle}</span>
               <span class="popup-badge" style="background:${t.color}">${t.id}</span>
             </div>
             <div id="mt-pop-banner" class="metro-popup-status-banner ${p.accClass}">
@@ -4972,7 +5188,8 @@
               <span id="mt-pop-acc-badge" class="status-acc-badge ${p.accClass}">${p.accDisplay}</span>
             </div>
             <div class="popup-details">
-              <div><b>Hat:</b> <span style="color:${t.color};font-weight:700">${t.line}</span></div>
+              <div><b>Hat:</b> <span style="color:${t.color};font-weight:700">${isMarmaray ? "Marmaray (B1)" : t.line}</span></div>
+              <div><b>İşletmeci:</b> <span style="color:#cbd5e1;font-size:11px">${operatorName}</span></div>
               <div><b>Sistem:</b> <span style="color:#cbd5e1;font-size:11px">${t.systemType || "Metro"}</span></div>
               <div><b>Anlık Hız:</b> <span id="mt-pop-speed" style="font-weight:700">${Math.round(t.currentSpeed)} km/s</span></div>
               <div><b>İvme / Fren:</b> <span id="mt-pop-acc" class="tag-acc ${p.accClass}">${p.accDisplay}</span></div>
@@ -5063,23 +5280,27 @@
 
       function updateInspectedTrainMobile(t, p) {
         if (!mobileInspector || mobileInspector.style.display === "none") return;
+        const operatorName = (t.line === "B1" || t.line === "MARMARAY") ? "TCDD Taşımacılık" : "Metro İstanbul";
         el("insp-speed").textContent = `${Math.round(t.currentSpeed)} km/s • ${p.accDisplay}`;
         el("insp-time").textContent = `Sonraki: ${t.targetStnName} (${p.etaFull} - ${p.arrivalClock})`;
-        el("insp-op").innerHTML = `Metro İstanbul • <span class="tag-acc ${p.accClass}">${p.statusTitle}</span>`;
+        el("insp-op").innerHTML = `${operatorName} • <span class="tag-acc ${p.accClass}">${p.statusTitle}</span>`;
       }
 
       function inspectTrain(t) {
         activeInspectedTrain = t;
         activeInspectedBus = null;
         const p = getTrainDisplayProps(t);
+        const isMarmaray = t.line === "B1" || t.line === "MARMARAY";
+        const operatorName = isMarmaray ? "TCDD Taşımacılık" : "Metro İstanbul";
+        const lineDisplayName = isMarmaray ? "Marmaray (B1)" : `${t.line} Metro`;
 
         if (window.innerWidth <= 768) {
           el("insp-icon").textContent = "🚆";
-          el("insp-title").textContent = `${t.line} Treni (${t.id})`;
-          el("insp-line").innerHTML = `<span style="color:${t.color};font-weight:800">${t.line} Metro</span> <small style="color:#94a3b8">(${t.dir === 1 ? 'İleri Yön' : 'Dönüş Yönü'})</small>`;
+          el("insp-title").textContent = `${isMarmaray ? "Marmaray" : t.line} Treni (${t.id})`;
+          el("insp-line").innerHTML = `<span style="color:${t.color};font-weight:800">${lineDisplayName}</span> <small style="color:#94a3b8">(${t.dir === 1 ? 'İleri Yön' : 'Dönüş Yönü'})</small>`;
           el("insp-speed").textContent = `${Math.round(t.currentSpeed)} km/s • ${p.accDisplay}`;
           el("insp-time").textContent = `Sonraki: ${t.targetStnName} (Tahmini: ${p.etaFull})`;
-          el("insp-op").innerHTML = `Metro İstanbul • <span class="tag-acc ${p.accClass}">${p.statusTitle}</span>`;
+          el("insp-op").innerHTML = `${operatorName} • <span class="tag-acc ${p.accClass}">${p.statusTitle}</span>`;
           el("btn-insp-filter").style.display = "none";
           mobileInspector.style.display = "block";
         } else {
@@ -5221,17 +5442,20 @@
           const stations = metroNetwork[lineCode];
           if (!stations || stations.length < 2) return;
 
+          const isMarmaray = lineCode === "B1" || lineCode === "MARMARAY";
           const kin = getLineKinematics(lineCode);
-          const trainCount = Math.max(2, Math.min(5, Math.floor(stations.length / 4)));
+          const trainCount = isMarmaray ? 10 : Math.max(2, Math.min(5, Math.floor(stations.length / 4)));
           for (let i = 0; i < trainCount; i++) {
             const dir = i % 2 === 0 ? 1 : -1;
             const initialSegment = Math.floor((stations.length - 1) * (i / trainCount));
 
-            const maxSpd = lineCode.startsWith("T")
-              ? (48 + Math.floor(Math.random() * 8))
-              : (lineCode.startsWith("F") || lineCode.startsWith("TF"))
-                ? (32 + Math.floor(Math.random() * 6))
-                : (72 + Math.floor(Math.random() * 10));
+            const maxSpd = isMarmaray
+              ? (82 + Math.floor(Math.random() * 8))
+              : lineCode.startsWith("T")
+                ? (48 + Math.floor(Math.random() * 8))
+                : (lineCode.startsWith("F") || lineCode.startsWith("TF"))
+                  ? (32 + Math.floor(Math.random() * 6))
+                  : (72 + Math.floor(Math.random() * 10));
 
             const sFrom = dir === 1 ? stations[initialSegment] : stations[initialSegment + 1];
             const sTo   = dir === 1 ? stations[initialSegment + 1] : stations[initialSegment];
@@ -5338,7 +5562,11 @@
           return;
         }
 
-        const matches = allLineCodes.filter(c => c.startsWith(query) || c.includes(query)).slice(0, 8);
+        let matches = allLineCodes.filter(c => c.startsWith(query) || c.includes(query));
+        if (query.includes("MARM") || query === "B1") {
+          matches = Array.from(new Set(["B1", "MARMARAY", ...matches]));
+        }
+        matches = matches.slice(0, 8);
         if (matches.length === 0) {
           searchSuggestions.style.display = "none";
           return;
@@ -5346,10 +5574,18 @@
 
         searchSuggestions.innerHTML = matches.map(c => {
           const doorCount = busLinesMap[c] ? busLinesMap[c].length : 0;
+          let desc = doorCount > 0 ? `${doorCount} kayıtlı araç` : "Hat";
+          if (c === "B1" || c === "MARMARAY") {
+            desc = "Marmaray: Halkalı - Gebze Banliyö (TCDD)";
+          } else if (c.startsWith("M")) {
+            desc = `${c} Metro Hattı`;
+          } else if (c.startsWith("T")) {
+            desc = `${c} Tramvay Hattı`;
+          }
           return `
             <div class="suggest-item" data-code="${c}">
               <span class="suggest-code">${c}</span>
-              <span class="suggest-desc">${doorCount > 0 ? `${doorCount} kayıtlı araç` : "Hat"}</span>
+              <span class="suggest-desc">${desc}</span>
             </div>
           `;
         }).join("");
@@ -5509,10 +5745,18 @@
       syncCheckboxes(chkStale, chkStaleModal, renderBuses);
       syncCheckboxes(chkStops, chkStopsModal, renderAllBusStops);
 
-      // Re-render visible stops on map panning or zoom
+      // Re-render visible buses & stops on map panning or zoom
       map.on("moveend", () => {
+        if (!selectedLineCode && chkBuses && chkBuses.checked) {
+          renderBuses();
+        }
         if (!selectedLineCode && chkStops && chkStops.checked) {
           renderAllBusStops();
+        }
+      });
+      map.on("zoomend", () => {
+        if (!selectedLineCode && chkBuses && chkBuses.checked) {
+          renderBuses();
         }
       });
 
@@ -6118,9 +6362,12 @@
       }
 
       async function openMetroTimetablePopup(lineCode, latlng) {
-        const color = (metroColors && metroColors[lineCode]) || "#e4e4e7";
+        const isMarmaray = lineCode === "B1" || lineCode === "MARMARAY";
+        const color = (metroColors && metroColors[lineCode]) || (isMarmaray ? "#B4192D" : "#e4e4e7");
+        const titleIcon = isMarmaray ? "🚆" : "🚇";
+        const titleName = isMarmaray ? "Marmaray (B1)" : lineCode;
         const popup = L.popup({ maxWidth: 320, minWidth: 250 }).setLatLng(latlng)
-          .setContent(`<div class="popup-box"><div class="popup-header"><span style="color:${color}">🚇 ${lineCode}</span></div><div class="tt-loading">Sefer saatleri yükleniyor…</div></div>`)
+          .setContent(`<div class="popup-box"><div class="popup-header"><span style="color:${color}">${titleIcon} ${titleName}</span></div><div class="tt-loading">Sefer saatleri yükleniyor…</div></div>`)
           .openOn(map);
         try {
           const data = await getTimetable(lineCode);
@@ -6129,12 +6376,14 @@
           const rows = dirs.map(d => {
             const ups = upcomingDepartures(data.entries, day, d, 4);
             const meta = (data.directions || []).find(x => x.dir === d);
-            const label = meta ? meta.name : (d === "G" ? "Gidiş" : "Dönüş");
+            const defaultLabel = isMarmaray ? (d === "G" ? "Gebze Yönü" : "Halkalı Yönü") : (d === "G" ? "Gidiş" : "Dönüş");
+            const label = meta ? meta.name : defaultLabel;
             return `<div class="mtt-dir"><div class="mtt-label">➔ ${label}</div><div class="mtt-times">${ups.length ? ups.map(u => `<span class="tt-time ${u.estimated ? "est" : ""}">${u.time}<small class="eta-chip" data-eta-at="${u.at}">${fmtEta(u.at - Date.now())}</small></span>`).join("") : "<span class='tt-loading'>Bugün kalan sefer yok</span>"}</div></div>`;
           }).join("");
-          popup.setContent(`<div class="popup-box"><div class="popup-header"><span style="color:${color}">🚇 ${lineCode}</span><span class="tt-badge ${data.official ? "official" : "est"}">${data.official ? "Resmî tarife" : "Tahmini"}</span></div>${rows}</div>`);
+          const badgeText = data.official ? (isMarmaray ? "TCDD Resmî" : "Resmî tarife") : "Tahmini";
+          popup.setContent(`<div class="popup-box"><div class="popup-header"><span style="color:${color}">${titleIcon} ${titleName}</span><span class="tt-badge ${data.official ? "official" : "est"}">${badgeText}</span></div>${rows}</div>`);
         } catch (e) {
-          popup.setContent(`<div class="popup-box"><div class="popup-header"><span>🚇 ${lineCode}</span></div><div class="tt-loading">Sefer saatleri alınamadı.</div></div>`);
+          popup.setContent(`<div class="popup-box"><div class="popup-header"><span>${titleIcon} ${titleName}</span></div><div class="tt-loading">Sefer saatleri alınamadı.</div></div>`);
         }
       }
 

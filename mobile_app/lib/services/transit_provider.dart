@@ -153,6 +153,9 @@ class TransitProvider extends ChangeNotifier {
     if (_metroLineColors.containsKey(code)) {
       return _metroLineColors[code]!;
     }
+    if (code == 'B1' || code == 'MARMARAY') {
+      return const Color(0xFFB4192D);
+    }
     if (code.startsWith('34')) {
       return const Color(0xFFE11D48); // Metrobüs vibrant rose
     }
@@ -182,8 +185,8 @@ class TransitProvider extends ChangeNotifier {
   List<BusVehicle> get visibleBuses {
     if (!_showBuses) return const [];
 
-    // Recompute if filter parameters changed significantly
-    final center = _userLocation ?? _cameraCenter;
+    // Recompute if filter parameters changed significantly (focus on map viewport center)
+    final center = _cameraCenter;
     final distMoved = _distanceMeters(_lastFilterCenter.latitude, _lastFilterCenter.longitude, center.latitude, center.longitude);
     final zoomDiff = (_lastFilterZoom - _currentZoom).abs();
 
@@ -235,41 +238,62 @@ class TransitProvider extends ChangeNotifier {
   /// Viewport filtered bus stops using spatial grid indexing for peak 60 FPS performance
   List<BusStop> get visibleBusStops {
     if (!_showBusStops || _busStops.isEmpty) return const [];
-    if (_currentZoom < 14.5) return const []; // Do not clutter when zoomed out
+    if (_currentZoom < 13.5) return const []; // Match map_screen zoom threshold
 
     final center = _cameraCenter;
-    const double radiusMeters = 2500; // 2.5 km around viewport center
+    final double radiusMeters = _currentZoom >= 15.5 ? 2000 : (_currentZoom >= 14.5 ? 3200 : 4500);
+    final int maxStops = _currentZoom >= 15.0 ? 500 : 350;
 
-    // Fast lookup using spatial grid cells instead of iterating over 14,000 stops
     final grid = _apiService.busStopsGrid;
     final stopsList = <BusStop>[];
+    final addedCodes = <String>{};
+
+    // Always include selected stop so it never disappears on zoom or map movement
+    if (_selectedStop != null) {
+      stopsList.add(_selectedStop!);
+      addedCodes.add(_selectedStop!.code);
+    }
 
     if (grid.isNotEmpty) {
       final centerLatCell = (center.latitude * 50).floor();
       final centerLonCell = (center.longitude * 50).floor();
 
-      // Check 3x3 surrounding cells (~4.4km area)
-      for (int dy = -1; dy <= 1; dy++) {
-        for (int dx = -1; dx <= 1; dx++) {
-          final cellKey = ((centerLatCell + dy) << 16) ^ ((centerLonCell + dx) & 0xFFFF);
-          final inCell = grid[cellKey];
-          if (inCell != null) {
-            for (final s in inCell) {
+      // Center-outward order: center cell (0,0) first, then surrounding rings
+      const offsets = [
+        [0, 0],
+        [0, 1], [1, 0], [0, -1], [-1, 0],
+        [1, 1], [1, -1], [-1, 1], [-1, -1],
+        [0, 2], [2, 0], [0, -2], [-2, 0],
+        [1, 2], [2, 1], [-1, 2], [2, -1],
+        [1, -2], [-2, 1], [-1, -2], [-2, -1],
+      ];
+
+      for (final off in offsets) {
+        final dy = off[0];
+        final dx = off[1];
+        final cellKey = ((centerLatCell + dy) << 16) ^ ((centerLonCell + dx) & 0xFFFF);
+        final inCell = grid[cellKey];
+        if (inCell != null) {
+          for (final s in inCell) {
+            if (!addedCodes.contains(s.code)) {
               if (_distanceMeters(center.latitude, center.longitude, s.lat, s.lon) <= radiusMeters) {
                 stopsList.add(s);
-                if (stopsList.length >= 100) break;
+                addedCodes.add(s.code);
+                if (stopsList.length >= maxStops) break;
               }
             }
           }
-          if (stopsList.length >= 100) break;
         }
-        if (stopsList.length >= 100) break;
+        if (stopsList.length >= maxStops) break;
       }
     } else {
       for (final s in _busStops) {
-        if (_distanceMeters(center.latitude, center.longitude, s.lat, s.lon) <= radiusMeters) {
-          stopsList.add(s);
-          if (stopsList.length >= 100) break;
+        if (!addedCodes.contains(s.code)) {
+          if (_distanceMeters(center.latitude, center.longitude, s.lat, s.lon) <= radiusMeters) {
+            stopsList.add(s);
+            addedCodes.add(s.code);
+            if (stopsList.length >= maxStops) break;
+          }
         }
       }
     }
@@ -277,19 +301,25 @@ class TransitProvider extends ChangeNotifier {
     return stopsList;
   }
 
-  /// Calculate live approaching buses for an inspected bus stop
+  /// Calculate live approaching buses for an inspected bus stop (ONLY for lines verified to serve this stop)
   List<Map<String, dynamic>> getApproachingBusesForStop(BusStop stop) {
     final result = <Map<String, dynamic>>[];
-    for (final bus in _buses) {
-      final dist = _distanceMeters(bus.lat, bus.lon, stop.lat, stop.lon);
-      if (dist <= 4500) { // within 4.5 km
-        final speedMs = bus.speed > 5 ? (bus.speed / 3.6) : 6.0;
-        final estSec = math.max(30, (dist / speedMs).round());
-        result.add({
-          'bus': bus,
-          'dist_m': dist.round(),
-          'est_sec': estSec,
-        });
+    final lineRoute = _selectedLineRoute;
+    if (lineRoute != null) {
+      // Line is selected: only show buses from this line that haven't passed the stop yet
+      for (final bus in _buses) {
+        if (bus.line == lineRoute.code) {
+          final dist = _distanceMeters(bus.lat, bus.lon, stop.lat, stop.lon);
+          if (dist <= 6000) {
+            final speedMs = bus.speed > 5 ? (bus.speed / 3.6) : 6.0;
+            final estSec = math.max(20, (dist / speedMs).round());
+            result.add({
+              'bus': bus,
+              'dist_m': dist.round(),
+              'est_sec': estSec,
+            });
+          }
+        }
       }
     }
     result.sort((a, b) => (a['dist_m'] as int).compareTo(b['dist_m'] as int));
@@ -299,6 +329,8 @@ class TransitProvider extends ChangeNotifier {
   List<LineInfo> get allLines => _apiService.allLines;
 
   List<String> get popularLines => [
+        'B1',
+        'MARMARAY',
         '500T',
         '14BK',
         '15B',
@@ -806,16 +838,23 @@ class TransitProvider extends ChangeNotifier {
 
     _metroStations.forEach((lineCode, stations) {
       if (stations.length < 2) return;
-      final trainCount = math.max(2, math.min(5, (stations.length / 4).floor()));
+      final isMarmaray = lineCode == 'B1' || lineCode == 'MARMARAY';
+      final trainCount = isMarmaray ? 10 : math.max(2, math.min(5, (stations.length / 4).floor()));
 
-      // Official Metro Kinematics
+      // Official Metro / Rail Kinematics
       String systemType = 'Standart Metro';
       double accRate = 0.89;
       double decRate = 1.04;
       String specText = 'Standart Metro (Ort. Hızlanma: 0,89 • Ort. Fren: 1,04 m/s²)';
       double baseMaxSpeed = 75.0;
 
-      if (lineCode == 'M5' || lineCode == 'M8') {
+      if (isMarmaray) {
+        systemType = 'Marmaray Banliyö Treni (TCDD)';
+        accRate = 0.95;
+        decRate = 1.05;
+        specText = 'Marmaray TCDD EMU (Hızlanma: 0,9-1,0 • Fren: 1,0-1,1 m/s²)';
+        baseMaxSpeed = 85.0;
+      } else if (lineCode == 'M5' || lineCode == 'M8') {
         systemType = 'Sürücüsüz Metro';
         accRate = 1.05;
         decRate = 1.15;
@@ -850,7 +889,7 @@ class TransitProvider extends ChangeNotifier {
         final initProg = ((i * 0.33) % 0.85) + 0.05;
 
         final remMeters = distM * (1.0 - initProg);
-        final etaSec = math.max(1.0, remMeters / ((maxSpeed / 3.6) * 0.85));
+        final etaSec = math.max(1.0, segDuration * (1.0 - initProg));
 
         _metroTrains.add(MetroTrainVehicle(
           id: '$lineCode-${i + 1}',
@@ -933,7 +972,7 @@ class TransitProvider extends ChangeNotifier {
           t.prevStationName = nextFrom.name;
           t.targetStationName = nextTo.name;
           t.remainingMeters = distM;
-          t.etaSec = distM / (t.maxSpeed / 3.6);
+          t.etaSec = t.segDurationSec;
         }
       } else {
         t.timeInSegSec += dt;
@@ -974,8 +1013,9 @@ class TransitProvider extends ChangeNotifier {
             t.currentSpeed = t.maxSpeed;
           }
 
-          final spdMs = math.max(4.0, t.currentSpeed / 3.6);
-          t.etaSec = math.max(1.0, remMeters / spdMs);
+          // Smooth realistic countdown: ticks down 1 second per 1 real second,
+          // matching the segment travel time without rapid dropping during acceleration.
+          t.etaSec = math.max(1.0, t.segDurationSec - t.timeInSegSec);
         }
         hasMoved = true;
       }

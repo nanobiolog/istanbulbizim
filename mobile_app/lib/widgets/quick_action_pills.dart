@@ -108,7 +108,6 @@ class QuickActionPills extends StatelessWidget {
                 : AppTheme.borderMedium,
             width: 1.2,
           ),
-          boxShadow: AppTheme.pillShadow,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -145,7 +144,6 @@ class QuickActionPills extends StatelessWidget {
             color: isNightMode ? Colors.white : AppTheme.accentBlack,
             width: 1.2,
           ),
-          boxShadow: AppTheme.pillShadow,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -200,7 +198,6 @@ class QuickActionPills extends StatelessWidget {
                     : AppTheme.borderMedium),
             width: isSelected ? 1.5 : 1.2,
           ),
-          boxShadow: AppTheme.pillShadow,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -285,7 +282,6 @@ class QuickActionPills extends StatelessWidget {
                     : AppTheme.borderMedium),
             width: 1.2,
           ),
-          boxShadow: AppTheme.pillShadow,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,

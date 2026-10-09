@@ -177,6 +177,10 @@ class _LineSearchModalState extends State<LineSearchModal> {
         bg = const Color(0xFFFFEDD5);
         fg = const Color(0xFFEA580C);
         label = 'TRAMVAY';
+      case 'marmaray':
+        bg = const Color(0xFFFFE4E6);
+        fg = const Color(0xFFB4192D);
+        label = 'MARMARAY';
         break;
       default:
         bg = AppTheme.borderLight;

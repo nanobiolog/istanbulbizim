@@ -1,5 +1,15 @@
 [
   {
+    "code": "B1",
+    "desc": "Marmaray (Halkalı - Gebze Banliyö)",
+    "type": "marmaray"
+  },
+  {
+    "code": "MARMARAY",
+    "desc": "Marmaray (Halkalı - Gebze Banliyö)",
+    "type": "marmaray"
+  },
+  {
     "code": "1",
     "desc": "Kirazlıtepe - Acıbadem / Kadıköy",
     "type": "bus"

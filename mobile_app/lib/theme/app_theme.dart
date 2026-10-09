@@ -32,15 +32,8 @@ class AppTheme {
   static const Color borderLight = Color(0xFFE4E4E7);
   static const Color borderMedium = Color(0xFFD4D4D8);
 
-  // Modern crisp shadows
-  static final List<BoxShadow> pillShadow = [
-    BoxShadow(
-      color: Colors.black.withValues(alpha: 0.06),
-      blurRadius: 16,
-      spreadRadius: 1,
-      offset: const Offset(0, 4),
-    ),
-  ];
+  // Modern crisp flat design (no shadow on scrolling pills)
+  static final List<BoxShadow> pillShadow = const [];
 
   static final List<BoxShadow> sheetShadow = [
     BoxShadow(

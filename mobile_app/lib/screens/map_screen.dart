@@ -26,6 +26,7 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   late final MapController _mapController;
+  late final AnimationController _pingPulseController;
 
   static final LatLng istanbulCenter = const LatLng(41.0082, 28.9784);
   static const double initialZoom = 13.0;
@@ -35,6 +36,16 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _mapController = MapController();
+    _pingPulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _pingPulseController.dispose();
+    super.dispose();
   }
 
   void _animatedMapMove(LatLng destLocation, double destZoom) {
@@ -575,11 +586,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     for (final train in provider.metroTrains) {
       final point = LatLng(train.currentLat, train.currentLon);
       final isSelected = provider.selectedTrain?.id == train.id;
+      final isMarmaray = train.lineCode == 'B1' || train.lineCode == 'MARMARAY';
+      final label = isMarmaray ? 'MARMARAY' : train.lineCode;
+      final width = isMarmaray ? (isSelected ? 94.0 : 84.0) : (isSelected ? 72.0 : 64.0);
 
       markers.add(
         Marker(
           point: point,
-          width: isSelected ? 72 : 64,
+          width: width,
           height: isSelected ? 36 : 30,
           alignment: Alignment.center,
           child: GestureDetector(
@@ -611,11 +625,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   const Text('🚆', style: TextStyle(fontSize: 11)),
                   const SizedBox(width: 3),
                   Text(
-                    train.lineCode,
-                    style: const TextStyle(
+                    label,
+                    style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w900,
-                      fontSize: 10,
+                      fontSize: isMarmaray ? 9.0 : 10.0,
                     ),
                   ),
                   const SizedBox(width: 3),
@@ -642,45 +656,74 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     return markers;
   }
 
-  // ─── USER LOCATION MARKER BUILDER ───
+  // ─── USER LOCATION MARKER BUILDER (Vibrant Blue Ping Dot with Pulse Halo) ───
   Widget _buildUserLocationMarker() {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.15),
-            shape: BoxShape.circle,
-          ),
-        ),
-        Container(
-          width: 20,
-          height: 20,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: 6,
-                spreadRadius: 1,
+    return AnimatedBuilder(
+      animation: _pingPulseController,
+      builder: (context, child) {
+        final scale = 0.75 + (_pingPulseController.value * 0.5);
+        final opacity = (1.0 - _pingPulseController.value).clamp(0.0, 1.0);
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            // Dynamic outer blue ping ripple
+            Transform.scale(
+              scale: scale,
+              child: Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF007AFF).withValues(alpha: opacity * 0.38),
+                  shape: BoxShape.circle,
+                ),
               ),
-            ],
-          ),
-          child: Center(
-            child: Container(
-              width: 12,
-              height: 12,
-              decoration: const BoxDecoration(
-                color: AppTheme.accentBlack,
+            ),
+            // Middle blue aura ring
+            Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                color: const Color(0xFF007AFF).withValues(alpha: 0.22),
                 shape: BoxShape.circle,
               ),
             ),
-          ),
-        ),
-      ],
+            // Crisp white circle border
+            Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF007AFF).withValues(alpha: 0.55),
+                    blurRadius: 8,
+                    spreadRadius: 1,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: Center(
+                // Vivid Blue ping center dot
+                child: Container(
+                  width: 13,
+                  height: 13,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF007AFF),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF007AFF).withValues(alpha: 0.85),
+                        blurRadius: 4,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -732,28 +775,39 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         markers.add(
           Marker(
             point: LatLng(st.lat, st.lon),
-            width: 16,
-            height: 16,
+            width: 24,
+            height: 24,
             alignment: Alignment.center,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                border: Border.all(color: color, width: 2.5),
-                boxShadow: [
-                  BoxShadow(
-                    color: color.withValues(alpha: 0.4),
-                    blurRadius: 4,
-                  ),
-                ],
-              ),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                provider.selectLine(lineCode);
+                _animatedMapMove(LatLng(st.lat, st.lon), math.max(_currentZoom, 15.0));
+              },
               child: Center(
                 child: Container(
-                  width: 5,
-                  height: 5,
+                  width: 16,
+                  height: 16,
                   decoration: BoxDecoration(
-                    color: color,
+                    color: Colors.white,
                     shape: BoxShape.circle,
+                    border: Border.all(color: color, width: 2.5),
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withValues(alpha: 0.4),
+                        blurRadius: 4,
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Container(
+                      width: 5,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -818,40 +872,45 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       markers.add(
         Marker(
           point: point,
-          width: isSelected ? 28 : 20,
-          height: isSelected ? 28 : 20,
+          width: isSelected ? 38 : 30,
+          height: isSelected ? 38 : 30,
           alignment: Alignment.center,
           child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: () {
               provider.selectBusStop(stop);
               _animatedMapMove(point, math.max(_currentZoom, 15.0));
             },
-            child: Container(
-              decoration: BoxDecoration(
-                color: isSelected ? AppTheme.accentBlack : Colors.white,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: isSelected ? Colors.white : AppTheme.accentBlack,
-                  width: isSelected ? 2.5 : 1.8,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: isSelected ? 0.35 : 0.18),
-                    blurRadius: isSelected ? 8 : 4,
+            child: Center(
+              child: Container(
+                width: isSelected ? 24 : 16,
+                height: isSelected ? 24 : 16,
+                decoration: BoxDecoration(
+                  color: isSelected ? AppTheme.accentBlack : Colors.white,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isSelected ? Colors.white : AppTheme.accentBlack,
+                    width: isSelected ? 2.5 : 1.8,
                   ),
-                ],
-              ),
-              child: Center(
-                child: isSelected
-                    ? const Icon(Icons.directions_bus_rounded, color: Colors.white, size: 14)
-                    : Container(
-                        width: 6,
-                        height: 6,
-                        decoration: const BoxDecoration(
-                          color: AppTheme.accentBlack,
-                          shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: isSelected ? 0.35 : 0.18),
+                      blurRadius: isSelected ? 8 : 4,
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: isSelected
+                      ? const Icon(Icons.directions_bus_rounded, color: Colors.white, size: 13)
+                      : Container(
+                          width: 5,
+                          height: 5,
+                          decoration: const BoxDecoration(
+                            color: AppTheme.accentBlack,
+                            shape: BoxShape.circle,
+                          ),
                         ),
-                      ),
+                ),
               ),
             ),
           ),
@@ -881,32 +940,37 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         markers.add(
           Marker(
             point: LatLng(stop.lat, stop.lon),
-            width: isTerminal ? 24 : 14,
-            height: isTerminal ? 24 : 14,
+            width: isTerminal ? 36 : 28,
+            height: isTerminal ? 36 : 28,
             alignment: Alignment.center,
             child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: () {
                 provider.selectBusStop(stop);
               },
-              child: Container(
-                decoration: BoxDecoration(
-                  color: isTerminal ? color : Colors.white,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: color, width: 2.5),
-                  boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
-                ),
-                child: isTerminal
-                    ? Center(
-                        child: Text(
-                          i == 0 ? 'A' : 'B',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w900,
+              child: Center(
+                child: Container(
+                  width: isTerminal ? 22 : 14,
+                  height: isTerminal ? 22 : 14,
+                  decoration: BoxDecoration(
+                    color: isTerminal ? color : Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: color, width: 2.2),
+                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                  ),
+                  child: isTerminal
+                      ? Center(
+                          child: Text(
+                            i == 0 ? 'A' : 'B',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
-                        ),
-                      )
-                    : null,
+                        )
+                      : null,
+                ),
               ),
             ),
           ),
