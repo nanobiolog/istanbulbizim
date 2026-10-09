@@ -31,7 +31,11 @@ DUYURU = "https://api.ibb.gov.tr/iett/UlasimDinamikVeri/Duyurular.asmx"
 METRO = "https://api.ibb.gov.tr/MetroIstanbul/api/MetroMobile/V2"
 CKAN = "https://data.ibb.gov.tr/api/3/action"
 UA = {"User-Agent": "Mozilla/5.0 (IstanbulBizim verify_apis)"}
-CTX = ssl.create_default_context()
+try:
+    import certifi
+    CTX = ssl.create_default_context(cafile=certifi.where())
+except Exception:
+    CTX = ssl.create_default_context()
 
 results = []
 
@@ -40,8 +44,15 @@ def http(url, data=None, headers=None, method=None, timeout=25):
     h = dict(UA)
     h.update(headers or {})
     req = urllib.request.Request(url, data=data, headers=h, method=method)
-    with urllib.request.urlopen(req, context=CTX, timeout=timeout) as r:
-        return r.status, r.read().decode("utf-8", "replace")
+    try:
+        with urllib.request.urlopen(req, context=CTX, timeout=timeout) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.URLError as e:
+        if "CERTIFICATE_VERIFY_FAILED" in str(e):
+            insecure_ctx = ssl._create_unverified_context()
+            with urllib.request.urlopen(req, context=insecure_ctx, timeout=timeout) as r:
+                return r.status, r.read().decode("utf-8", "replace")
+        raise
 
 
 def soap(url, method, args=None):
