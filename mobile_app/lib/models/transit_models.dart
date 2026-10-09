@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 class BusVehicle {
@@ -20,6 +21,15 @@ class BusVehicle {
   final int? nextStopEtaSec;
   final int? nextStopDistM;
 
+  /// Absolute arrival time at [nextStop]. Counters derive from this, so they tick without a refetch.
+  final DateTime? etaAt;
+  final DateTime? terminalEtaAt;
+  final String etaConf; // 'high' | 'med' | 'low' | ''
+  final int stopsLeft;
+
+  /// Moment this telemetry was received; live age = [ageSeconds] + time since.
+  final DateTime receivedAt;
+
   BusVehicle({
     required this.id,
     required this.lat,
@@ -38,9 +48,18 @@ class BusVehicle {
     this.nextStop = '',
     this.nextStopEtaSec,
     this.nextStopDistM,
-  });
+    this.etaAt,
+    this.terminalEtaAt,
+    this.etaConf = '',
+    this.stopsLeft = 0,
+    DateTime? receivedAt,
+  }) : receivedAt = receivedAt ?? DateTime.now();
 
   factory BusVehicle.fromJson(Map<String, dynamic> json) {
+    final now = DateTime.now();
+    final etaSec = (json['next_stop_eta_sec'] as num?)?.toInt();
+    final termSec = (json['terminal_eta_sec'] as num?)?.toInt();
+    final heading = (json['h'] as num?)?.toDouble() ?? (json['bearing'] as num?)?.toDouble();
     return BusVehicle(
       id: json['id']?.toString() ?? '',
       lat: (json['lat'] as num?)?.toDouble() ?? 0.0,
@@ -54,11 +73,16 @@ class BusVehicle {
       direction: json['dir']?.toString() ?? '',
       directionName: json['dir_name']?.toString() ?? '',
       headsign: json['headsign']?.toString() ?? '',
-      bearing: (json['bearing'] as num?)?.toDouble(),
+      bearing: heading,
       destination: json['destination']?.toString() ?? json['dest']?.toString() ?? '',
       nextStop: json['next_stop']?.toString() ?? json['stop']?.toString() ?? '',
-      nextStopEtaSec: (json['next_stop_eta_sec'] as num?)?.toInt(),
+      nextStopEtaSec: etaSec,
       nextStopDistM: (json['next_stop_dist_m'] as num?)?.toInt(),
+      etaAt: etaSec == null ? null : now.add(Duration(seconds: etaSec)),
+      terminalEtaAt: termSec == null ? null : now.add(Duration(seconds: termSec)),
+      etaConf: json['eta_conf']?.toString() ?? '',
+      stopsLeft: (json['stops_left'] as num?)?.toInt() ?? 0,
+      receivedAt: now,
     );
   }
 
@@ -80,6 +104,10 @@ class BusVehicle {
     String? nextStop,
     int? nextStopEtaSec,
     int? nextStopDistM,
+    DateTime? etaAt,
+    DateTime? terminalEtaAt,
+    String? etaConf,
+    int? stopsLeft,
   }) {
     return BusVehicle(
       id: id ?? this.id,
@@ -99,7 +127,31 @@ class BusVehicle {
       nextStop: nextStop ?? this.nextStop,
       nextStopEtaSec: nextStopEtaSec ?? this.nextStopEtaSec,
       nextStopDistM: nextStopDistM ?? this.nextStopDistM,
+      etaAt: etaAt ?? this.etaAt,
+      terminalEtaAt: terminalEtaAt ?? this.terminalEtaAt,
+      etaConf: etaConf ?? this.etaConf,
+      stopsLeft: stopsLeft ?? this.stopsLeft,
+      receivedAt: receivedAt,
     );
+  }
+
+  /// Seconds until the next stop, recomputed from the absolute timestamp (null = unknown).
+  int? etaSecondsAt(DateTime now) {
+    if (etaAt != null) return math.max(0, etaAt!.difference(now).inSeconds);
+    return null;
+  }
+
+  /// Age of the GPS fix right now (keeps counting between refreshes).
+  int liveAgeSeconds(DateTime now) => ageSeconds + math.max(0, now.difference(receivedAt).inSeconds);
+
+  static String formatEta(int? s) {
+    if (s == null) return '';
+    if (s <= 10) return 'Şimdi';
+    if (s < 60) return '$s sn';
+    final m = s ~/ 60;
+    if (m < 10) return '$m dk ${(s % 60).toString().padLeft(2, '0')} sn';
+    if (m < 90) return '$m dk';
+    return '${m ~/ 60} sa ${m % 60} dk';
   }
 
   /// Human-readable next stop ETA (e.g. "45 sn", "2 dk", "Şimdi")
@@ -436,6 +488,7 @@ class TimetableEntry {
   final String dayType; // 'I' (İş Günü), 'C' (Cumartesi), 'P' (Pazar)
   final String serviceType; // e.g. "ÖHO", "İETT", "Normal"
   final String? routeSign;
+  final bool estimated;
 
   const TimetableEntry({
     required this.time,
@@ -443,6 +496,7 @@ class TimetableEntry {
     required this.dayType,
     this.serviceType = 'Normal',
     this.routeSign,
+    this.estimated = false,
   });
 
   factory TimetableEntry.fromJson(Map<String, dynamic> json) {
@@ -452,7 +506,17 @@ class TimetableEntry {
       dayType: json['day_type']?.toString() ?? json['SGUNTIPI']?.toString() ?? json['gun']?.toString() ?? 'I',
       serviceType: json['service_type']?.toString() ?? json['SSERVISTIPI']?.toString() ?? 'Normal',
       routeSign: json['route_sign']?.toString() ?? json['GUZERGAH_ISARETI']?.toString(),
+      estimated: json['estimated'] == true,
     );
+  }
+
+  /// Next occurrence of this departure today (Istanbul wall clock == device clock for users there).
+  DateTime todayAt([DateTime? now]) {
+    final n = now ?? DateTime.now();
+    final parts = time.split(':');
+    final h = parts.isNotEmpty ? int.tryParse(parts[0]) ?? 0 : 0;
+    final m = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
+    return DateTime(n.year, n.month, n.day, h, m);
   }
 
   Map<String, dynamic> toJson() => {
@@ -482,12 +546,20 @@ class LineTimetable {
   final bool isMetro;
   final String? note;
 
+  /// true only when the schedule comes from the official İBB / Metro İstanbul feed.
+  final bool official;
+  final String source;
+
   const LineTimetable({
     required this.lineCode,
     required this.entries,
     this.isMetro = false,
     this.note,
+    this.official = false,
+    this.source = '',
   });
+
+  bool get isEstimated => !official || entries.any((e) => e.estimated);
 
   factory LineTimetable.fromJson(Map<String, dynamic> json) {
     final rawEntries = (json['entries'] as List<dynamic>?) ?? [];
@@ -496,6 +568,8 @@ class LineTimetable {
       entries: rawEntries.map((e) => TimetableEntry.fromJson(e as Map<String, dynamic>)).toList(),
       isMetro: json['is_metro'] == true,
       note: json['note']?.toString(),
+      official: json['official'] == true,
+      source: json['source']?.toString() ?? '',
     );
   }
 
@@ -519,3 +593,74 @@ class LineTimetable {
   }
 }
 
+
+
+/// One predicted arrival at a bus stop (from `/stop/arrivals` or the local engine).
+class StopArrival {
+  final String line;
+  final String busId;
+  final String headsign;
+  final double speed;
+  final int distM;
+  final int stopsAway;
+  final DateTime etaAt;
+  final String conf;
+
+  const StopArrival({
+    required this.line,
+    required this.busId,
+    required this.headsign,
+    required this.speed,
+    required this.distM,
+    required this.stopsAway,
+    required this.etaAt,
+    this.conf = '',
+  });
+
+  factory StopArrival.fromJson(Map<String, dynamic> j, DateTime now) {
+    final sec = (j['eta_sec'] as num?)?.toInt() ?? 0;
+    return StopArrival(
+      line: j['line']?.toString() ?? '',
+      busId: j['bus_id']?.toString() ?? '',
+      headsign: j['headsign']?.toString() ?? '',
+      speed: (j['speed'] as num?)?.toDouble() ?? 0,
+      distM: (j['dist_m'] as num?)?.toInt() ?? 0,
+      stopsAway: (j['stops_away'] as num?)?.toInt() ?? 0,
+      etaAt: now.add(Duration(seconds: sec)),
+      conf: j['conf']?.toString() ?? '',
+    );
+  }
+}
+
+/// City-wide live traffic summary derived server-side from fleet probe speeds.
+class TrafficSummary {
+  final String level; // akici | yogun | cok_yogun
+  final double medianMovingKmh;
+  final double hourPriorKmh;
+  final int vehicles;
+
+  const TrafficSummary({
+    required this.level,
+    required this.medianMovingKmh,
+    required this.hourPriorKmh,
+    required this.vehicles,
+  });
+
+  static TrafficSummary? fromJson(dynamic j) {
+    if (j is! Map) return null;
+    return TrafficSummary(
+      level: j['level']?.toString() ?? 'akici',
+      medianMovingKmh: (j['median_moving_kmh'] as num?)?.toDouble() ?? 0,
+      hourPriorKmh: (j['hour_prior_kmh'] as num?)?.toDouble() ?? 0,
+      vehicles: (j['vehicles'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  String get label => level == 'akici' ? 'Akıcı' : (level == 'yogun' ? 'Yoğun' : 'Çok yoğun');
+
+  /// >1 faster than typical for this hour, <1 slower.
+  double get ratio {
+    if (hourPriorKmh <= 0 || medianMovingKmh <= 0) return 1;
+    return (medianMovingKmh / hourPriorKmh).clamp(0.5, 1.3);
+  }
+}

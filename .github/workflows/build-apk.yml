@@ -48,7 +48,7 @@ jobs:
         run: flutter test
 
       - name: Build Android APK (Release)
-        run: flutter build apk --release
+        run: flutter build apk --release --dart-define=CARTO_API_KEY=${{ secrets.CARTO_API_KEY }}
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

@@ -210,7 +210,7 @@ class QuickActionPills extends StatelessWidget {
               size: 15,
               color: isSelected
                   ? (isNightMode ? AppTheme.accentBlack : Colors.white)
-                  : (isNightMode ? Colors.white70 : AppTheme.accentBlack),
+                  : AppTheme.lineColor(line.lineCode),
             ),
             const SizedBox(width: 5),
             Text(

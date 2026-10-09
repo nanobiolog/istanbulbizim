@@ -60,6 +60,18 @@ class AppTheme {
     ),
   ];
 
+  /// Stable, high-contrast colour per line (the UI is monochrome; line identity carries the colour).
+  static Color lineColor(String code) {
+    final c = code.trim().toUpperCase();
+    if (c.isEmpty) return Colors.white;
+    if (c.startsWith('34')) return const Color(0xFFFB7185);
+    var h = 0;
+    for (final u in c.codeUnits) {
+      h = (h * 31 + u) % 360;
+    }
+    return HSLColor.fromAHSL(1, h.toDouble(), 0.72, 0.64).toColor();
+  }
+
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,

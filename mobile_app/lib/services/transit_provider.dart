@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/transit_models.dart';
+import '../services/eta_engine.dart';
 import '../services/transit_api_service.dart';
 
 class TransitProvider extends ChangeNotifier {
@@ -27,7 +28,7 @@ class TransitProvider extends ChangeNotifier {
   // User Settings & Preferences
   ThemeMode _themeMode = ThemeMode.dark; // Default dark/night mode
   bool _autoRefreshEnabled = true; // App auto-sync enable/disable toggle
-  int _refreshIntervalSec = 15; // 10s, 15s, 30s
+  int _refreshIntervalSec = 10; // 10s, 15s, 30s (cheap: conditional GET returns 304 between batches)
   bool _highContrastTiles = true;
 
   // Selected Line Filter & Timetables
@@ -65,14 +66,34 @@ class TransitProvider extends ChangeNotifier {
   double _currentZoom = 13.0;
   StreamSubscription<Position>? _positionSubscription;
 
+  /// Increments every second. Widgets that show countdowns/ages listen to this (not to the whole
+  /// provider) so only the small text re-renders and numbers keep beating without any refetch.
+  final ValueNotifier<int> clock = ValueNotifier<int>(0);
+  Timer? _clockTimer;
+  int _trainNotifyTick = 0;
+
   // Auto-refresh timer
   Timer? _refreshTimer;
   DateTime? _lastUpdated;
 
   TransitProvider() {
-
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      clock.value++;
+      if (clock.value % 20 == 0) _refreshTraffic();
+    });
     _init();
   }
+
+  TrafficSummary? get traffic => _apiService.traffic;
+  TransitApiService get api => _apiService;
+
+  Future<void> _refreshTraffic() async {
+    await _apiService.refreshTraffic();
+    notifyListeners();
+  }
+
+  /// Server ETAs for a stop (route + traffic aware). Null when the Worker is unreachable.
+  Future<List<StopArrival>?> loadStopArrivals(BusStop stop) => _apiService.fetchStopArrivals(stop.code);
 
   List<BusVehicle> get allBuses => _buses;
   bool get isLoading => _isLoading;
@@ -117,8 +138,13 @@ class TransitProvider extends ChangeNotifier {
   /// Map Tile Layer URL: Switches between Carto Dark All and Light All Retina tiles
   String get tileUrl {
     final style = _isNightMode ? 'dark_all' : 'light_all';
-    final keySuffix = (_cartoApiKey != null && _cartoApiKey!.isNotEmpty) ? '?key=$_cartoApiKey' : '';
-    return 'https://{s}.basemaps.cartocdn.com/rastertiles/$style/{z}/{x}/{y}@2x.png$keySuffix';
+    final hasKey = _cartoApiKey != null && _cartoApiKey!.isNotEmpty;
+    if (!hasKey) {
+      // No key on this device yet (first ever launch, offline): go through the Worker tile proxy,
+      // which holds the key server-side. Never shows a "key not found" state.
+      return '${_apiService.baseUrl}/tile/$style/{z}/{x}/{y}@2x.png';
+    }
+    return 'https://{s}.basemaps.cartocdn.com/rastertiles/$style/{z}/{x}/{y}@2x.png?key=$_cartoApiKey';
   }
 
   /// Color Resolver for Metro and Transit lines
@@ -293,6 +319,13 @@ class TransitProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
+    // Key first (env / persisted) — synchronous-ish disk read, no network.
+    await _apiService.loadPersisted();
+    _cartoApiKey = _apiService.cartoApiKey;
+
+    // Kick off the network bootstrap in parallel with local asset parsing: key + first fleet + traffic.
+    final bootstrapFuture = _apiService.bootstrap();
+
     await _apiService.loadLocalAssets();
     _metroStations = _apiService.metroStations;
     _metroColors = _apiService.metroColors;
@@ -303,11 +336,23 @@ class TransitProvider extends ChangeNotifier {
       _metroLineColors[k] = TransitApiService.parseColorString(v);
     });
 
-    _cartoApiKey = await _apiService.fetchConfigCartoKey();
-
     _initMetroTrainSimulation();
 
-    await refreshFleet();
+    final boot = await bootstrapFuture;
+    if (_apiService.cartoApiKey != null && _apiService.cartoApiKey != _cartoApiKey) {
+      _cartoApiKey = _apiService.cartoApiKey; // refreshed key; tiles reload once, silently
+    }
+    if (boot != null && boot.isNotEmpty) {
+      _fleetBuses = boot;
+      _buses = _enrichBusesWithNextStops(boot);
+      _lastUpdated = DateTime.now();
+      _lastSuccessfulSync = _lastUpdated;
+      _computeNearbyLines();
+      _isLoading = false;
+      notifyListeners();
+    }
+
+    await refreshFleet(silent: boot != null && boot.isNotEmpty);
 
     _restartRefreshTimer();
 
@@ -472,8 +517,13 @@ class TransitProvider extends ChangeNotifier {
   }
 
   /// Calculates destination, upcoming next stop and live ETA for buses
-  List<BusVehicle> _enrichBusesWithNextStops(List<BusVehicle> list) {
-    if (list.isEmpty) return list;
+  List<BusVehicle> _enrichBusesWithNextStops(List<BusVehicle> input) {
+    if (input.isEmpty) return input;
+    final now = DateTime.now();
+    // Route-aware, traffic-aware ETA for the selected line (keeps server ETAs when present)
+    final list = (_selectedLineRoute != null && _selectedLineCode != null)
+        ? EtaEngine.annotate(input, _selectedLineRoute, _apiService.traffic, now)
+        : input;
 
     return list.map((bus) {
       String dest = bus.destination;
@@ -489,7 +539,7 @@ class TransitProvider extends ChangeNotifier {
           ? _selectedLineRoute
           : null;
 
-      if (route != null && route.directions.isNotEmpty) {
+      if (route != null && route.directions.isNotEmpty && bus.etaAt == null) {
         LineDirectionRoute? matchedDir;
         if (bus.direction.isNotEmpty && route.directions.containsKey(bus.direction)) {
           matchedDir = route.directions[bus.direction];
@@ -598,6 +648,8 @@ class TransitProvider extends ChangeNotifier {
         nextStopDistM: nextDistM,
         directionName: dirName,
         headsign: headsign,
+        etaAt: bus.etaAt ?? (etaSec == null ? null : now.add(Duration(seconds: etaSec))),
+        etaConf: bus.etaConf.isEmpty && etaSec != null ? 'low' : null,
       );
     }).toList();
   }
@@ -934,7 +986,8 @@ class TransitProvider extends ChangeNotifier {
       }
     }
 
-    if (hasMoved) {
+    // Simulation steps at 10 Hz for smooth motion; rebuild listeners at 5 Hz.
+    if (hasMoved && (++_trainNotifyTick % 2 == 0)) {
       notifyListeners();
     }
   }
@@ -1001,6 +1054,8 @@ class TransitProvider extends ChangeNotifier {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _clockTimer?.cancel();
+    clock.dispose();
     _trainTicker?.cancel();
     _dragDebounceTimer?.cancel();
     _positionSubscription?.cancel();

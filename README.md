@@ -117,6 +117,19 @@ npx wrangler deploy
 
 ---
 
+## ✅ Canlı Doğrulama & Yeni Uç Noktalar (Verification)
+
+```bash
+python3 tools/verify_apis.py                # İETT / İBB / Metro İstanbul servislerini canlı dener (kendi bilgisayarınızda)
+python3 build.py && npx wrangler deploy     # dağıtım sonrası:
+curl https://<worker>/diag                  # Worker içinden her kaynağın canlı sağlık kontrolü
+python3 tools/build_traffic_profile.py      # (isteğe bağlı) İBB saatlik trafik yoğunluğundan geçmiş hız profili
+```
+
+Yeni uç noktalar: `/bootstrap` (anahtar + filo + trafik tek istekte), `/traffic` (filo hızlarından canlı trafik),
+`/stop/arrivals?code=` (rota + trafik duyarlı varış), `/bus/eta`, `/diag`. Resmî tarife alınamazsa saatler
+"tahmini" olarak işaretlenir. Mobil: `--dart-define=CARTO_API_KEY=...` ile harita anahtarı derleme anında gömülür.
+
 ## 🔑 İBB API Anahtarı (İsteğe Bağlı)
 
 İBB Açık Veri Portalı API anahtarınız varsa Worker'a gizli değişken (secret) olarak ekleyebilirsiniz:

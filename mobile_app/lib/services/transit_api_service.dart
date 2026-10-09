@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/transit_models.dart';
 
 class TransitApiService {
@@ -13,7 +14,88 @@ class TransitApiService {
   static const String directIbbRoute = "https://api.ibb.gov.tr/iett/ibb/ibb.asmx";
 
   String baseUrl = defaultWorkerUrl;
-  String? cartoApiKey;
+
+  /// CARTO key. Resolved synchronously at startup from (1) --dart-define=CARTO_API_KEY,
+  /// (2) the last value persisted on this device, so the first tile request never waits on the network.
+  /// [bootstrap] refreshes it in the background.
+  static const String _envCartoKey = String.fromEnvironment('CARTO_API_KEY');
+  String? cartoApiKey = _envCartoKey.isNotEmpty ? _envCartoKey : null;
+
+  // One keep-alive client for every Worker call (re-uses TLS + HTTP/2 connection).
+  final http.Client _client = http.Client();
+  SharedPreferences? _prefs;
+
+  // Live fleet conditional GET
+  String? _busesEtag;
+  List<BusVehicle> _lastFleet = const [];
+  TrafficSummary? traffic;
+  DateTime? lastServerTime;
+
+  /// Reads persisted state (CARTO key, last traffic). Cheap; call before the first frame.
+  Future<void> loadPersisted() async {
+    try {
+      _prefs = await SharedPreferences.getInstance();
+      final k = _prefs!.getString('carto_key');
+      if ((cartoApiKey == null || cartoApiKey!.isEmpty) && k != null && k.isNotEmpty) cartoApiKey = k;
+    } catch (_) {}
+  }
+
+  /// One round trip that returns the key + a fleet snapshot + traffic. Fire-and-forget at startup.
+  Future<List<BusVehicle>?> bootstrap() async {
+    try {
+      final res = await _client
+          .get(Uri.parse('$baseUrl/bootstrap'), headers: {'Accept': 'application/json'})
+          .timeout(const Duration(seconds: 5));
+      if (res.statusCode != 200) return null;
+      final data = jsonDecode(res.body);
+      if (data is! Map) return null;
+      final key = data['carto_key']?.toString();
+      if (key != null && key.isNotEmpty) {
+        cartoApiKey = key;
+        try {
+          await _prefs?.setString('carto_key', key);
+        } catch (_) {}
+      }
+      traffic = TrafficSummary.fromJson(data['traffic'] is Map ? (data['traffic'] as Map)['city'] ?? data['traffic'] : null) ?? traffic;
+      final fleet = data['fleet'];
+      if (fleet is Map && fleet['buses'] is List) {
+        await loadLocalAssets();
+        _lastFleet = _enrichBusesWithLines(
+            (fleet['buses'] as List).map((b) => BusVehicle.fromJson(b as Map<String, dynamic>)).toList());
+        return _lastFleet;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> refreshTraffic() async {
+    try {
+      final res = await _client.get(Uri.parse('$baseUrl/traffic')).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data is Map) traffic = TrafficSummary.fromJson(data['city']) ?? traffic;
+      }
+    } catch (_) {}
+  }
+
+  /// Route-aware, traffic-aware arrivals for a stop (server side, 10 s cache).
+  Future<List<StopArrival>?> fetchStopArrivals(String stopCode) async {
+    if (stopCode.isEmpty) return null;
+    try {
+      final res = await _client
+          .get(Uri.parse('$baseUrl/stop/arrivals?code=${Uri.encodeComponent(stopCode)}'))
+          .timeout(const Duration(seconds: 6));
+      if (res.statusCode != 200) return null;
+      final data = jsonDecode(res.body);
+      if (data is Map && data['arrivals'] is List) {
+        final now = DateTime.now();
+        return (data['arrivals'] as List)
+            .map((e) => StopArrival.fromJson(e as Map<String, dynamic>, now))
+            .toList();
+      }
+    } catch (_) {}
+    return null;
+  }
 
   // Local assets cache
   Map<String, List<String>> _busLinesDoors = {};
@@ -196,7 +278,7 @@ class TransitApiService {
   Future<String?> fetchConfigCartoKey() async {
     if (cartoApiKey != null && cartoApiKey!.isNotEmpty) return cartoApiKey;
     try {
-      final res = await http.get(Uri.parse('$baseUrl/status')).timeout(const Duration(seconds: 3));
+      final res = await _client.get(Uri.parse('$baseUrl/status')).timeout(const Duration(seconds: 3));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         if (data is Map && data['carto_key'] != null) {
@@ -214,19 +296,29 @@ class TransitApiService {
 
     // 1. Try Worker first
     try {
-      final res = await http.get(
+      final res = await _client.get(
         Uri.parse('$baseUrl/buses'),
-        headers: {'Accept': 'application/json'},
-      ).timeout(const Duration(seconds: 4));
+        headers: {
+          'Accept': 'application/json',
+          if (_busesEtag != null && _lastFleet.isNotEmpty) 'If-None-Match': _busesEtag!,
+        },
+      ).timeout(const Duration(seconds: 5));
 
+      if (res.statusCode == 304 && _lastFleet.isNotEmpty) {
+        return _lastFleet; // same batch as before: no body, no parse
+      }
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         if (data is Map && data['buses'] is List) {
           final list = (data['buses'] as List).map((b) => BusVehicle.fromJson(b)).toList();
-          return _enrichBusesWithLines(list);
+          _busesEtag = res.headers['etag'] ?? (data['updated_at'] != null ? '"${data['updated_at']}"' : null);
+          _lastFleet = _enrichBusesWithLines(list);
+          return _lastFleet;
         }
       }
-    } catch (_) {}
+    } catch (_) {
+      if (_lastFleet.isNotEmpty) return _lastFleet; // flaky network: keep showing the last known fleet
+    }
 
     // 2. Direct SOAP fallback
     return await _fetchDirectIettFleet();
@@ -236,9 +328,9 @@ class TransitApiService {
   Future<List<BusVehicle>> fetchBusesForLine(String lineCode) async {
     await loadLocalAssets();
     try {
-      final res = await http.get(
+      final res = await _client.get(
         Uri.parse('$baseUrl/line?code=${Uri.encodeComponent(lineCode)}'),
-      ).timeout(const Duration(seconds: 4));
+      ).timeout(const Duration(seconds: 5));
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
@@ -274,10 +366,22 @@ class TransitApiService {
   }
 
   // Fetch official line stops and geometry (directions D & G)
+  final Map<String, ({DateTime at, LineRouteDetails route})> _routeCache = {};
+
   Future<LineRouteDetails?> fetchLineRoute(String lineCode) async {
+    final cached = _routeCache[lineCode];
+    if (cached != null && DateTime.now().difference(cached.at) < const Duration(hours: 6)) {
+      return cached.route; // routes change rarely: no refetch / re-snap on every selection
+    }
+    final fresh = await _fetchLineRouteUncached(lineCode);
+    if (fresh != null) _routeCache[lineCode] = (at: DateTime.now(), route: fresh);
+    return fresh ?? cached?.route;
+  }
+
+  Future<LineRouteDetails?> _fetchLineRouteUncached(String lineCode) async {
     // 1. Worker endpoint
     try {
-      final res = await http.get(
+      final res = await _client.get(
         Uri.parse('$baseUrl/line/route?code=${Uri.encodeComponent(lineCode)}'),
       ).timeout(const Duration(seconds: 5));
 
@@ -302,18 +406,22 @@ class TransitApiService {
 
   static const String directIbbTimetable = "https://api.ibb.gov.tr/iett/UlasimAnaVeri/PlanlananSeferSaati.asmx";
   final Map<String, LineTimetable> _timetableMemoryCache = {};
+  final Map<String, DateTime> _timetableFetchedAt = {};
 
   Future<LineTimetable?> fetchLineTimetable(String lineCode) async {
     final upper = lineCode.trim().toUpperCase();
     if (upper.isEmpty) return null;
 
-    if (_timetableMemoryCache.containsKey(upper)) {
+    final fetchedAt = _timetableFetchedAt[upper];
+    if (_timetableMemoryCache.containsKey(upper) &&
+        fetchedAt != null &&
+        DateTime.now().difference(fetchedAt) < const Duration(minutes: 30)) {
       return _timetableMemoryCache[upper];
     }
 
     // 1. Try remote worker timetable endpoint
     try {
-      final res = await http.get(
+      final res = await _client.get(
         Uri.parse('$baseUrl/timetable?line=${Uri.encodeComponent(upper)}'),
         headers: {
           'Accept': 'application/json',
@@ -326,6 +434,7 @@ class TransitApiService {
         if (data is Map<String, dynamic> && data['entries'] is List && (data['entries'] as List).isNotEmpty) {
           final timetable = LineTimetable.fromJson(data);
           _timetableMemoryCache[upper] = timetable;
+          _timetableFetchedAt[upper] = DateTime.now();
           return timetable;
         }
       }
@@ -335,6 +444,7 @@ class TransitApiService {
     final direct = await _fetchDirectIbbTimetable(upper);
     if (direct != null && direct.entries.isNotEmpty) {
       _timetableMemoryCache[upper] = direct;
+      _timetableFetchedAt[upper] = DateTime.now();
       return direct;
     }
 
@@ -358,6 +468,7 @@ class TransitApiService {
                 direction: dir,
                 dayType: day,
                 serviceType: 'Metro',
+                estimated: true,
               ));
             }
           }
@@ -367,7 +478,9 @@ class TransitApiService {
         lineCode: lineCode,
         entries: entries,
         isMetro: true,
-        note: 'Metro ve tramvay hatları 3-7 dakika düzenli aralıklarla sefer yapmaktadır.',
+        note: 'Resmî tarife alınamadı — gösterilen saatler tahmini sıklıktır.',
+        official: false,
+        source: 'Tahmini sıklık',
       );
     }
 
@@ -431,6 +544,8 @@ class TransitApiService {
               lineCode: lineCode,
               entries: entries,
               isMetro: false,
+              official: true,
+              source: 'İBB Açık Veri · GetPlanlananSeferSaati',
             );
           }
         }

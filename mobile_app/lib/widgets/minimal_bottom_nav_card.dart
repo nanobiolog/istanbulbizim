@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/transit_models.dart';
+import '../services/transit_provider.dart';
 import '../theme/app_theme.dart';
 
 class MinimalBottomNavCard extends StatefulWidget {
@@ -76,6 +78,71 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
     if (widget.selectedDirection != 'ALL' && widget.selectedDirection != _timetableDirection) {
       _timetableDirection = widget.selectedDirection;
     }
+  }
+
+  /// Official/estimated badge + ticking countdown to the next departure of the selected day/direction.
+  Widget _buildNextDeparture(List<TimetableEntry> entries, LineTimetable tt, bool isNight) {
+    final official = !tt.isEstimated;
+    final fg = isNight ? Colors.white : AppTheme.textPrimary;
+    final today = _selectedDayType == _todayDayType();
+    return ValueListenableBuilder<int>(
+      valueListenable: context.read<TransitProvider>().clock,
+      builder: (_, _, _) {
+        final now = DateTime.now();
+        TimetableEntry? next;
+        DateTime? nextAt;
+        if (today) {
+          for (final e in entries) {
+            final at = e.todayAt(now);
+            if (!at.isBefore(now) && (nextAt == null || at.isBefore(nextAt))) {
+              next = e;
+              nextAt = at;
+            }
+          }
+        }
+        final diff = nextAt?.difference(now).inSeconds;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: official ? (isNight ? Colors.white : AppTheme.accentBlack) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: official ? Colors.transparent : const Color(0xFFF59E0B)),
+                ),
+                child: Text(
+                  official ? 'RESMÎ TARİFE' : 'TAHMİNİ SIKLIK',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.4,
+                    color: official ? (isNight ? AppTheme.accentBlack : Colors.white) : const Color(0xFFF59E0B),
+                  ),
+                ),
+              ),
+              const Spacer(),
+              if (next != null && diff != null)
+                Text(
+                  'Sonraki ${next.time} • ${BusVehicle.formatEta(diff)}',
+                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: fg),
+                )
+              else
+                Text(
+                  today ? 'Bugün için kalan sefer yok' : 'Seçili gün tipi',
+                  style: TextStyle(fontSize: 11, color: isNight ? Colors.white54 : AppTheme.textSecondary),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  String _todayDayType() {
+    final w = DateTime.now().weekday;
+    return w == DateTime.saturday ? 'C' : (w == DateTime.sunday ? 'P' : 'I');
   }
 
   void _initDayType() {
@@ -470,10 +537,13 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
                 ),
                 const SizedBox(width: 8),
                 // ETA Badge
-                Builder(
-                  builder: (_) {
-                    final eta = bus.nextStopEtaSec ?? 999;
+                ValueListenableBuilder<int>(
+                  valueListenable: context.read<TransitProvider>().clock,
+                  builder: (_, _, _) {
+                    final etaNow = bus.etaSecondsAt(DateTime.now());
+                    final eta = etaNow ?? bus.nextStopEtaSec ?? 999;
                     final isImminent = eta <= 60;
+                    final confLabel = bus.etaConf == 'high' ? 'TAHMİN' : (bus.etaConf == 'low' ? 'TAHMİN ~' : 'TAHMİN');
                     return Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
@@ -493,7 +563,7 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            'TAHMİN',
+                            confLabel,
                             style: TextStyle(
                               fontSize: 8.5,
                               fontWeight: FontWeight.w800,
@@ -504,7 +574,7 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
                             ),
                           ),
                           Text(
-                            bus.nextStopEtaText,
+                            etaNow != null ? BusVehicle.formatEta(etaNow) : bus.nextStopEtaText,
                             style: TextStyle(
                               fontSize: 12.5,
                               fontWeight: FontWeight.w900,
@@ -653,13 +723,19 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
                                 ),
                               ),
                               const SizedBox(width: 4),
-                              Text(
-                                bus.ageSeconds > 0 ? '${bus.ageSeconds} sn önce' : 'Canlı Sinyal',
-                                style: TextStyle(
-                                  color: isNightMode ? Colors.white54 : AppTheme.textSecondary,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                              ValueListenableBuilder<int>(
+                                valueListenable: context.read<TransitProvider>().clock,
+                                builder: (_, _, _) {
+                                  final age = bus.liveAgeSeconds(DateTime.now());
+                                  return Text(
+                                    age > 0 ? (age < 90 ? '$age sn önce' : '${age ~/ 60} dk önce') : 'Canlı Sinyal',
+                                    style: TextStyle(
+                                      color: isNightMode ? Colors.white54 : AppTheme.textSecondary,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  );
+                                },
                               ),
                             ],
                           ),
@@ -1066,6 +1142,7 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
         ),
         const SizedBox(height: 10),
 
+        _buildNextDeparture(entries, timetable, isNight),
         if (timetable.note != null && timetable.note!.isNotEmpty) ...[
           Text(
             timetable.note!,
