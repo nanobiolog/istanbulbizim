@@ -12,6 +12,7 @@ class MetroTrainDetailSheet extends StatelessWidget {
   final List<RailStatusItem> statusItems;
   final ValueNotifier<int>? clock;
   final VoidCallback onClose;
+  final VoidCallback? onFollow3D;
 
   const MetroTrainDetailSheet({
     super.key,
@@ -19,6 +20,7 @@ class MetroTrainDetailSheet extends StatelessWidget {
     required this.onClose,
     this.statusItems = const [],
     this.clock,
+    this.onFollow3D,
   });
 
   bool get _isMarmaray => train.lineCode == 'B1' || train.lineCode == 'MARMARAY';
@@ -158,21 +160,24 @@ class MetroTrainDetailSheet extends StatelessWidget {
                   border: Border.all(color: train.statusColor.withValues(alpha: 0.35), width: 1.2),
                 ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Text(train.statusIcon, style: const TextStyle(fontSize: 16)),
-                        const SizedBox(width: 8),
-                        Text(
-                          train.statusTitle,
-                          style: TextStyle(color: train.statusColor, fontWeight: FontWeight.w700, fontSize: 14),
-                        ),
-                      ],
+                    Text(train.statusIcon, style: const TextStyle(fontSize: 16)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        train.statusTitle,
+                        style: TextStyle(color: train.statusColor, fontWeight: FontWeight.w700, fontSize: 14),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    Text(
-                      '${train.currentSpeed.round()} km/s • ${train.accDisplay}',
-                      style: TextStyle(color: train.statusColor, fontWeight: FontWeight.w800, fontSize: 12),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        '${train.currentSpeed.round()} km/s • ${train.accDisplay}',
+                        style: TextStyle(color: train.statusColor, fontWeight: FontWeight.w800, fontSize: 12),
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.end,
+                      ),
                     ),
                   ],
                 ),
@@ -245,6 +250,29 @@ class MetroTrainDetailSheet extends StatelessWidget {
                 )
               else
                 ...train.upcoming.map((c) => _UpcomingRow(call: c, color: train.color, clock: clock)),
+              if (onFollow3D != null) ...[
+                const SizedBox(height: 4),
+                GestureDetector(
+                  onTap: onFollow3D,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.threed_rotation_rounded, color: AppTheme.accentBlack, size: 18),
+                        SizedBox(width: 8),
+                        Flexible(
+                          child: Text('3D Haritada Trenle İlerle',
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(color: AppTheme.accentBlack, fontWeight: FontWeight.w800, fontSize: 13)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
 
               Text(

@@ -13,6 +13,7 @@ const RAIL_MAX_SAMPLES_PER_DIR = 14; // keeps a cold build under the 50-subreque
 const RAIL_EXTRA_PATTERNS = 3;      // short-turn service patterns read per line
 
 const railMemo = new Map();      // `${code}:${dateKey}` -> schedule
+const railFailedAt = new Map();  // code -> last failed cold build (cron backs off 15 min)
 const railInflight = new Map();  // dedupes concurrent cold builds inside one isolate
 let railStatusMemo = { at: 0, data: null };
 
@@ -368,6 +369,53 @@ function buildMarmaraySchedule(day) {
   };
 }
 
+function railBearing(a, b) {
+  const p1 = a.lat * Math.PI / 180, p2 = b.lat * Math.PI / 180, dl = (b.lon - a.lon) * Math.PI / 180;
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+  return Math.round((Math.atan2(y, x) * 180 / Math.PI + 360) % 360);
+}
+
+/** Trains on the line at service second `now` (linear between stations; the app animates finer). */
+function railPositionsAt(s, now) {
+  const out = [];
+  const n = s.stations.length;
+  const dwell = s.dwell_s || 25;
+  for (const d of s.directions) {
+    const idx = p => (d.sense === "fwd" ? p : n - 1 - p);
+    for (const [dep, a, b] of d.trips) {
+      const base = dep - d.offsets[a];
+      if (now < dep - dwell || now > base + d.offsets[b]) continue;
+      let p = a;
+      while (p < b && now >= base + d.offsets[p + 1] - dwell) p++;
+      const from = s.stations[idx(p)];
+      const to = s.stations[idx(Math.min(p + 1, b))];
+      const depP = base + d.offsets[p];
+      let f = 0, speed = 0;
+      if (now >= depP && p < b) {
+        const run = Math.max(1, d.offsets[p + 1] - dwell - d.offsets[p]);
+        f = Math.min(1, (now - depP) / run);
+        speed = Math.round(railHaversine(from, to) / run * 3.6);
+      }
+      const q = Math.min(p + 1, b);
+      out.push({
+        id: `${s.line}-${d.dir}-${dep}-${a}`,
+        dir: d.dir,
+        headsign: s.stations[idx(b)].name,
+        lat: from.lat + (to.lat - from.lat) * f,
+        lon: from.lon + (to.lon - from.lon) * f,
+        next: to.name,
+        next_eta_sec: Math.max(0, Math.round(base + d.offsets[q] - dwell - now)),
+        terminal_eta_sec: Math.max(0, Math.round(base + d.offsets[b] - dwell - now)),
+        stops_left: b - p,
+        speed,
+        bearing: railBearing(from, to)
+      });
+    }
+  }
+  return out;
+}
+
 function railCanonical(code) {
   const c = norm(code);
   return c === "MARMARAY" ? "B1" : c;
@@ -490,14 +538,19 @@ async function handleRailDepartures(env, url) {
       const api = meta.stations.find(s => railFindStation([stations[idx]], s.name) === 0);
       if (!api) throw new Error("station not in Metro API");
       const out = [];
-      for (const d of meta.directions) {
+      for (let di = 0; di < meta.directions.length; di++) {
+        const d = meta.directions[di];
         const ends = railSplitEnds(d.name);
-        const b = ends ? railFindStation(stations, ends[1]) : -1;
+        let b = ends ? railFindStation(stations, ends[1]) : -1;
+        if (b < 0) {
+          if (di > 1) continue; // unknown short-turn pattern: cannot label its direction
+          b = di === 0 ? stations.length - 1 : 0;
+        }
         if (b === idx) continue; // terminus of this pattern: no departures
         let times = [];
         try { times = await railTimetable(api.id, d.id); } catch (e) { continue; }
         if (!times.length) continue;
-        out.push({ dir: b >= 0 && b > idx ? "G" : "D", pattern: d.name, headsign: b >= 0 ? stations[b].name : "", times });
+        out.push({ dir: b > idx ? "G" : "D", pattern: d.name, headsign: stations[b].name, times });
       }
       if (!out.length) throw new Error("no departures");
       body = { line: code, station: stations[idx].name, service_date: day.dateKey, official: true, source: "Metro İstanbul GetTimeTable", departures: out };
@@ -531,9 +584,13 @@ async function prewarmRail(env) {
   for (const code of lines) {
     const key = `${code}:${day.dateKey}`;
     if (railMemo.has(key)) continue;
+    if (Date.now() - (railFailedAt.get(code) || 0) < 15 * 60000) continue;
     const cached = await getRailSchedule(code, env, { cacheOnly: true }).catch(() => null);
     if (cached) continue;
-    await getRailSchedule(code, env).catch(e => console.warn(`rail prewarm ${code}:`, String(e)));
+    await getRailSchedule(code, env).catch(e => {
+      railFailedAt.set(code, Date.now());
+      console.warn(`rail prewarm ${code}:`, String(e));
+    });
     return code;
   }
   return null;

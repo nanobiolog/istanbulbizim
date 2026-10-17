@@ -808,45 +808,42 @@ async function handleLine(env, url) {
   }
 
   if ((code === "B1" || code === "MARMARAY") && busMap.size === 0 && routeData && routeData.directions) {
-    const stns = (typeof METRO_STATIONS !== "undefined" && METRO_STATIONS["B1"]) || [];
-    if (stns.length >= 2) {
-      const nowSec = Math.floor(Date.now() / 1000);
-      const trainCount = 10;
-      for (let i = 0; i < trainCount; i++) {
-        const dir = (i % 2 === 0) ? "G" : "D";
-        const phase = ((nowSec / 120) + (i * (stns.length / trainCount))) % (stns.length - 1);
-        const segIdx = Math.floor(phase);
-        const frac = phase - segIdx;
-        const sFrom = dir === "G" ? stns[segIdx] : stns[stns.length - 1 - segIdx];
-        const sTo   = dir === "G" ? stns[segIdx + 1] : stns[stns.length - 2 - segIdx];
-        const lat = sFrom.lat + (sTo.lat - sFrom.lat) * frac;
-        const lon = sFrom.lon + (sTo.lon - sFrom.lon) * frac;
-        const trainId = `B1-${i + 1}`;
-        busMap.set(trainId, {
-          id: trainId,
-          lat: Math.round(lat * 100000) / 100000,
-          lon: Math.round(lon * 100000) / 100000,
-          line: "B1",
-          name: "Marmaray",
-          dir: dir,
-          dir_name: dir === "G" ? "Gebze Yönü" : "Halkalı Yönü",
-          headsign: dir === "G" ? "GEBZE" : "HALKALI",
-          color: "#B4192D",
-          stop: sTo.name,
-          time: new Date().toLocaleTimeString("tr-TR"),
-          s: 85,
-          op: "TCDD Taşımacılık",
-          p: "Marmaray E32000",
-          a: 0,
-          h: dir === "G" ? 110 : 290
-        });
-      }
+    // Marmaray has no public GPS: place trains from TCDD's published plan (see src/rail.js).
+    const day = railServiceDay();
+    for (const t of railPositionsAt(buildMarmaraySchedule(day), day.nowSec)) {
+      busMap.set(t.id, {
+        id: t.id,
+        lat: Math.round(t.lat * 100000) / 100000,
+        lon: Math.round(t.lon * 100000) / 100000,
+        line: "B1",
+        name: "Marmaray",
+        dir: t.dir,
+        dir_name: t.dir === "G" ? "Gebze Yönü" : "Halkalı Yönü",
+        headsign: t.headsign,
+        color: "#B4192D",
+        stop: t.next,
+        time: new Date().toLocaleTimeString("tr-TR"),
+        s: t.speed,
+        op: "TCDD Taşımacılık",
+        p: "Marmaray (sefer planı)",
+        a: 0,
+        h: t.bearing,
+        next_stop: t.next,
+        next_stop_eta_sec: t.next_eta_sec,
+        terminal_eta_sec: t.terminal_eta_sec,
+        stops_left: t.stops_left,
+        destination: t.headsign,
+        eta_conf: "low",
+        estimated: true
+      });
     }
   }
 
   const buses = Array.from(busMap.values());
   let trafficInfo = null;
-  if (routeData && routeData.directions && Object.keys(routeData.directions).length) {
+  // Road-traffic ETAs and geometry-based direction guesses do not apply to timetable-placed trains.
+  const isRailLine = code === "B1" || code === "MARMARAY";
+  if (!isRailLine && routeData && routeData.directions && Object.keys(routeData.directions).length) {
     try {
       const field = await enrichLineBusesEta(buses, routeData, env);
       if (field && field.city) trafficInfo = { level: field.city.level, median_moving_kmh: field.city.median_moving_kmh, hour_prior_kmh: field.city.hour_prior_kmh };

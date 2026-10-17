@@ -528,7 +528,8 @@ class TransitProvider extends ChangeNotifier {
     try {
       List<BusVehicle> raw;
       if (_selectedLineCode != null) {
-        raw = await _apiService.fetchBusesForLine(_selectedLineCode!);
+        // Rail lines have no IETT vehicles; their trains come from the timetable engine.
+        raw = _isRailLine(_selectedLineCode!) ? const [] : await _apiService.fetchBusesForLine(_selectedLineCode!);
       } else {
         raw = await _apiService.fetchFleetBuses();
         _fleetBuses = raw;
@@ -718,7 +719,7 @@ class TransitProvider extends ChangeNotifier {
 
     try {
       _selectedLineRoute = await _apiService.fetchLineRoute(upper);
-      final raw = await _apiService.fetchBusesForLine(upper);
+      final raw = _isRailLine(upper) ? const <BusVehicle>[] : await _apiService.fetchBusesForLine(upper);
       _buses = _enrichBusesWithNextStops(raw);
       _lastUpdated = DateTime.now();
       _lastSuccessfulSync = DateTime.now();
@@ -970,6 +971,8 @@ class TransitProvider extends ChangeNotifier {
         .where((t) => _selectedTrain?.id == t.id || _distanceMeters(c.latitude, c.longitude, t.currentLat, t.currentLon) <= radius)
         .toList();
   }
+
+  bool _isRailLine(String code) => code == 'MARMARAY' || _metroStations.containsKey(code);
 
   RailServiceDay get railDay => _railDay ?? railServiceDay(DateTime.now());
   RailSchedule? railSchedule(String line) => _railSchedules[line == 'MARMARAY' ? 'B1' : line];
