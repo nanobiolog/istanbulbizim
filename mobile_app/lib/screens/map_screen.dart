@@ -15,6 +15,9 @@ import '../widgets/metro_train_detail_sheet.dart';
 import '../widgets/minimal_bottom_nav_card.dart';
 import '../widgets/quick_action_pills.dart';
 import '../widgets/settings_bottom_sheet.dart';
+import 'ar_navigation_screen.dart';
+import 'map3d_screen.dart';
+import 'station_view_screen.dart';
 
 class MapScreen extends StatefulWidget {
 
@@ -130,6 +133,58 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
 
+  void _open3D(TransitProvider provider, {String? followTrainId, MetroStation? station}) {
+    final cam = _mapController.camera;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => Map3DScreen(
+        center: station != null ? LatLng(station.lat, station.lon) : cam.center,
+        zoom: math.max(cam.zoom, 14.8),
+        followTrainId: followTrainId,
+        focusStation: station,
+      ),
+    ));
+  }
+
+  void _openStation(MetroStation st) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => StationViewScreen(station: st)));
+  }
+
+  /// AR toward the selected stop, else the nearest rail station (or stop) to the user.
+  Future<void> _openAr(TransitProvider provider) async {
+    final stop = provider.selectedStop;
+    if (stop != null) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ArNavigationScreen(targetName: stop.name, target: LatLng(stop.lat, stop.lon), targetStop: stop),
+      ));
+      return;
+    }
+    final me = provider.userLocation ?? await provider.locateUser();
+    if (!mounted) return;
+    if (me == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('AR yol tarifi için konum izni gerekli.'),
+      ));
+      return;
+    }
+    final st = provider.nearestStations(me, limit: 1, maxM: 4000);
+    if (st.isNotEmpty) {
+      final s = st.first.station;
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ArNavigationScreen(targetName: s.name, target: LatLng(s.lat, s.lon), targetLine: s.lineCode),
+      ));
+      return;
+    }
+    final bs = provider.nearestBusStops(me, limit: 1, maxM: 1500);
+    if (bs.isNotEmpty) {
+      final b = bs.first.stop;
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ArNavigationScreen(targetName: b.name, target: LatLng(b.lat, b.lon), targetStop: b),
+      ));
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Yakında istasyon veya durak bulunamadı.')));
+  }
+
   void _fitLineRouteOnMap(TransitProvider provider) {
     final route = provider.selectedLineRoute;
     if (route == null || route.directions.isEmpty) return;
@@ -229,7 +284,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   markers: _buildMetroStationMarkers(provider),
                 ),
 
-              // 60 FPS Moving Metro Trains Layer (Clickable & Colored, visible when zoomed in)
+              // Timetable-driven live trains (official Metro İstanbul times, Marmaray plan), near the camera
               if (provider.showMetroLines && provider.showMetroTrains && _currentZoom >= 12.0)
                 MarkerLayer(
                   markers: _buildMetroTrainMarkers(provider),
@@ -400,6 +455,36 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             ),
           ),
 
+          // ─── 4b. 3D CITY VIEW & AR WAYFINDING (left side) ───
+          Positioned(
+            left: 16,
+            bottom: provider.selectedStop != null
+                ? 380
+                : (provider.selectedTrain != null
+                    ? 320
+                    : (provider.selectedBus != null
+                        ? 225
+                        : (provider.selectedLineCode != null ? 185 : 110))),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _ModeButton(
+                  label: '3D',
+                  tooltip: '3D canlı harita',
+                  night: provider.isNightMode,
+                  onTap: () => _open3D(provider, followTrainId: provider.selectedTrain?.id),
+                ),
+                const SizedBox(height: 10),
+                _ModeButton(
+                  icon: Icons.view_in_ar_rounded,
+                  tooltip: 'AR yol tarifi',
+                  night: provider.isNightMode,
+                  onTap: () => _openAr(provider),
+                ),
+              ],
+            ),
+          ),
+
           // ─── 5. BOTTOM NAVIGATION SHEET / INSPECTION MODAL ───
           Positioned(
             left: 0,
@@ -408,13 +493,17 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             child: provider.selectedTrain != null
                 ? MetroTrainDetailSheet(
                     train: provider.selectedTrain!,
+                    statusItems: provider.railStatusFor(provider.selectedTrain!.lineCode),
+                    clock: provider.clock,
                     onClose: () => provider.selectTrain(null),
+                    onFollow3D: () => _open3D(provider, followTrainId: provider.selectedTrain?.id),
                   )
                 : provider.selectedStop != null
                     ? BusStopDetailSheet(
                         stop: provider.selectedStop!,
                         provider: provider,
                         onClose: () => provider.selectBusStop(null),
+                        onOpenAr: () => _openAr(provider),
                         onSelectLine: (line) {
                           provider.selectBusStop(null);
                           provider.selectLine(line);
@@ -579,11 +668,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
   }
 
-  // ─── 60 FPS MOVING METRO TRAINS LAYER BUILDER (Clickable & Colored) ───
+  // ─── LIVE TRAIN MARKERS (positions from the line timetables, clickable & colored) ───
   List<Marker> _buildMetroTrainMarkers(TransitProvider provider) {
     final markers = <Marker>[];
 
-    for (final train in provider.metroTrains) {
+    for (final train in provider.visibleMetroTrains) {
       final point = LatLng(train.currentLat, train.currentLon);
       final isSelected = provider.selectedTrain?.id == train.id;
       final isMarmaray = train.lineCode == 'B1' || train.lineCode == 'MARMARAY';
@@ -780,10 +869,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             alignment: Alignment.center,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () {
-                provider.selectLine(lineCode);
-                _animatedMapMove(LatLng(st.lat, st.lon), math.max(_currentZoom, 15.0));
-              },
+              onTap: () => _openStation(st),
               child: Center(
                 child: Container(
                   width: 16,
@@ -979,5 +1065,40 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     });
 
     return markers;
+  }
+}
+
+class _ModeButton extends StatelessWidget {
+  final String? label;
+  final IconData? icon;
+  final String tooltip;
+  final bool night;
+  final VoidCallback onTap;
+
+  const _ModeButton({this.label, this.icon, required this.tooltip, required this.night, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = night ? Colors.white : AppTheme.accentBlack;
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: night ? AppTheme.cardDark : AppTheme.surface,
+            shape: BoxShape.circle,
+            border: Border.all(color: night ? AppTheme.cardBorderDark : AppTheme.borderLight, width: 1.2),
+          ),
+          child: Center(
+            child: label != null
+                ? Text(label!, style: TextStyle(color: fg, fontWeight: FontWeight.w900, fontSize: 15))
+                : Icon(icon, color: fg, size: 24),
+          ),
+        ),
+      ),
+    );
   }
 }

@@ -8,6 +8,10 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>İstanbul Bizim</string>
+	<key>NSCameraUsageDescription</key>
+	<string>AR yol tarifinde istasyon ve durak yönlerini kamera görüntüsü üzerinde göstermek için kamera kullanılır.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>AR yol tarifinde telefonun baktığı yönü hesaplamak için pusula ve hareket sensörleri kullanılır.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Haritada anlık konumunuzu ve en yakın durak/otobüsleri göstermek için konum izni gereklidir.</string>
 	<key>CFBundleExecutable</key>

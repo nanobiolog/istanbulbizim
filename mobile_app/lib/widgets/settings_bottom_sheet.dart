@@ -410,8 +410,8 @@ class _SettingsBottomSheetState extends State<SettingsBottomSheet> {
               ),
               const Divider(height: 18),
               _buildSmallToggle(
-                'Simüle Edilen Metro Trenleri',
-                '60 FPS kinematik hareketli trenler',
+                'Canlı Trenler (Tarife)',
+                'Metro İstanbul resmî tarifesinden ${p.railOfficialLines}/${p.metroStations.length} hat • Marmaray sefer planı',
                 p.showMetroTrains,
                 (_) => p.toggleMetroTrains(),
               ),

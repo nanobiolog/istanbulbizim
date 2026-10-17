@@ -3,8 +3,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import '../models/rail_models.dart';
 import '../models/transit_models.dart';
 import '../services/eta_engine.dart';
+import '../services/rail_engine.dart';
+import '../services/rail_schedule_service.dart';
 import '../services/transit_api_service.dart';
 
 class TransitProvider extends ChangeNotifier {
@@ -56,6 +59,12 @@ class TransitProvider extends ChangeNotifier {
   Map<String, Color> _metroLineColors = {};
   List<MetroTrainVehicle> _metroTrains = [];
   Timer? _trainTicker;
+  late final RailScheduleService _rail = RailScheduleService(baseUrl: () => _apiService.baseUrl);
+  Map<String, List<RailStation>> _railStations = {};
+  final Map<String, RailSchedule> _railSchedules = {};
+  Map<String, List<RailStatusItem>> _railStatus = {};
+  RailServiceDay? _railDay;
+  int _railLoadedCount = 0;
 
   // Bus Stops (~14,000 Istanbul bus stops database)
   List<BusStop> _busStops = [];
@@ -80,6 +89,7 @@ class TransitProvider extends ChangeNotifier {
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       clock.value++;
       if (clock.value % 20 == 0) _refreshTraffic();
+      if (clock.value % 180 == 0) _refreshRailStatus();
     });
     _init();
   }
@@ -368,7 +378,7 @@ class TransitProvider extends ChangeNotifier {
       _metroLineColors[k] = TransitApiService.parseColorString(v);
     });
 
-    _initMetroTrainSimulation();
+    _initRailSchedules();
 
     final boot = await bootstrapFuture;
     if (_apiService.cartoApiKey != null && _apiService.cartoApiKey != _cartoApiKey) {
@@ -518,7 +528,8 @@ class TransitProvider extends ChangeNotifier {
     try {
       List<BusVehicle> raw;
       if (_selectedLineCode != null) {
-        raw = await _apiService.fetchBusesForLine(_selectedLineCode!);
+        // Rail lines have no IETT vehicles; their trains come from the timetable engine.
+        raw = _isRailLine(_selectedLineCode!) ? const [] : await _apiService.fetchBusesForLine(_selectedLineCode!);
       } else {
         raw = await _apiService.fetchFleetBuses();
         _fleetBuses = raw;
@@ -708,7 +719,7 @@ class TransitProvider extends ChangeNotifier {
 
     try {
       _selectedLineRoute = await _apiService.fetchLineRoute(upper);
-      final raw = await _apiService.fetchBusesForLine(upper);
+      final raw = _isRailLine(upper) ? const <BusVehicle>[] : await _apiService.fetchBusesForLine(upper);
       _buses = _enrichBusesWithNextStops(raw);
       _lastUpdated = DateTime.now();
       _lastSuccessfulSync = DateTime.now();
@@ -831,205 +842,209 @@ class TransitProvider extends ChangeNotifier {
   }
 
 
-  // ─── 60 FPS METRO TRAIN SIMULATION ENGINE ───
-  void _initMetroTrainSimulation() {
-    _metroTrains = [];
-    final rng = math.Random(42);
+  // ─── TIMETABLE-DRIVEN LIVE TRAINS (Metro İstanbul official timetables + Marmaray plan) ───
+  void _initRailSchedules() {
+    final day = railServiceDay(DateTime.now());
+    _railDay = day;
+    _railStations = {
+      for (final e in _metroStations.entries)
+        if (e.value.length >= 2)
+          e.key: e.value.map((s) => RailStation(name: s.name, lat: s.lat, lon: s.lon)).toList(),
+    };
+    // Trains appear instantly from the clock-anchored estimate, then switch to the official
+    // timetable for each line as it arrives.
+    for (final e in _railStations.entries) {
+      _railSchedules[e.key] = _rail.cached(e.key, day) ?? buildEstimatedSchedule(e.key, e.value, day);
+    }
+    _stepTrains();
+    _loadRailSchedules(day);
+    _refreshRailStatus();
 
-    _metroStations.forEach((lineCode, stations) {
-      if (stations.length < 2) return;
-      final isMarmaray = lineCode == 'B1' || lineCode == 'MARMARAY';
-      final trainCount = isMarmaray ? 10 : math.max(2, math.min(5, (stations.length / 4).floor()));
-
-      // Official Metro / Rail Kinematics
-      String systemType = 'Standart Metro';
-      double accRate = 0.89;
-      double decRate = 1.04;
-      String specText = 'Standart Metro (Ort. Hızlanma: 0,89 • Ort. Fren: 1,04 m/s²)';
-      double baseMaxSpeed = 75.0;
-
-      if (isMarmaray) {
-        systemType = 'Marmaray Banliyö Treni (TCDD)';
-        accRate = 0.95;
-        decRate = 1.05;
-        specText = 'Marmaray TCDD EMU (Hızlanma: 0,9-1,0 • Fren: 1,0-1,1 m/s²)';
-        baseMaxSpeed = 85.0;
-      } else if (lineCode == 'M5' || lineCode == 'M8') {
-        systemType = 'Sürücüsüz Metro';
-        accRate = 1.05;
-        decRate = 1.15;
-        specText = 'Sürücüsüz (Hızlanma: 1,0-1,1 • Fren: 1,1-1,2 m/s²)';
-        baseMaxSpeed = 80.0;
-      } else if (lineCode.startsWith('M1') || lineCode.startsWith('T')) {
-        systemType = lineCode.startsWith('M1') ? 'Hafif Metro' : 'Tramvay';
-        accRate = 1.10;
-        decRate = 1.20;
-        specText = 'Hafif Metro / Tramvay (Hızlanma: 1,0-1,2 • Fren: 1,1-1,3 m/s²)';
-        baseMaxSpeed = lineCode.startsWith('T') ? 48.0 : 70.0;
-      } else if (lineCode.startsWith('F') || lineCode.startsWith('TF')) {
-        systemType = lineCode.startsWith('F') ? 'Füniküler' : 'Teleferik';
-        accRate = 0.75;
-        decRate = 0.85;
-        specText = 'Kablolu Sistem (Hızlanma: 0,7-0,8 • Fren: 0,8-0,9 m/s²)';
-        baseMaxSpeed = 30.0;
-      }
-
-      final lineColor = getMetroLineColor(lineCode);
-
-      for (int i = 0; i < trainCount; i++) {
-        final dir = i % 2 == 0 ? 1 : -1;
-        final initialSeg = math.min(stations.length - 2, math.max(0, ((stations.length - 1) * (i / trainCount)).floor()));
-
-        final sFrom = dir == 1 ? stations[initialSeg] : stations[initialSeg + 1];
-        final sTo = dir == 1 ? stations[initialSeg + 1] : stations[initialSeg];
-
-        final maxSpeed = baseMaxSpeed + rng.nextInt(4);
-        final distM = math.max(350.0, _distanceMeters(sFrom.lat, sFrom.lon, sTo.lat, sTo.lon));
-        final segDuration = math.max(25.0, (distM / ((maxSpeed / 3.6) * 0.85)));
-        final initProg = ((i * 0.33) % 0.85) + 0.05;
-
-        final remMeters = distM * (1.0 - initProg);
-        final etaSec = math.max(1.0, segDuration * (1.0 - initProg));
-
-        _metroTrains.add(MetroTrainVehicle(
-          id: '$lineCode-${i + 1}',
-          lineCode: lineCode,
-          systemType: systemType,
-          color: lineColor,
-          stations: stations,
-          dir: dir,
-          segIdx: initialSeg,
-          progress: initProg,
-          currentSpeed: maxSpeed * 0.85,
-          currentAcc: 0.0,
-          accRate: accRate,
-          decRate: decRate,
-          specText: specText,
-          currentLat: sFrom.lat + (sTo.lat - sFrom.lat) * initProg,
-          currentLon: sFrom.lon + (sTo.lon - sFrom.lon) * initProg,
-          segDurationSec: segDuration,
-          timeInSegSec: segDuration * initProg,
-          maxSpeed: maxSpeed,
-          targetStationName: sTo.name,
-          prevStationName: sFrom.name,
-          remainingMeters: remMeters,
-          etaSec: etaSec,
-        ));
-      }
-    });
-
-    // Run tick every 100ms for ultra-smooth movement on map
     _trainTicker?.cancel();
-    _trainTicker = Timer.periodic(const Duration(milliseconds: 100), (_) {
+    _trainTicker = Timer.periodic(const Duration(milliseconds: 250), (_) {
       if (!_showMetroLines || !_showMetroTrains) return;
-      _stepTrains(0.1);
+      _stepTrains();
     });
   }
 
-  void _stepTrains(double dt) {
-    bool hasMoved = false;
-
-    for (final t in _metroTrains) {
-      final stns = t.stations;
-      if (stns.length < 2) continue;
-
-      if (t.state == 'AT_STATION') {
-        t.dwellRemaining -= dt;
-        t.currentSpeed = 0.0;
-        t.currentAcc = 0.0;
-        t.remainingMeters = 0.0;
-        t.etaSec = t.dwellRemaining;
-
-        if (t.dwellRemaining <= 0) {
-          t.dwellRemaining = 0;
-          // Reverse direction at terminal stations
-          if (t.dir == 1) {
-            if (t.segIdx >= stns.length - 2) {
-              t.dir = -1;
-              t.segIdx = stns.length - 2;
-            } else {
-              t.segIdx += 1;
-            }
-          } else {
-            if (t.segIdx <= 0) {
-              t.dir = 1;
-              t.segIdx = 0;
-            } else {
-              t.segIdx -= 1;
-            }
-          }
-
-          final nextFrom = t.dir == 1 ? stns[t.segIdx] : stns[t.segIdx + 1];
-          final nextTo = t.dir == 1 ? stns[t.segIdx + 1] : stns[t.segIdx];
-          final distM = math.max(350.0, _distanceMeters(nextFrom.lat, nextFrom.lon, nextTo.lat, nextTo.lon));
-
-          t.segDurationSec = math.max(25.0, distM / ((t.maxSpeed / 3.6) * 0.85));
-          t.timeInSegSec = 0;
-          t.progress = 0;
-          t.state = 'ACCELERATING';
-          t.currentAcc = t.accRate;
-          t.currentSpeed = 15.0;
-          t.prevStationName = nextFrom.name;
-          t.targetStationName = nextTo.name;
-          t.remainingMeters = distM;
-          t.etaSec = t.segDurationSec;
-        }
-      } else {
-        t.timeInSegSec += dt;
-        t.progress = math.min(1.0, t.timeInSegSec / t.segDurationSec);
-
-        final sFrom = t.dir == 1 ? stns[t.segIdx] : stns[t.segIdx + 1];
-        final sTo = t.dir == 1 ? stns[t.segIdx + 1] : stns[t.segIdx];
-
-        if (t.progress >= 1.0) {
-          t.progress = 1.0;
-          t.state = 'AT_STATION';
-          t.currentSpeed = 0;
-          t.currentAcc = 0.0;
-          t.dwellRemaining = 12.0;
-          t.currentLat = sTo.lat;
-          t.currentLon = sTo.lon;
-          t.remainingMeters = 0.0;
-          t.etaSec = 0.0;
-        } else {
-          t.currentLat = sFrom.lat + (sTo.lat - sFrom.lat) * t.progress;
-          t.currentLon = sFrom.lon + (sTo.lon - sFrom.lon) * t.progress;
-
-          final remMeters = _distanceMeters(t.currentLat, t.currentLon, sTo.lat, sTo.lon);
-          t.remainingMeters = remMeters;
-
-          // Kinematics phase transitions
-          if (t.progress < 0.20) {
-            t.state = 'ACCELERATING';
-            t.currentAcc = t.accRate;
-            t.currentSpeed = math.max(15.0, t.maxSpeed * (0.2 + 0.8 * (t.progress / 0.20)));
-          } else if (t.progress > 0.80) {
-            t.state = 'DECELERATING';
-            t.currentAcc = -t.decRate;
-            t.currentSpeed = math.max(12.0, t.maxSpeed * (1.0 - (t.progress - 0.80) / 0.20 * 0.8));
-          } else {
-            t.state = 'CRUISING';
-            t.currentAcc = 0.0;
-            t.currentSpeed = t.maxSpeed;
-          }
-
-          // Smooth realistic countdown: ticks down 1 second per 1 real second,
-          // matching the segment travel time without rapid dropping during acceleration.
-          t.etaSec = math.max(1.0, t.segDurationSec - t.timeInSegSec);
-        }
-        hasMoved = true;
-      }
-
-      // Synchronize inspected train reference so the live sheet auto-updates
-      if (_selectedTrain != null && _selectedTrain!.id == t.id) {
-        _selectedTrain = t;
+  Future<void> _loadRailSchedules(RailServiceDay day) async {
+    // Busiest lines first so the most-used trains become official soonest.
+    const priority = ['B1', 'M2', 'M4', 'M1A', 'M1B', 'T1', 'M5', 'M3', 'M7', 'M9', 'M8', 'T4', 'T5', 'M6', 'T3', 'F1', 'F4', 'TF1', 'TF2'];
+    final codes = _railStations.keys.toList()
+      ..sort((a, b) {
+        final ia = priority.indexOf(a), ib = priority.indexOf(b);
+        return (ia < 0 ? 99 : ia).compareTo(ib < 0 ? 99 : ib);
+      });
+    var next = 0;
+    Future<void> worker() async {
+      while (next < codes.length) {
+        final code = codes[next++];
+        final sched = await _rail.load(code, _railStations[code]!, day);
+        if (_railDay?.dateKey != day.dateKey) return;
+        _railSchedules[code] = sched.withStatus(_railStatus[code] ?? const []);
+        _railLoadedCount++;
+        notifyListeners();
       }
     }
 
-    // Simulation steps at 10 Hz for smooth motion; rebuild listeners at 5 Hz.
-    if (hasMoved && (++_trainNotifyTick % 2 == 0)) {
+    await Future.wait(List.generate(3, (_) => worker()));
+  }
+
+  Future<void> _refreshRailStatus() async {
+    final st = await _rail.loadStatus();
+    if (st == null) return;
+    _railStatus = st;
+    _railSchedules.updateAll((k, v) => v.withStatus(st[k] ?? const []));
+    notifyListeners();
+  }
+
+  void _stepTrains() {
+    final now = DateTime.now();
+    final day = railServiceDay(now);
+    if (_railDay != null && day.dateKey != _railDay!.dateKey) {
+      // 03:00 rollover: load the new service day's timetables.
+      _railDay = day;
+      for (final e in _railStations.entries) {
+        _railSchedules[e.key] = buildEstimatedSchedule(e.key, e.value, day);
+      }
+      _loadRailSchedules(day);
+    }
+    _railDay = day;
+    final frac = now.millisecond / 1000.0;
+
+    final trains = <MetroTrainVehicle>[];
+    _railSchedules.forEach((code, sched) {
+      final prof = railProfile(code);
+      final color = getMetroLineColor(code);
+      for (final t in railPositions(sched, day, extraSec: frac)) {
+        trains.add(MetroTrainVehicle(
+          id: t.id,
+          lineCode: code,
+          systemType: prof.systemType,
+          color: color,
+          stations: _metroStations[code] ?? const [],
+          dir: t.dir == 'G' ? 1 : -1,
+          segIdx: math.min(t.prevIndex, t.nextIndex),
+          progress: t.progress,
+          currentSpeed: t.speedKmh,
+          currentAcc: t.accel,
+          accRate: prof.accel,
+          decRate: prof.decel,
+          specText: prof.specText,
+          currentLat: t.lat,
+          currentLon: t.lon,
+          state: t.state,
+          dwellRemaining: t.state == 'AT_STATION' ? t.etaSec : 0,
+          segDurationSec: 0,
+          timeInSegSec: 0,
+          maxSpeed: prof.cruiseKmh,
+          targetStationName: sched.stations[t.nextIndex].name,
+          prevStationName: sched.stations[t.prevIndex].name,
+          remainingMeters: t.remainingMeters,
+          etaSec: t.etaSec,
+          headsign: t.headsign,
+          dirCode: t.dir,
+          bearing: t.bearing,
+          upcoming: t.upcoming,
+          official: t.official,
+          source: sched.source,
+        ));
+      }
+    });
+    _metroTrains = trains;
+
+    if (_selectedTrain != null) {
+      final match = trains.where((t) => t.id == _selectedTrain!.id).firstOrNull;
+      if (match != null) _selectedTrain = match;
+    }
+    if (++_trainNotifyTick % 2 == 0 || _selectedTrain != null) {
       notifyListeners();
     }
+  }
+
+  /// Trains near the camera (a timetable-accurate network has 300+ trains at peak).
+  List<MetroTrainVehicle> get visibleMetroTrains {
+    if (_currentZoom < 12.0) return const [];
+    final radius = (9000.0 * math.pow(2.0, 13.0 - _currentZoom)).clamp(1500.0, 20000.0);
+    final c = _cameraCenter;
+    return _metroTrains
+        .where((t) => _selectedTrain?.id == t.id || _distanceMeters(c.latitude, c.longitude, t.currentLat, t.currentLon) <= radius)
+        .toList();
+  }
+
+  bool _isRailLine(String code) => code == 'MARMARAY' || _metroStations.containsKey(code);
+
+  RailServiceDay get railDay => _railDay ?? railServiceDay(DateTime.now());
+  RailSchedule? railSchedule(String line) => _railSchedules[line == 'MARMARAY' ? 'B1' : line];
+  List<RailStatusItem> railStatusFor(String line) => _railStatus[line == 'MARMARAY' ? 'B1' : line] ?? const [];
+  int get railOfficialLines => _railSchedules.values.where((s) => s.official).length;
+  int get railLoadedCount => _railLoadedCount;
+
+  /// Next departures from [stationIndex] of [line] computed from the loaded schedule.
+  List<RailDeparture> departuresAt(String line, int stationIndex, {int perDirection = 4}) {
+    final s = railSchedule(line);
+    if (s == null) return const [];
+    return railDeparturesAt(s, stationIndex, railServiceDay(DateTime.now()), perDirection: perDirection);
+  }
+
+  /// Exact official departures from the Worker's per-station timetable (null when offline).
+  Future<List<RailDeparture>?> officialDepartures(String line, String station) =>
+      _rail.officialDepartures(line == 'MARMARAY' ? 'B1' : line, station, railServiceDay(DateTime.now()));
+
+  /// Every line calling at (or interchanging within [radiusM] of) [station].
+  List<({String line, int index, MetroStation station})> linesAtStation(MetroStation station, {double radiusM = 350}) {
+    final out = <({String line, int index, MetroStation station})>[];
+    final want = railPlainName(station.name);
+    _metroStations.forEach((line, list) {
+      for (var i = 0; i < list.length; i++) {
+        final s = list[i];
+        final d = _distanceMeters(station.lat, station.lon, s.lat, s.lon);
+        final p = railPlainName(s.name);
+        final sameName = p.isNotEmpty && want.isNotEmpty && (p.contains(want) || want.contains(p));
+        if (d <= radiusM || (sameName && d <= 900)) {
+          out.add((line: line, index: i, station: s));
+          break;
+        }
+      }
+    });
+    out.sort((a, b) => a.line == station.lineCode ? -1 : (b.line == station.lineCode ? 1 : a.line.compareTo(b.line)));
+    return out;
+  }
+
+  /// Nearest rail stations to [p] (AR / station search).
+  List<({MetroStation station, double distM})> nearestStations(LatLng p, {int limit = 8, double maxM = 3000}) {
+    final best = <String, ({MetroStation station, double distM})>{};
+    _metroStations.forEach((line, list) {
+      for (final s in list) {
+        final d = _distanceMeters(p.latitude, p.longitude, s.lat, s.lon);
+        if (d > maxM) continue;
+        final key = '${railPlainName(s.name)}@${(s.lat * 500).round()},${(s.lon * 500).round()}';
+        final cur = best[key];
+        if (cur == null || d < cur.distM) best[key] = (station: s, distM: d);
+      }
+    });
+    final list = best.values.toList()..sort((a, b) => a.distM.compareTo(b.distM));
+    return list.take(limit).toList();
+  }
+
+  /// Nearest bus stops to [p] using the spatial grid.
+  List<({BusStop stop, double distM})> nearestBusStops(LatLng p, {int limit = 8, double maxM = 800}) {
+    final grid = _apiService.busStopsGrid;
+    final out = <({BusStop stop, double distM})>[];
+    final latCell = (p.latitude * 50).floor();
+    final lonCell = (p.longitude * 50).floor();
+    for (var dy = -1; dy <= 1; dy++) {
+      for (var dx = -1; dx <= 1; dx++) {
+        final cell = grid[((latCell + dy) << 16) ^ ((lonCell + dx) & 0xFFFF)];
+        if (cell == null) continue;
+        for (final s in cell) {
+          final d = _distanceMeters(p.latitude, p.longitude, s.lat, s.lon);
+          if (d <= maxM) out.add((stop: s, distM: d));
+        }
+      }
+    }
+    out.sort((a, b) => a.distM.compareTo(b.distM));
+    return out.take(limit).toList();
   }
 
   // Location handling
