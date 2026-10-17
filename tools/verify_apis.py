@@ -189,6 +189,11 @@ def metro_tt():
     return len(times) > 20, f"M2 lineId={lid}, stations={len(stations)}, directions={len(dirs)}, times={len(times)}", {"directions": dirs[:2], "timetable_head": json.dumps(tt)[:400]}
 
 
+def metro_status():
+    rows = metro_call("GetServiceStatuses")
+    return isinstance(rows, list), f"announcements={len(rows)}", rows[:1]
+
+
 def ckan():
     _, txt = http(f"{CKAN}/package_show?id=hourly-traffic-density-data-set")
     res = json.loads(txt)["result"]["resources"]
@@ -233,6 +238,21 @@ def w_timetable_metro(base):
     return d.get("official") is True, f"official={d.get('official')}, entries={len(d['entries'])}, estimated_entries={est}, note={d.get('note')}", d["entries"][:1]
 
 
+def w_rail(base):
+    d = worker_get(base, "/rail/schedule?line=M2")
+    dirs = d.get("directions") or []
+    trips = sum(len(x["trips"]) for x in dirs)
+    pts = [f"{x['dir']}:{x['timetable_points']}/{len(x['offsets'])}" for x in dirs]
+    ok = d.get("official") is True and len(dirs) == 2 and trips > 100
+    return ok, f"official={d.get('official')}, trips={trips}, timetable_points={pts}, calls={d.get('upstream_calls')}, status={len(d.get('status') or [])}", {"offsets_G": dirs[0]["offsets"] if dirs else None}
+
+
+def w_rail_marmaray(base):
+    d = worker_get(base, "/rail/schedule?line=B1")
+    trips = sum(len(x["trips"]) for x in d.get("directions") or [])
+    return trips > 100, f"trips={trips}, official={d.get('official')} (plan-based)", None
+
+
 def w_stop(base):
     d = worker_get(base, "/stop/arrivals?code=100022")
     return "arrivals" in d, f"arrivals={len(d['arrivals'])}, candidate_lines={d['candidate_lines']}, skipped={d['skipped_lines']}", d["arrivals"][:1]
@@ -266,6 +286,7 @@ def main():
     check("IBB GetDuyurular_json (announcements)", duyuru)
     check("Metro İstanbul GetLines", metro)
     check("Metro İstanbul GetTimeTable (M2)", metro_tt)
+    check("Metro İstanbul GetServiceStatuses", metro_status)
     check("data.ibb.gov.tr CKAN hourly traffic density", ckan)
 
     if not a.no_worker:
@@ -274,6 +295,7 @@ def main():
             ("Worker /bootstrap", w_boot), ("Worker /buses", w_buses), ("Worker /traffic", w_traffic),
             ("Worker /line?code=15B (ETA fields)", w_line), ("Worker /timetable bus", w_timetable_bus),
             ("Worker /timetable M2 (official)", w_timetable_metro), ("Worker /stop/arrivals", w_stop),
+            ("Worker /rail/schedule M2 (timetable trips)", w_rail), ("Worker /rail/schedule B1 (Marmaray plan)", w_rail_marmaray),
             ("Worker /diag (edge self-check)", w_diag),
         ]:
             check(name, lambda fn=fn: fn(a.worker))

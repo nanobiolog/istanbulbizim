@@ -229,7 +229,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   markers: _buildMetroStationMarkers(provider),
                 ),
 
-              // 60 FPS Moving Metro Trains Layer (Clickable & Colored, visible when zoomed in)
+              // Timetable-driven live trains (official Metro İstanbul times, Marmaray plan), near the camera
               if (provider.showMetroLines && provider.showMetroTrains && _currentZoom >= 12.0)
                 MarkerLayer(
                   markers: _buildMetroTrainMarkers(provider),
@@ -408,6 +408,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             child: provider.selectedTrain != null
                 ? MetroTrainDetailSheet(
                     train: provider.selectedTrain!,
+                    statusItems: provider.railStatusFor(provider.selectedTrain!.lineCode),
+                    clock: provider.clock,
                     onClose: () => provider.selectTrain(null),
                   )
                 : provider.selectedStop != null
@@ -579,11 +581,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
   }
 
-  // ─── 60 FPS MOVING METRO TRAINS LAYER BUILDER (Clickable & Colored) ───
+  // ─── LIVE TRAIN MARKERS (positions from the line timetables, clickable & colored) ───
   List<Marker> _buildMetroTrainMarkers(TransitProvider provider) {
     final markers = <Marker>[];
 
-    for (final train in provider.metroTrains) {
+    for (final train in provider.visibleMetroTrains) {
       final point = LatLng(train.currentLat, train.currentLon);
       final isSelected = provider.selectedTrain?.id == train.id;
       final isMarmaray = train.lineCode == 'B1' || train.lineCode == 'MARMARAY';

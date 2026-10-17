@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
+import 'rail_models.dart';
+
 class BusVehicle {
   final String id;
   final double lat;
@@ -315,7 +317,8 @@ class MetroStation {
   }
 }
 
-/// Simulated 60 FPS Metro Train conforming to Istanbul Metro Kinematics
+/// A train placed on the map from its line's timetable (see `rail_engine.dart`), with the
+/// accelerate / cruise / brake phase of the current station-to-station run.
 class MetroTrainVehicle {
   final String id;
   final String lineCode;
@@ -342,6 +345,16 @@ class MetroTrainVehicle {
   double remainingMeters;
   double etaSec;
 
+  /// Terminus of this trip (short-turns end mid-line).
+  final String headsign;
+  final String dirCode; // 'G' | 'D'
+  final double bearing;
+  final List<RailStopCall> upcoming;
+
+  /// True when positions come from the official Metro İstanbul timetable.
+  final bool official;
+  final String source;
+
   MetroTrainVehicle({
     required this.id,
     required this.lineCode,
@@ -367,6 +380,12 @@ class MetroTrainVehicle {
     required this.prevStationName,
     this.remainingMeters = 0,
     this.etaSec = 0,
+    this.headsign = '',
+    this.dirCode = '',
+    this.bearing = 0,
+    this.upcoming = const [],
+    this.official = false,
+    this.source = '',
   });
 
   String get accDisplay {
