@@ -3,7 +3,9 @@ import 'dart:math' as math;
 import 'package:latlong2/latlong.dart';
 
 import '../models/network_models.dart';
+import '../models/rail_models.dart';
 import 'network_repository.dart';
+import 'rail_engine.dart' show railPlainName;
 
 enum MotionState { accelerating, cruising, braking, atStation }
 
@@ -109,12 +111,17 @@ class _RailRun {
   final RailLine line;
   final RailVariant v;
   final int direction;
-  final List<double> arr; // s from origin departure to arrival at stop i
-  final List<double> dep; // s from origin departure to departure from stop i
-  final List<int> departures; // origin departures, seconds of the service day
-  final List<_Seg> segs;
+  List<double> arr; // s from origin departure to arrival at stop i
+  List<double> dep; // s from origin departure to departure from stop i
+  List<int> departures; // origin departures, seconds of the service day (sorted)
+  List<_Seg> segs;
+
+  /// Stop range each departure actually runs (short-turns); null = the whole variant.
+  List<int>? fromIdx, toIdx;
   _RailRun(this.line, this.v, this.direction, this.arr, this.dep, this.departures, this.segs);
   double get total => arr.last;
+  int from(int k) => fromIdx?[k] ?? 0;
+  int to(int k) => toIdx?[k] ?? v.stops.length - 1;
 }
 
 class _Seg {
@@ -132,6 +139,20 @@ class _Seg {
     final vp = math.sqrt(2 * d * a * b / (a + b));
     final t1 = vp / a;
     return _Seg(d, vp, t1, t1, t1 + vp / b, a, b);
+  }
+
+  /// Profile that covers [d] metres in exactly [t] seconds (official run times).
+  factory _Seg.timed(double d, double t, double a, double b) {
+    final k = 1 / (2 * a) + 1 / (2 * b);
+    final disc = t * t - 4 * k * d;
+    if (disc <= 0) {
+      // too tight for the cruise phase: triangular profile scaled to the time
+      final vp = 2 * d / math.max(1, t);
+      return _Seg(d, vp, t * b / (a + b), t * b / (a + b), t, vp / (t * b / (a + b)), vp / (t * a / (a + b)));
+    }
+    final v = ((t - math.sqrt(disc)) / (2 * k)).clamp(2.0, 40.0);
+    final t1 = v / a, cruise = math.max(0.0, (d - v * v / (2 * a) - v * v / (2 * b)) / v);
+    return _Seg(d, v, t1, t1 + cruise, t1 + cruise + v / b, a, b);
   }
 
   (double, double, MotionState) at(double tau) {
@@ -203,6 +224,180 @@ class ScheduleEngine {
     }
   }
 
+  final Set<String> _official = {};
+
+  /// True when [line]'s trains run on the official Metro İstanbul timetable.
+  bool isOfficial(String line) => _official.contains(line);
+
+  /// Replaces the headway estimate of [s.line] with the official timetable (per-station offsets,
+  /// trips incl. short-turns, dwell). Stations of the official list are matched to the network by
+  /// position and name; stations missing from it are interpolated by distance.
+  bool applyOfficial(RailSchedule s) {
+    if (!s.official || s.stations.length < 2) return false;
+    final runs = _runs.where((r) => r.line.code == s.line).toList();
+    if (runs.isEmpty) return false;
+    final n = s.stations.length;
+    final plain = [for (final st in s.stations) railPlainName(st.name)];
+    int? named(RailStop stop) {
+      final ns = repo.stations[stop.stationId];
+      final want = ns == null ? '' : railPlainName(ns.name);
+      if (want.isEmpty) return null;
+      int? best;
+      var bd = 1500.0;
+      for (var i = 0; i < n; i++) {
+        if (!(plain[i] == want || plain[i].contains(want) || want.contains(plain[i]))) continue;
+        final d = haversine(stop.pos.latitude, stop.pos.longitude, s.stations[i].lat, s.stations[i].lon);
+        if (d < bd) {
+          bd = d;
+          best = i;
+        }
+      }
+      return best;
+    }
+
+    /// Name matches win; proximity only fills stations without one and never takes a claimed slot.
+    List<int?> matchAll(List<RailStop> stops) {
+      final byName = [for (final st in stops) named(st)];
+      final claimed = byName.whereType<int>().toSet();
+      return [
+        for (var k = 0; k < stops.length; k++)
+          byName[k] ??
+              (() {
+                int? best;
+                var bd = 350.0;
+                for (var i = 0; i < n; i++) {
+                  if (claimed.contains(i)) continue;
+                  final d = haversine(stops[k].pos.latitude, stops[k].pos.longitude, s.stations[i].lat, s.stations[i].lon);
+                  if (d < bd) {
+                    bd = d;
+                    best = i;
+                  }
+                }
+                return best;
+              })(),
+      ];
+    }
+
+    // run -> (direction, travel position per stop or -1, first/last mapped stop, origin departures)
+    final assigned = <_RailRun, (RailDirection, List<int>, int, int, List<int>)>{};
+    for (final r in runs) {
+      final raw = matchAll(r.v.stops);
+      final mappedIdx = [for (var i = 0; i < raw.length; i++) if (raw[i] != null) i];
+      if (mappedIdx.length < math.min(3, raw.length)) continue;
+      for (final d in s.directions) {
+        if (d.offsets.length != n) continue;
+        // keep only mappings that advance strictly in travel order (drops mislocated stations)
+        final pos = List<int>.filled(raw.length, -1);
+        var last = -1;
+        for (final i in mappedIdx) {
+          final p = d.posOf(raw[i]!, n);
+          if (p > last) {
+            pos[i] = p;
+            last = p;
+          }
+        }
+        final kept = [for (var i = 0; i < pos.length; i++) if (pos[i] >= 0) i];
+        if (kept.length < math.max(2, (mappedIdx.length * 0.6).ceil())) continue;
+        assigned[r] = (d, pos, kept.first, kept.last, <int>[]);
+        break;
+      }
+    }
+    if (assigned.isEmpty) return false;
+    // each official trip goes to the run it overlaps most; short-turns keep their stop range
+    final ranges = <_RailRun, List<(int, int)>>{};
+    for (final d in s.directions) {
+      final mine = assigned.entries.where((e) => identical(e.value.$1, d)).toList();
+      for (final trip in d.trips) {
+        _RailRun? best;
+        var bestOverlap = 0;
+        for (final e in mine) {
+          final p0 = e.value.$2[e.value.$3], p1 = e.value.$2[e.value.$4];
+          final int overlap = math.min(p1, trip.to) - math.max(p0, trip.from);
+          if (overlap > bestOverlap) {
+            bestOverlap = overlap;
+            best = e.key;
+          }
+        }
+        if (best == null) continue;
+        final (_, pos, first, last, deps) = assigned[best]!;
+        // virtual departure at the first mapped stop (earlier than the trip start for short-turns)
+        deps.add(trip.dep + d.offsets[pos[first]] - d.offsets[trip.from]);
+        // first / last stop of the variant inside the trip
+        var iFrom = 0, iTo = pos.length - 1;
+        if (trip.from > pos[first]) {
+          iFrom = pos.indexWhere((p) => p >= trip.from);
+          if (iFrom < 0) iFrom = 0;
+        }
+        if (trip.to < pos[last]) {
+          iTo = pos.lastIndexWhere((p) => p >= 0 && p <= trip.to);
+          if (iTo <= iFrom) iTo = pos.length - 1;
+        }
+        ranges.putIfAbsent(best, () => []).add((iFrom, iTo));
+      }
+    }
+    var applied = 0;
+    final dwell = s.dwellSec.toDouble();
+    for (final e in assigned.entries) {
+      final r = e.key;
+      final (d, pos, first, last, depsAtFirst) = e.value;
+      if (depsAtFirst.isEmpty) continue;
+      final m = pos.length;
+      // departure offsets relative to the first mapped stop
+      final off = List<double?>.filled(m, null);
+      for (var i = first; i <= last; i++) {
+        if (pos[i] >= 0) off[i] = (d.offsets[pos[i]] - d.offsets[pos[first]]).toDouble();
+      }
+      for (var i = first + 1; i < last; i++) {
+        if (off[i] != null) continue;
+        var b = i + 1;
+        while (off[b] == null) {
+          b++;
+        }
+        final a = i - 1;
+        final da = r.v.stops[a].distM, db = r.v.stops[b].distM, di = r.v.stops[i].distM;
+        off[i] = off[a]! + (off[b]! - off[a]!) * ((di - da) / math.max(1, db - da));
+      }
+      // stations beyond the official list (newer extensions): keep the estimated run times
+      for (var i = last + 1; i < m; i++) {
+        off[i] = off[i - 1]! + (r.dep[i] - r.dep[i - 1]);
+      }
+      for (var i = first - 1; i >= 0; i--) {
+        off[i] = off[i + 1]! - (r.dep[i + 1] - r.dep[i]);
+      }
+      final shift = off[0]!;
+      final depOff = [for (final o in off) o! - shift];
+      final arr = <double>[0], dep = <double>[0], segs = <_Seg>[];
+      var ok = true;
+      for (var i = 1; i < m; i++) {
+        final isLast = i == m - 1;
+        final arrive = isLast ? depOff[i] : math.max(depOff[i - 1] + 20, depOff[i] - dwell);
+        final run = arrive - dep[i - 1];
+        if (run <= 5) {
+          ok = false;
+          break;
+        }
+        final dist = math.max(80.0, r.v.stops[i].distM - r.v.stops[i - 1].distM);
+        segs.add(_Seg.timed(dist, run, r.line.mode.accel, r.line.mode.decel));
+        arr.add(arrive);
+        dep.add(isLast ? arrive : math.max(arrive, depOff[i]));
+      }
+      if (!ok) continue;
+      final rg = ranges[r] ?? const <(int, int)>[];
+      final order = List<int>.generate(depsAtFirst.length, (i) => i)..sort((a, b) => depsAtFirst[a].compareTo(depsAtFirst[b]));
+      final full = rg.every((x) => x.$1 == 0 && x.$2 == m - 1);
+      r
+        ..arr = arr
+        ..dep = dep
+        ..segs = segs
+        ..departures = [for (final i in order) (depsAtFirst[i] + shift).round()] // origin departures
+        ..fromIdx = full ? null : [for (final i in order) i < rg.length ? rg[i].$1 : 0]
+        ..toIdx = full ? null : [for (final i in order) i < rg.length ? rg[i].$2 : m - 1];
+      applied++;
+    }
+    if (applied > 0) _official.add(s.line);
+    return applied > 0;
+  }
+
   static List<int> _departures(List<Headway> bands, bool halfOffset) {
     final out = <int>[];
     if (bands.isEmpty) return out;
@@ -241,7 +436,10 @@ class ScheduleEngine {
           }
         }
         for (var k = lo; k < deps.length && deps[k] <= t; k++) {
-          final tr = _place(r, deps[k], t - deps[k]);
+          final tau = t - deps[k];
+          final a = r.from(k), b = r.to(k);
+          if (tau < r.arr[a] - (a == 0 ? 0 : r.line.dwellS) || tau > r.arr[b] + (b == r.v.stops.length - 1 ? 0 : 20)) continue;
+          final tr = _place(r, deps[k], tau);
           if (tr != null) out.add(tr);
         }
       }
@@ -291,7 +489,7 @@ class ScheduleEngine {
   }
 
   /// Next two departures from [station] per line and direction.
-  List<DepartureEstimate> departuresAt(RailStation station, DateTime now) {
+  List<DepartureEstimate> departuresAt(NetworkStation station, DateTime now) {
     final t0 = secondsOfDay(now);
     final best = <String, List<double>>{};
     final meta = <String, (RailLine, String, int)>{};
@@ -304,8 +502,9 @@ class ScheduleEngine {
       meta[key] = (r.line, towards, r.direction);
       final list = best.putIfAbsent(key, () => []);
       for (final base in [0.0, 86400.0]) {
-        for (final d in r.departures) {
-          final at = d + base + r.dep[idx];
+        for (var k = 0; k < r.departures.length; k++) {
+          if (idx < r.from(k) || idx >= r.to(k)) continue;
+          final at = r.departures[k] + base + r.dep[idx];
           if (at >= t0 - 5 && at < t0 + 4 * 3600) list.add(at);
         }
       }
@@ -328,7 +527,7 @@ class ScheduleEngine {
 
   /// Last and next scheduled departure of [line] from [station] in each direction
   /// (seconds of the day). Drives the trains in the 3D station views.
-  Map<int, StationEvents> stationEvents(RailStation station, RailLine line, DateTime now) {
+  Map<int, StationEvents> stationEvents(NetworkStation station, RailLine line, DateTime now) {
     final t0 = secondsOfDay(now);
     final out = <int, StationEvents>{};
     for (final r in _runs) {
@@ -336,9 +535,11 @@ class ScheduleEngine {
       final idx = r.v.indexOfStation(station.id);
       if (idx < 0) continue;
       final ev = out.putIfAbsent(r.direction, () => StationEvents(r.direction));
-      final terminal = idx == r.v.stops.length - 1;
       for (final base in [-86400.0, 0.0, 86400.0]) {
-        for (final d in r.departures) {
+        for (var k = 0; k < r.departures.length; k++) {
+          if (idx < r.from(k) || idx > r.to(k)) continue;
+          final terminal = idx == r.to(k);
+          final d = r.departures[k];
           final arr = d + base + r.arr[idx];
           final dep = d + base + (terminal ? r.arr[idx] + line.dwellS : r.dep[idx]);
           if (dep <= t0 && (ev.lastDeparture == null || dep > ev.lastDeparture!)) ev.lastDeparture = dep;

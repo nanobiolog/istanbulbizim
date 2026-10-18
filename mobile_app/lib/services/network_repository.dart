@@ -13,7 +13,7 @@ import '../models/network_models.dart';
 class NetworkRepository {
   List<RailLine> lines = const [];
   Map<String, RailLine> lineByCode = const {};
-  Map<String, RailStation> stations = const {};
+  Map<String, NetworkStation> stations = const {};
   List<RailProject> projects = const [];
 
   Map<String, FerryOperator> operators = const {};
@@ -68,7 +68,7 @@ class NetworkRepository {
           .where((l) => l.variants.isNotEmpty)
           .toList();
       final st = rail['stations'] as Map<String, dynamic>? ?? const {};
-      p.stations = {for (final e in st.entries) e.key: RailStation.fromJson(e.key, e.value as Map<String, dynamic>)};
+      p.stations = {for (final e in st.entries) e.key: NetworkStation.fromJson(e.key, e.value as Map<String, dynamic>)};
       p.projects = (rail['projects'] as List? ?? const [])
           .map((x) => RailProject.fromJson(x as Map<String, dynamic>))
           .toList();
@@ -131,11 +131,11 @@ class NetworkRepository {
     return [pa, pb];
   }
 
-  List<RailLine> linesAt(RailStation s) =>
+  List<RailLine> linesAt(NetworkStation s) =>
       s.lines.map((c) => lineByCode[c]).whereType<RailLine>().toList();
 
-  RailStation? nearestStation(LatLng p, {double maxM = 1200}) {
-    RailStation? best;
+  NetworkStation? nearestStation(LatLng p, {double maxM = 1200}) {
+    NetworkStation? best;
     var bd = maxM;
     for (final s in stations.values) {
       final d = haversine(p.latitude, p.longitude, s.pos.latitude, s.pos.longitude);
@@ -152,7 +152,7 @@ class NetworkRepository {
 
 class _Parsed {
   List<RailLine> lines = const [];
-  Map<String, RailStation> stations = const {};
+  Map<String, NetworkStation> stations = const {};
   List<RailProject> projects = const [];
   Map<String, FerryOperator> operators = const {};
   Map<String, Pier> piers = const {};

@@ -14,7 +14,10 @@ class StationSheet extends StatelessWidget {
   final VoidCallback onClose;
   final void Function(LatLngLike target) onFocusMap;
 
-  const StationSheet({super.key, required this.provider, required this.onClose, required this.onFocusMap});
+  /// Opens the station view (walking route from your location, 3D route, AR).
+  final VoidCallback? onOpenStationView;
+
+  const StationSheet({super.key, required this.provider, required this.onClose, required this.onFocusMap, this.onOpenStationView});
 
   @override
   Widget build(BuildContext context) {
@@ -93,6 +96,10 @@ class StationSheet extends StatelessWidget {
                 ),
               ),
             ]),
+            if (onOpenStationView != null) ...[
+              const SizedBox(height: 8),
+              _button(icon: Icons.near_me_rounded, label: 'Yol tarifi · AR · resmi saatler', primary: false, onTap: onOpenStationView),
+            ],
             const SizedBox(height: 12),
             VehicleShowcase(
               look: VehicleLook.forLine(line),
@@ -101,7 +108,7 @@ class StationSheet extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Tren konumları ve süreler ${line.headwaySource == 'İBB GTFS' ? 'İBB GTFS sefer sıklığına' : 'tahmini sefer sıklığına'} göre hesaplanır · '
+              'Tren konumları ve süreler ${engine?.isOfficial(line.code) == true ? 'Metro İstanbul resmi tarifesine' : (line.headwaySource == 'İBB GTFS' ? 'İBB GTFS sefer sıklığına' : 'tahmini sefer sıklığına')} göre hesaplanır · '
               'derinlik: ${plan.depthSource == 'kaynak' ? 'yayımlanmış değer' : (plan.depthSource == 'osm' ? 'OSM kat verisi' : 'tahmini')} · '
               'plan: © OpenStreetMap',
               style: const TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.w500),
@@ -112,7 +119,7 @@ class StationSheet extends StatelessWidget {
     );
   }
 
-  Widget _header(BuildContext context, RailStation st, RailLine line, StationPlan plan, List<RailLine> lines) {
+  Widget _header(BuildContext context, NetworkStation st, RailLine line, StationPlan plan, List<RailLine> lines) {
     final transfers = lines.where((l) => l.code != line.code).toList();
     final depthBig = plan.underground ? '${plan.depth.round()}' : (plan.elevated ? '+${plan.depth.abs().round()}' : '0');
     final depthSub = plan.underground ? 'm derinlik' : (plan.elevated ? 'm viyadük' : 'zemin kat');

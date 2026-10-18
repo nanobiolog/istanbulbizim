@@ -53,6 +53,17 @@
     - **Standart İstanbul Metrosu (M2, M4, M7 vb.):** Ort. İvme $0.89\text{ m/s}^2$, Ort. Fren $1.04\text{ m/s}^2$.
   - Saniye saniye durak ve varış süresi geri sayımı (ETA) ve istasyon bekleme süreleri simülasyonu.
 
+- **🕒 Tarifeden Canlı Tren Konumları (Metro, Tramvay, Füniküler, Marmaray):**
+  - Metro İstanbul ve TCDD açık tren GPS'i yayımlamıyor. Bu yüzden trenler **resmî istasyon kalkış tarifelerinden** konumlandırılır: her hattın başlangıç istasyonu ve örneklenen ara istasyonların `GetTimeTable` saatlerinden istasyonlar arası sefer süreleri çıkarılır (kısa sefer / ara dönüş desenleri dahil), uygulama da her treni saat ile ivmelenme–seyir–fren profiline göre hareket ettirir.
+  - Sentetik testlerde tahmin edilen istasyon saatleri yayımlanan tarifeden ortalama 5–18 sn, en fazla ~1 dk sapar (tarifenin kendi dakika hassasiyeti). Anlık gecikmeler yansımaz; Metro İstanbul `GetServiceStatuses` arıza/duyuruları canlı gösterilir.
+  - **Marmaray** Metro İstanbul API'sinde yok: TCDD'nin yayımladığı sefer planından (Halkalı–Gebze 15 dk, Ataköy–Pendik ara seferleri, 108 dk uçtan uca, Cuma/Cumartesi gece seferleri) hesaplanır ve uygulamada **"Tahmini"** olarak etiketlenir.
+  - Otobüsler İETT canlı GPS'inden gelmeye devam eder.
+
+- **🧊 3D Canlı Harita, İstasyon Görünümü ve AR Yol Tarifi (Flutter uygulaması):**
+  - **3D harita:** MapLibre + OpenFreeMap vektör karoları; yükseklikli binalar, raylı hatlar, 3D tren blokları ve canlı otobüsler. "Trenle İlerle" modu kamerayı seçilen trenin arkasına alır.
+  - **İstasyon görünümü:** her peron yönü için şematik hat şeridinde yaklaşan trenler, resmî sonraki kalkışlar (geri sayım), aktarma hatları, arıza duyuruları ve istasyona yaya yol tarifi (OSM yaya rotası, Türkçe adımlar).
+  - **AR yol tarifi:** kamera görüntüsü üzerinde rotanın bir sonraki noktasına zemin oku, hedef istasyon/durak işareti, yakındaki istasyon ve duraklar, sonraki kalkışlar. Yalnızca GPS + pusula kullanır (ARCore/ARKit gerekmez); iOS'ta manyetometre kalibrasyonu ve yürürken GPS rotasıyla pusula düzeltmesi yapılır.
+
 - **📱 Mobil Uyumlu ve Modern UI/UX:**
   - **Mobil Bottom Sheet (Çekmece):** Apple/Google Maps tarzı sürükleyip bırakılabilir, 3 kademeli arayüz.
   - **Konumumu Bul (GPS Geolocation):** Kullanıcının İstanbul'daki anlık konumunu bularak haritada radar animasyonuyla gösterme.
@@ -107,6 +118,9 @@ npx wrangler secret put AISSTREAM_API_KEY   # (isteğe bağlı) canlı vapur kon
        ├─► /line?code=500T  (Hatta ait anlık araçlar)
        ├─► /lines/map       (Kapı no -> Hat kodu eşleşmesi)
        ├─► /metro/stations  (Metro istasyon koordinatları)
+       ├─► /rail/schedule?line=M2  (Resmî tarifeden günlük tren seferleri + sefer süreleri)
+       ├─► /rail/departures?line=M2&station=TAKSIM  (İstasyonun resmî kalkışları)
+       ├─► /rail/status     (Metro İstanbul arıza / duyuruları)
        └─► /status          (Saatlik kota ve sistem sağlığı)
        │
        ├─► /ferries/live    (AIS canlı vapur konumları, isteğe bağlı)

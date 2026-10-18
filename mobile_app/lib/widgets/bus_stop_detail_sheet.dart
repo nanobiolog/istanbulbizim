@@ -10,6 +10,7 @@ class BusStopDetailSheet extends StatefulWidget {
   final TransitProvider provider;
   final VoidCallback onClose;
   final Function(String) onSelectLine;
+  final VoidCallback? onOpenAr;
 
   const BusStopDetailSheet({
     super.key,
@@ -17,6 +18,7 @@ class BusStopDetailSheet extends StatefulWidget {
     required this.provider,
     required this.onClose,
     required this.onSelectLine,
+    this.onOpenAr,
   });
 
   @override
@@ -191,6 +193,24 @@ class _BusStopDetailSheetState extends State<BusStopDetailSheet> {
                     ],
                   ),
                 ),
+                if (widget.onOpenAr != null)
+                  GestureDetector(
+                    onTap: widget.onOpenAr,
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.view_in_ar_rounded, size: 16, color: AppTheme.accentBlack),
+                          SizedBox(width: 4),
+                          Text('AR Yol', style: TextStyle(color: AppTheme.accentBlack, fontWeight: FontWeight.w800, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  ),
                 GestureDetector(
                   onTap: onClose,
                   behavior: HitTestBehavior.opaque,

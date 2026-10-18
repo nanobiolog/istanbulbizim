@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/network_models.dart';
+import '../models/rail_models.dart';
 import '../models/transit_models.dart';
 import '../services/app_clock.dart';
 import '../services/eta_engine.dart';
 import '../services/network_repository.dart';
+import '../services/rail_engine.dart';
+import '../services/rail_schedule_service.dart';
 import '../services/schedule_engine.dart';
 import '../services/transit_api_service.dart';
 import '../three_d/station_scene.dart';
@@ -47,7 +50,7 @@ class TransitProvider extends ChangeNotifier {
   BusVehicle? _selectedBus;
   String? _selectedTrainId;
   BusStop? _selectedStop;
-  RailStation? _selectedStation;
+  NetworkStation? _selectedStation;
   String? _selectedStationLine;
   Pier? _selectedPier;
   String? _selectedVesselId;
@@ -77,6 +80,16 @@ class TransitProvider extends ChangeNotifier {
   Map<String, Color> _metroLineColors = {};
   Timer? _trainTicker;
 
+  // Official timetables (Metro İstanbul / TCDD plan) for the 3D map, station view and AR screens
+  Map<String, List<MetroStation>> _metroStations = {};
+  List<MetroTrainVehicle> _metroTrains = [];
+  late final RailScheduleService _rail = RailScheduleService(baseUrl: () => _apiService.baseUrl);
+  Map<String, List<RailStation>> _railStations = {};
+  final Map<String, RailSchedule> _railSchedules = {};
+  Map<String, List<RailStatusItem>> _railStatus = {};
+  RailServiceDay? _railDay;
+  int _railLoadedCount = 0;
+
   // Bus Stops (~14,000 Istanbul bus stops database)
   List<BusStop> _busStops = [];
 
@@ -100,6 +113,7 @@ class TransitProvider extends ChangeNotifier {
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       clock.value++;
       if (clock.value % 20 == 0) _refreshTraffic();
+      if (clock.value % 180 == 0) _refreshRailStatus();
     });
     _init();
   }
@@ -135,7 +149,7 @@ class TransitProvider extends ChangeNotifier {
   bool get isLoadingTimetable => _isLoadingTimetable;
   BusVehicle? get selectedBus => _selectedBus;
   BusStop? get selectedStop => _selectedStop;
-  RailStation? get selectedStation => _selectedStation;
+  NetworkStation? get selectedStation => _selectedStation;
   Pier? get selectedPier => _selectedPier;
   bool get revealStation => _revealStation && _selectedStation != null;
   StationStage? get revealFocus => _revealFocus;
@@ -203,6 +217,8 @@ class TransitProvider extends ChangeNotifier {
   bool get showEntrances => _showEntrances;
 
   Map<String, String> get metroColors => _metroColors;
+  Map<String, List<MetroStation>> get metroStations => _metroStations;
+  List<MetroTrainVehicle> get metroTrains => _metroTrains;
   List<ScheduledTrain> get scheduledTrains => _trains;
   List<FerryVessel> get scheduledVessels => _vessels;
   List<LiveVessel> get liveVessels => _liveVessels;
@@ -444,6 +460,7 @@ class TransitProvider extends ChangeNotifier {
 
     await Future.wait([_apiService.loadLocalAssets(), network.load()]);
     _metroColors = _apiService.metroColors;
+    _metroStations = _apiService.metroStations;
     _busStops = _apiService.busStops;
 
     _metroLineColors = {};
@@ -452,6 +469,7 @@ class TransitProvider extends ChangeNotifier {
     });
 
     _engine = ScheduleEngine(network);
+    _initRailSchedules();
     _startScheduleTicker();
     notifyListeners();
     refreshLiveFerries();
@@ -604,7 +622,8 @@ class TransitProvider extends ChangeNotifier {
     try {
       List<BusVehicle> raw;
       if (_selectedLineCode != null) {
-        raw = await _apiService.fetchBusesForLine(_selectedLineCode!);
+        // Rail lines have no IETT vehicles; their trains come from the timetable engines.
+        raw = _isRailLine(_selectedLineCode!) ? const [] : await _apiService.fetchBusesForLine(_selectedLineCode!);
       } else {
         raw = await _apiService.fetchFleetBuses();
         _fleetBuses = raw;
@@ -793,7 +812,7 @@ class TransitProvider extends ChangeNotifier {
 
     try {
       _selectedLineRoute = await _apiService.fetchLineRoute(upper);
-      final raw = await _apiService.fetchBusesForLine(upper);
+      final raw = _isRailLine(upper) ? const <BusVehicle>[] : await _apiService.fetchBusesForLine(upper);
       _buses = _enrichBusesWithNextStops(raw);
       _lastUpdated = DateTime.now();
       _lastSuccessfulSync = DateTime.now();
@@ -846,7 +865,7 @@ class TransitProvider extends ChangeNotifier {
     _revealFocus = null;
   }
 
-  void selectStation(RailStation? station, {String? line}) {
+  void selectStation(NetworkStation? station, {String? line}) {
     _clearSelections();
     _selectedStation = station;
     _selectedStationLine = line;
@@ -1013,9 +1032,235 @@ class TransitProvider extends ChangeNotifier {
     _trainTicker = Timer.periodic(const Duration(milliseconds: 200), (_) {
       if (!(_showMetroLines && _showMetroTrains) && !_showFerries) return;
       step();
+      if (_showMetroLines && _showMetroTrains) _stepRailVehicles();
       if (++_trainNotifyTick % 150 == 0 && _showFerries) refreshLiveFerries(); // every 30 s
       notifyListeners();
     });
+  }
+
+  void _initRailSchedules() {
+    final day = railServiceDay(DateTime.now());
+    _railDay = day;
+    _railStations = {
+      for (final e in _metroStations.entries)
+        if (e.value.length >= 2)
+          e.key: e.value.map((s) => RailStation(name: s.name, lat: s.lat, lon: s.lon)).toList(),
+    };
+    // Trains appear instantly from the clock-anchored estimate, then switch to the official
+    // timetable for each line as it arrives.
+    for (final e in _railStations.entries) {
+      _railSchedules[e.key] = _rail.cached(e.key, day) ?? buildEstimatedSchedule(e.key, e.value, day);
+      _engine?.applyOfficial(_railSchedules[e.key]!);
+    }
+    _stepRailVehicles();
+    _loadRailSchedules(day);
+    _refreshRailStatus();
+  }
+
+  Future<void> _loadRailSchedules(RailServiceDay day) async {
+    // Busiest lines first so the most-used trains become official soonest.
+    const priority = ['B1', 'M2', 'M4', 'M1A', 'M1B', 'T1', 'M5', 'M3', 'M7', 'M9', 'M8', 'T4', 'T5', 'M6', 'T3', 'F1', 'F4', 'TF1', 'TF2'];
+    final codes = _railStations.keys.toList()
+      ..sort((a, b) {
+        final ia = priority.indexOf(a), ib = priority.indexOf(b);
+        return (ia < 0 ? 99 : ia).compareTo(ib < 0 ? 99 : ib);
+      });
+    var next = 0;
+    Future<void> worker() async {
+      while (next < codes.length) {
+        final code = codes[next++];
+        final sched = await _rail.load(code, _railStations[code]!, day);
+        if (_railDay?.dateKey != day.dateKey) return;
+        _railSchedules[code] = sched.withStatus(_railStatus[code] ?? const []);
+        _engine?.applyOfficial(sched); // the map, station sheet and 3D views use official times too
+        _railLoadedCount++;
+        notifyListeners();
+      }
+    }
+
+    await Future.wait(List.generate(3, (_) => worker()));
+  }
+
+  Future<void> _refreshRailStatus() async {
+    final st = await _rail.loadStatus();
+    if (st == null) return;
+    _railStatus = st;
+    _railSchedules.updateAll((k, v) => v.withStatus(st[k] ?? const []));
+    notifyListeners();
+  }
+
+  /// Timetable trains on the old station lists, for the 3D map / station view / AR screens.
+  void _stepRailVehicles() {
+    final now = DateTime.now();
+    final day = railServiceDay(now);
+    if (_railDay != null && day.dateKey != _railDay!.dateKey) {
+      // 03:00 rollover: load the new service day's timetables.
+      _railDay = day;
+      for (final e in _railStations.entries) {
+        _railSchedules[e.key] = buildEstimatedSchedule(e.key, e.value, day);
+      }
+      _loadRailSchedules(day);
+    }
+    _railDay = day;
+    final frac = now.millisecond / 1000.0;
+
+    final trains = <MetroTrainVehicle>[];
+    _railSchedules.forEach((code, sched) {
+      final prof = railProfile(code);
+      final color = getMetroLineColor(code);
+      for (final t0 in railPositions(sched, day, extraSec: frac)) {
+        final t = _onTrack(code, sched, t0);
+        trains.add(MetroTrainVehicle(
+          id: t.id,
+          lineCode: code,
+          systemType: prof.systemType,
+          color: color,
+          stations: _metroStations[code] ?? const [],
+          dir: t.dir == 'G' ? 1 : -1,
+          segIdx: math.min(t.prevIndex, t.nextIndex),
+          progress: t.progress,
+          currentSpeed: t.speedKmh,
+          currentAcc: t.accel,
+          accRate: prof.accel,
+          decRate: prof.decel,
+          specText: prof.specText,
+          currentLat: t.lat,
+          currentLon: t.lon,
+          state: t.state,
+          dwellRemaining: t.state == 'AT_STATION' ? t.etaSec : 0,
+          segDurationSec: 0,
+          timeInSegSec: 0,
+          maxSpeed: prof.cruiseKmh,
+          targetStationName: sched.stations[t.nextIndex].name,
+          prevStationName: sched.stations[t.prevIndex].name,
+          remainingMeters: t.remainingMeters,
+          etaSec: t.etaSec,
+          headsign: t.headsign,
+          dirCode: t.dir,
+          bearing: t.bearing,
+          upcoming: t.upcoming,
+          official: t.official,
+          source: sched.source,
+        ));
+      }
+    });
+    _metroTrains = trains;
+  }
+
+  final Map<String, double?> _trackDist = {};
+
+  /// Moves a timetable train from the straight station-to-station segment onto the real track
+  /// (same timing, OSM geometry of the line's main variant).
+  RailTrainState _onTrack(String code, RailSchedule sched, RailTrainState t) {
+    final line = network.lineByCode[code];
+    if (line == null || line.variants.isEmpty) return t;
+    final v = line.variants.first;
+    double? distOf(int idx) => _trackDist.putIfAbsent('$code|$idx', () {
+          final st = sched.stations[idx];
+          final want = railPlainName(st.name);
+          RailStop? best;
+          var bd = 900.0;
+          for (final stop in v.stops) {
+            final ns = network.stations[stop.stationId];
+            final named = ns != null && (railPlainName(ns.name) == want || railPlainName(ns.name).contains(want) || want.contains(railPlainName(ns.name)));
+            final d = haversine(st.lat, st.lon, stop.pos.latitude, stop.pos.longitude);
+            if ((named || d < 300) && (named ? d * 0.25 : d) < bd) {
+              bd = named ? d * 0.25 : d;
+              best = stop;
+            }
+          }
+          return best?.distM;
+        });
+    final a = distOf(t.prevIndex), b = distOf(t.nextIndex);
+    if (a == null || b == null) return t;
+    final along = a + (b - a) * t.progress;
+    final (p, h) = v.path.pointAt(along);
+    return t.copyWith(lat: p.latitude, lon: p.longitude, bearing: b >= a ? h : (h + 180) % 360);
+  }
+
+  /// Trains near the camera (a timetable-accurate network has 300+ trains at peak).
+  List<MetroTrainVehicle> get visibleMetroTrains {
+    if (_currentZoom < 12.0) return const [];
+    final radius = (9000.0 * math.pow(2.0, 13.0 - _currentZoom)).clamp(1500.0, 20000.0);
+    final c = _cameraCenter;
+    return _metroTrains
+        .where((t) => _distanceMeters(c.latitude, c.longitude, t.currentLat, t.currentLon) <= radius)
+        .toList();
+  }
+
+  bool _isRailLine(String code) => code == 'MARMARAY' || _metroStations.containsKey(code);
+
+  RailServiceDay get railDay => _railDay ?? railServiceDay(DateTime.now());
+  RailSchedule? railSchedule(String line) => _railSchedules[line == 'MARMARAY' ? 'B1' : line];
+  List<RailStatusItem> railStatusFor(String line) => _railStatus[line == 'MARMARAY' ? 'B1' : line] ?? const [];
+  int get railOfficialLines => _railSchedules.values.where((s) => s.official).length;
+  int get railLoadedCount => _railLoadedCount;
+
+  /// Next departures from [stationIndex] of [line] computed from the loaded schedule.
+  List<RailDeparture> departuresAt(String line, int stationIndex, {int perDirection = 4}) {
+    final s = railSchedule(line);
+    if (s == null) return const [];
+    return railDeparturesAt(s, stationIndex, railServiceDay(DateTime.now()), perDirection: perDirection);
+  }
+
+  /// Exact official departures from the Worker's per-station timetable (null when offline).
+  Future<List<RailDeparture>?> officialDepartures(String line, String station) =>
+      _rail.officialDepartures(line == 'MARMARAY' ? 'B1' : line, station, railServiceDay(DateTime.now()));
+
+  /// Every line calling at (or interchanging within [radiusM] of) [station].
+  List<({String line, int index, MetroStation station})> linesAtStation(MetroStation station, {double radiusM = 350}) {
+    final out = <({String line, int index, MetroStation station})>[];
+    final want = railPlainName(station.name);
+    _metroStations.forEach((line, list) {
+      for (var i = 0; i < list.length; i++) {
+        final s = list[i];
+        final d = _distanceMeters(station.lat, station.lon, s.lat, s.lon);
+        final p = railPlainName(s.name);
+        final sameName = p.isNotEmpty && want.isNotEmpty && (p.contains(want) || want.contains(p));
+        if (d <= radiusM || (sameName && d <= 900)) {
+          out.add((line: line, index: i, station: s));
+          break;
+        }
+      }
+    });
+    out.sort((a, b) => a.line == station.lineCode ? -1 : (b.line == station.lineCode ? 1 : a.line.compareTo(b.line)));
+    return out;
+  }
+
+  /// Nearest rail stations to [p] (AR / station search).
+  List<({MetroStation station, double distM})> nearestStations(LatLng p, {int limit = 8, double maxM = 3000}) {
+    final best = <String, ({MetroStation station, double distM})>{};
+    _metroStations.forEach((line, list) {
+      for (final s in list) {
+        final d = _distanceMeters(p.latitude, p.longitude, s.lat, s.lon);
+        if (d > maxM) continue;
+        final key = '${railPlainName(s.name)}@${(s.lat * 500).round()},${(s.lon * 500).round()}';
+        final cur = best[key];
+        if (cur == null || d < cur.distM) best[key] = (station: s, distM: d);
+      }
+    });
+    final list = best.values.toList()..sort((a, b) => a.distM.compareTo(b.distM));
+    return list.take(limit).toList();
+  }
+
+  /// Nearest bus stops to [p] using the spatial grid.
+  List<({BusStop stop, double distM})> nearestBusStops(LatLng p, {int limit = 8, double maxM = 800}) {
+    final grid = _apiService.busStopsGrid;
+    final out = <({BusStop stop, double distM})>[];
+    final latCell = (p.latitude * 50).floor();
+    final lonCell = (p.longitude * 50).floor();
+    for (var dy = -1; dy <= 1; dy++) {
+      for (var dx = -1; dx <= 1; dx++) {
+        final cell = grid[((latCell + dy) << 16) ^ ((lonCell + dx) & 0xFFFF)];
+        if (cell == null) continue;
+        for (final s in cell) {
+          final d = _distanceMeters(p.latitude, p.longitude, s.lat, s.lon);
+          if (d <= maxM) out.add((stop: s, distM: d));
+        }
+      }
+    }
+    out.sort((a, b) => a.distM.compareTo(b.distM));
+    return out.take(limit).toList();
   }
 
   // Location handling
@@ -1096,4 +1341,26 @@ class _LineStats {
   double minDistance = double.infinity;
 
   _LineStats(this.code);
+}
+
+extension on RailTrainState {
+  RailTrainState copyWith({double? lat, double? lon, double? bearing}) => RailTrainState(
+        id: id,
+        line: line,
+        dir: dir,
+        headsign: headsign,
+        prevIndex: prevIndex,
+        nextIndex: nextIndex,
+        progress: progress,
+        state: state,
+        speedKmh: speedKmh,
+        accel: accel,
+        lat: lat ?? this.lat,
+        lon: lon ?? this.lon,
+        bearing: bearing ?? this.bearing,
+        etaSec: etaSec,
+        remainingMeters: remainingMeters,
+        upcoming: upcoming,
+        official: official,
+      );
 }

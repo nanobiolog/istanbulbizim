@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -6,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:mobile_app/models/network_models.dart';
+import 'package:mobile_app/models/rail_models.dart';
+import 'package:mobile_app/services/rail_engine.dart';
 import 'package:mobile_app/services/network_repository.dart';
 import 'package:mobile_app/services/schedule_engine.dart';
 import 'package:mobile_app/screens/station_walk_screen.dart';
@@ -21,7 +24,7 @@ NetworkRepository loadRepo() {
   r.lines = (rail['lines'] as List).map((l) => RailLine.fromJson(l as Map<String, dynamic>)).toList();
   r.lineByCode = {for (final l in r.lines) l.code: l};
   r.stations = {
-    for (final e in (rail['stations'] as Map<String, dynamic>).entries) e.key: RailStation.fromJson(e.key, e.value as Map<String, dynamic>)
+    for (final e in (rail['stations'] as Map<String, dynamic>).entries) e.key: NetworkStation.fromJson(e.key, e.value as Map<String, dynamic>)
   };
   r.piers = {
     for (final e in (fer['piers'] as Map<String, dynamic>).entries)
@@ -71,6 +74,41 @@ void main() {
     final ev = engine.stationEvents(yk, repo.lineByCode['B1']!, morning);
     expect(ev.length, 2);
     expect(sw.elapsedMilliseconds, lessThan(2000));
+  });
+
+  test('official Metro İstanbul timetables drive the network engine', () {
+    // fixed instant: 2026-10-18 08:30 in Istanbul (fixtures are that service day)
+    final day = railServiceDay(DateTime.utc(2026, 10, 18, 5, 30));
+    final wall = DateTime(2026, 10, 18, 8, 30); // the network engine runs on Istanbul wall-clock fields
+    int secOfDay(DateTime t) => t.hour * 3600 + t.minute * 60 + t.second;
+    for (final code in ['M2', 'M1A', 'M4', 'T1', 'M5', 'M7']) {
+      final sched = RailSchedule.fromJson(
+          jsonDecode(File('test/fixtures/rail_schedule_$code.json').readAsStringSync()) as Map<String, dynamic>);
+      final eng = ScheduleEngine(repo);
+      expect(eng.applyOfficial(sched), isTrue, reason: code);
+      expect(eng.isOfficial(code), isTrue);
+      // departures at a mid-line station (matched by name) agree with the official engine
+      final onLine = repo.stations.values.where((s) => s.lines.contains(code)).toList();
+      var mid = sched.stations.length ~/ 2;
+      NetworkStation? st;
+      for (var k = 0; k < sched.stations.length && st == null; k++) {
+        final i = (mid + k) % sched.stations.length;
+        st = onLine.where((s) => railPlainName(s.name) == railPlainName(sched.stations[i].name)).firstOrNull;
+        if (st != null) mid = i;
+      }
+      if (st == null) continue;
+      final official = railDeparturesAt(sched, mid, day, perDirection: 1);
+      final mine = eng.departuresAt(st, wall).where((d) => d.line.code == code).toList();
+      expect(official, isNotEmpty, reason: code);
+      expect(mine, isNotEmpty, reason: code);
+      for (final o in official) {
+        final oSec = secOfDay(o.at.toUtc().add(const Duration(hours: 3)));
+        final closest = mine.map((m) => (secOfDay(m.at) - oSec).abs()).reduce(math.min);
+        // The old M7 station list (which the official timetable is keyed to) has Yeşilpınar before
+        // Veysel Karani; that station is interpolated, so allow a little more there.
+        expect(closest, lessThan(code == 'M7' ? 180 : 75), reason: '$code ${st.name}: official ${o.at} vs ${mine.map((m) => m.at)}');
+      }
+    }
   });
 
   test('ferries sail along the timetable', () {

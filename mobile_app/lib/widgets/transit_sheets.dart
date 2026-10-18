@@ -408,8 +408,9 @@ class LiveVesselSheet extends StatelessWidget {
 class TrainSheet extends StatelessWidget {
   final TransitProvider provider;
   final VoidCallback onClose;
-  final void Function(RailStation) onOpenStation;
-  const TrainSheet({super.key, required this.provider, required this.onClose, required this.onOpenStation});
+  final void Function(NetworkStation) onOpenStation;
+  final VoidCallback? onFollow3D;
+  const TrainSheet({super.key, required this.provider, required this.onClose, required this.onOpenStation, this.onFollow3D});
 
   @override
   Widget build(BuildContext context) {
@@ -423,7 +424,7 @@ class TrainSheet extends StatelessWidget {
     final next = net.stations[t.toStationId];
     final look = VehicleLook.forLine(t.line);
     final eta = Duration(seconds: t.etaSec.round());
-    final upcoming = <(RailStation, Duration)>[];
+    final upcoming = <(NetworkStation, Duration)>[];
     var acc = t.etaSec;
     for (var i = t.toIdx; i < t.variant.stops.length && upcoming.length < 5; i++) {
       final st = net.stations[t.variant.stops[i].stationId];
@@ -437,7 +438,7 @@ class TrainSheet extends StatelessWidget {
     return _SheetFrame(children: [
       _headerCard(
         color: t.line.color,
-        kicker: '${t.line.mode.label} · ${t.line.code} · TARİFEYE GÖRE',
+        kicker: '${t.line.mode.label} · ${t.line.code} · ${provider.engine?.isOfficial(t.line.code) == true ? 'RESMİ TARİFE' : 'TARİFEYE GÖRE'}',
         icon: t.line.mode.icon,
         title: '→ ${t.variant.to}',
         subtitle: t.atStation ? '${next?.name ?? ''} istasyonunda · kalkışa ${formatCountdown(eta)}' : '${t.state.label} · ${next?.name ?? ''} ${formatCountdown(eta)}',
@@ -492,6 +493,21 @@ class TrainSheet extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(child: _metric('Sıradaki', '${math.max(0, t.distanceToNextM).round()} m')),
       ]),
+      if (onFollow3D != null) ...[
+        const SizedBox(height: 10),
+        GestureDetector(
+          onTap: onFollow3D,
+          child: Container(
+            height: 48,
+            decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(24)),
+            child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(Icons.location_city_rounded, color: Color(0xFF93C5FD), size: 19),
+              SizedBox(width: 8),
+              Text("3D'de trenle ilerle", style: TextStyle(color: Color(0xFF93C5FD), fontSize: 15, fontWeight: FontWeight.w800)),
+            ]),
+          ),
+        ),
+      ],
       const SizedBox(height: 12),
       VehicleShowcase(look: look, photos: net.photos(look.mediaKey), height: 150),
       const SizedBox(height: 8),
@@ -515,7 +531,7 @@ class TrainSheet extends StatelessWidget {
 class RailLineSheet extends StatelessWidget {
   final TransitProvider provider;
   final VoidCallback onClose;
-  final void Function(RailStation) onOpenStation;
+  final void Function(NetworkStation) onOpenStation;
   const RailLineSheet({super.key, required this.provider, required this.onClose, required this.onOpenStation});
 
   @override
@@ -542,7 +558,7 @@ class RailLineSheet extends StatelessWidget {
       Row(children: [
         Expanded(child: _pill(Icons.train_rounded, '$running tren seyirde')),
         const SizedBox(width: 8),
-        Expanded(child: _pill(Icons.schedule_rounded, 'Kaynak: ${line.headwaySource}')),
+        Expanded(child: _pill(Icons.schedule_rounded, provider.engine?.isOfficial(line.code) == true ? 'Resmi tarife' : 'Kaynak: ${line.headwaySource}')),
       ]),
       const SizedBox(height: 10),
       Container(

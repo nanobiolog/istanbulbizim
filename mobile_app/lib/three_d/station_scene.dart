@@ -42,7 +42,7 @@ class PlanLayer {
 
 /// Geometry of one station for one line, derived from the plan data.
 class StationPlan {
-  final RailStation station;
+  final NetworkStation station;
   final RailLine line;
   final StationKind kind;
   final double depth; // platform depth below street (m); negative = elevated

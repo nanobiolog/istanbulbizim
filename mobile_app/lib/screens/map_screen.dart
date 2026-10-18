@@ -11,6 +11,9 @@ import '../services/schedule_engine.dart';
 import '../services/transit_provider.dart';
 import '../theme/app_theme.dart';
 import '../three_d/scene_views.dart';
+import 'ar_navigation_screen.dart';
+import 'map3d_screen.dart';
+import 'station_view_screen.dart';
 import 'station_walk_screen.dart';
 import '../widgets/bus_stop_detail_sheet.dart';
 import '../widgets/layers_bottom_sheet.dart';
@@ -159,6 +162,89 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: builder);
   }
 
+  // ─── 3D live map · station view (walking route) · AR wayfinding ───
+  void _open3D(TransitProvider provider, {String? followTrainId, MetroStation? station, LatLng? center}) {
+    final cam = _mapController.camera;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => Map3DScreen(
+        center: station != null ? LatLng(station.lat, station.lon) : (center ?? cam.center),
+        zoom: math.max(cam.zoom, 14.8),
+        followTrainId: followTrainId,
+        focusStation: station,
+      ),
+    ));
+  }
+
+  /// The timetable station (old station list) that corresponds to a network station.
+  MetroStation? _metroStationFor(TransitProvider provider, NetworkStation st, String? line) {
+    MetroStation? best;
+    var bd = 800.0;
+    provider.metroStations.forEach((code, list) {
+      if (line != null && provider.metroStations.containsKey(line) && code != line) return;
+      for (final m in list) {
+        final d = haversine(st.pos.latitude, st.pos.longitude, m.lat, m.lon);
+        if (d < bd) {
+          bd = d;
+          best = m;
+        }
+      }
+    });
+    return best;
+  }
+
+  void _openStationView(MetroStation st) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => StationViewScreen(station: st)));
+  }
+
+  /// The timetable train closest to a scheduled train (for the 3D "ride along" camera).
+  String? _followIdFor(TransitProvider provider, ScheduledTrain t) {
+    String? id;
+    var bd = 1500.0;
+    for (final m in provider.metroTrains) {
+      if (m.lineCode != t.line.code) continue;
+      final d = haversine(t.pos.latitude, t.pos.longitude, m.currentLat, m.currentLon);
+      if (d < bd) {
+        bd = d;
+        id = m.id;
+      }
+    }
+    return id;
+  }
+
+  /// AR toward the selected stop, else the nearest rail station (or stop) to the user.
+  Future<void> _openAr(TransitProvider provider) async {
+    final stop = provider.selectedStop;
+    if (stop != null) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ArNavigationScreen(targetName: stop.name, target: LatLng(stop.lat, stop.lon), targetStop: stop),
+      ));
+      return;
+    }
+    final me = provider.userLocation ?? await provider.locateUser();
+    if (!mounted) return;
+    if (me == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('AR yol tarifi için konum izni gerekli.')));
+      return;
+    }
+    final st = provider.nearestStations(me, limit: 1, maxM: 4000);
+    if (st.isNotEmpty) {
+      final s = st.first.station;
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ArNavigationScreen(targetName: s.name, target: LatLng(s.lat, s.lon), targetLine: s.lineCode),
+      ));
+      return;
+    }
+    final bs = provider.nearestBusStops(me, limit: 1, maxM: 1500);
+    if (bs.isNotEmpty) {
+      final b = bs.first.stop;
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ArNavigationScreen(targetName: b.name, target: LatLng(b.lat, b.lon), targetStop: b),
+      ));
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Yakında istasyon veya durak bulunamadı.')));
+  }
+
   void _fitLineRouteOnMap(TransitProvider provider) {
     final route = provider.selectedLineRoute;
     if (route == null || route.directions.isEmpty) return;
@@ -171,7 +257,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _fitPoints(all, bottomPad: 220);
   }
 
-  void _openStation(TransitProvider provider, RailStation st, {String? line}) {
+  void _openStation(TransitProvider provider, NetworkStation st, {String? line}) {
     _liveSel = null;
     provider.selectStation(st, line: line);
     _focusAbove(st.pos, math.max(_currentZoom, 15.6), sheetFraction: 0.62);
@@ -323,6 +409,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 final loc = await provider.locateUser();
                 _animatedMapMove(loc ?? istanbulCenter, loc != null ? 15.5 : initialZoom);
               },
+              on3dMap: () => _open3D(provider),
+              onAr: () => _openAr(provider),
             ),
           ),
 
@@ -371,6 +459,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           provider.toggleReveal(false);
           _focusAbove(LatLng(p.lat, p.lon), 17.2, sheetFraction: 0.6);
         },
+        onOpenStationView: () {
+          final ms = _metroStationFor(provider, provider.selectedStation!, provider.selectedStationLine?.code);
+          if (ms != null) _openStationView(ms);
+        },
       );
     }
     if (provider.selectedPier != null) return PierSheet(provider: provider, onClose: () => provider.selectPier(null));
@@ -389,6 +481,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         provider: provider,
         onClose: () => provider.selectScheduledTrain(null),
         onOpenStation: (st) => _openStation(provider, st, line: provider.selectedTrain?.line.code),
+        onFollow3D: () {
+          final t = provider.selectedTrain;
+          if (t != null) _open3D(provider, followTrainId: _followIdFor(provider, t), center: t.pos);
+        },
       );
     }
     if (provider.selectedStop != null) {
@@ -396,6 +492,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         stop: provider.selectedStop!,
         provider: provider,
         onClose: () => provider.selectBusStop(null),
+        onOpenAr: () => _openAr(provider),
         onSelectLine: (line) {
           provider.selectBusStop(null);
           _onPickLine(provider, line);
@@ -1162,7 +1259,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 /// reference video. Zoom buttons only appear on wide (desktop web) screens.
 class _ControlRail extends StatelessWidget {
   final bool night, reveal, wide;
-  final VoidCallback onSettings, onLayers, onTheme, on3d, onFit, onLocate, onZoomIn, onZoomOut;
+  final VoidCallback onSettings, onLayers, onTheme, on3d, onFit, onLocate, onZoomIn, onZoomOut, on3dMap, onAr;
   const _ControlRail({
     required this.night,
     required this.reveal,
@@ -1175,6 +1272,8 @@ class _ControlRail extends StatelessWidget {
     required this.onLocate,
     required this.onZoomIn,
     required this.onZoomOut,
+    required this.on3dMap,
+    required this.onAr,
   });
 
   @override
@@ -1205,6 +1304,8 @@ class _ControlRail extends StatelessWidget {
           on3d,
           'İstasyon kesiti (3D)',
         ),
+        btn(Icon(Icons.location_city_rounded, color: fg, size: 21), on3dMap, '3D canlı harita'),
+        btn(Icon(Icons.view_in_ar_rounded, color: fg, size: 21), onAr, 'AR yol tarifi'),
         if (wide) ...[
           btn(Icon(Icons.add_rounded, color: fg, size: 22), onZoomIn, 'Yakınlaş'),
           btn(Icon(Icons.remove_rounded, color: fg, size: 22), onZoomOut, 'Uzaklaş'),

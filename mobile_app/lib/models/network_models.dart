@@ -278,7 +278,7 @@ class StationEntrance {
 
 enum StationKind { underground, surface, elevated }
 
-class RailStation {
+class NetworkStation {
   final String id;
   final String name;
   final LatLng pos;
@@ -297,7 +297,7 @@ class RailStation {
   final Map<String, double> depths;
   final Map<String, String> depthSources;
 
-  RailStation({
+  NetworkStation({
     required this.id,
     required this.name,
     required this.pos,
@@ -315,7 +315,7 @@ class RailStation {
     this.depthSources = const {},
   });
 
-  factory RailStation.fromJson(String id, Map<String, dynamic> j) {
+  factory NetworkStation.fromJson(String id, Map<String, dynamic> j) {
     final ents = <StationEntrance>[];
     for (final e in (j['entrances'] as List? ?? const [])) {
       final m = e as Map<String, dynamic>;
@@ -327,7 +327,7 @@ class RailStation {
       'elevated' => StationKind.elevated,
       _ => StationKind.surface,
     };
-    return RailStation(
+    return NetworkStation(
       id: id,
       name: j['name']?.toString() ?? '',
       pos: LatLng((j['lat'] as num).toDouble(), (j['lon'] as num).toDouble()),

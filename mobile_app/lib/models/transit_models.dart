@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
+import 'rail_models.dart';
+
 class BusVehicle {
   final String id;
   final double lat;
@@ -312,6 +314,152 @@ class MetroStation {
       lon: (json['lon'] as num?)?.toDouble() ?? 0.0,
       lineCode: line,
     );
+  }
+}
+
+/// A train placed on the map from its line's timetable (see `rail_engine.dart`), with the
+/// accelerate / cruise / brake phase of the current station-to-station run.
+class MetroTrainVehicle {
+  final String id;
+  final String lineCode;
+  final String systemType;
+  final Color color;
+  final List<MetroStation> stations;
+  int dir; // 1: forward, -1: reverse
+  int segIdx;
+  double progress; // 0.0 to 1.0
+  double currentSpeed; // km/h
+  double currentAcc; // m/s²
+  double accRate; // m/s²
+  double decRate; // m/s²
+  String specText;
+  double currentLat;
+  double currentLon;
+  String state; // 'CRUISING', 'ACCELERATING', 'DECELERATING', 'AT_STATION'
+  double dwellRemaining;
+  double segDurationSec;
+  double timeInSegSec;
+  double maxSpeed;
+  String targetStationName;
+  String prevStationName;
+  double remainingMeters;
+  double etaSec;
+
+  /// Terminus of this trip (short-turns end mid-line).
+  final String headsign;
+  final String dirCode; // 'G' | 'D'
+  final double bearing;
+  final List<RailStopCall> upcoming;
+
+  /// True when positions come from the official Metro İstanbul timetable.
+  final bool official;
+  final String source;
+
+  MetroTrainVehicle({
+    required this.id,
+    required this.lineCode,
+    required this.systemType,
+    required this.color,
+    required this.stations,
+    required this.dir,
+    required this.segIdx,
+    required this.progress,
+    required this.currentSpeed,
+    this.currentAcc = 0.0,
+    this.accRate = 0.89,
+    this.decRate = 1.04,
+    this.specText = 'Standart Metro',
+    required this.currentLat,
+    required this.currentLon,
+    this.state = 'CRUISING',
+    this.dwellRemaining = 0,
+    required this.segDurationSec,
+    required this.timeInSegSec,
+    required this.maxSpeed,
+    required this.targetStationName,
+    required this.prevStationName,
+    this.remainingMeters = 0,
+    this.etaSec = 0,
+    this.headsign = '',
+    this.dirCode = '',
+    this.bearing = 0,
+    this.upcoming = const [],
+    this.official = false,
+    this.source = '',
+  });
+
+  String get accDisplay {
+    if (state == 'ACCELERATING') {
+      final a = currentAcc > 0 ? currentAcc : accRate;
+      return '+${a.toStringAsFixed(2)} m/s²';
+    } else if (state == 'DECELERATING') {
+      final d = currentAcc < 0 ? currentAcc : -decRate;
+      return '${d.toStringAsFixed(2)} m/s²';
+    } else if (state == 'AT_STATION') {
+      return 'DURAKTA';
+    }
+    return '0.00 m/s²';
+  }
+
+  String get statusTitle {
+    if (state == 'ACCELERATING') return 'Hızlanıyor';
+    if (state == 'DECELERATING') return 'Yavaşlıyor / Fren';
+    if (state == 'AT_STATION') return 'Durakta (Yolcu)';
+    return 'Seyir Halinde';
+  }
+
+  String get statusIcon {
+    if (state == 'ACCELERATING') return '🚀';
+    if (state == 'DECELERATING') return '🛑';
+    if (state == 'AT_STATION') return '⏸️';
+    return '⚡';
+  }
+
+  Color get statusColor {
+    if (state == 'ACCELERATING') return const Color(0xFF10B981);
+    if (state == 'DECELERATING') return const Color(0xFFEF4444);
+    if (state == 'AT_STATION') return const Color(0xFFF59E0B);
+    return const Color(0xFF38BDF8);
+  }
+
+  String get arrowIcon {
+    if (state == 'ACCELERATING') return '▲';
+    if (state == 'DECELERATING') return '▼';
+    if (state == 'AT_STATION') return '⏸';
+    return '●';
+  }
+
+  String get etaShort {
+    if (state == 'AT_STATION') {
+      final s = dwellRemaining.ceil();
+      return '${s < 0 ? 0 : s}s';
+    }
+    final sec = etaSec.ceil();
+    if (sec < 60) return '${sec < 1 ? 1 : sec}s';
+    final m = sec ~/ 60;
+    final s = sec % 60;
+    return '${m}d ${s.toString().padLeft(2, '0')}s';
+  }
+
+  String get etaFull {
+    if (state == 'AT_STATION') {
+      final s = dwellRemaining.ceil();
+      return 'Kalkışa ${s < 0 ? 0 : s} sn';
+    }
+    final sec = etaSec.ceil();
+    if (sec < 60) return '${sec < 1 ? 1 : sec} sn sonra';
+    final m = sec ~/ 60;
+    final s = sec % 60;
+    return '$m dk ${s.toString().padLeft(2, '0')} sn sonra';
+  }
+
+  String get arrivalClock {
+    final arrivalSec = state == 'AT_STATION' ? dwellRemaining.ceil() : etaSec.ceil();
+    final arrivalDate = DateTime.now().add(Duration(seconds: arrivalSec < 0 ? 0 : arrivalSec));
+    final h = arrivalDate.hour.toString().padLeft(2, '0');
+    final m = arrivalDate.minute.toString().padLeft(2, '0');
+    final s = arrivalDate.second.toString().padLeft(2, '0');
+    return '$h:$m:$s';
   }
 }
 

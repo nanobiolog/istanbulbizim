@@ -47,6 +47,9 @@ def main():
     with open(os.path.join(SRC_DIR, "engine.js"), "r", encoding="utf-8") as f:
         engine_code = f.read()
 
+    with open(os.path.join(SRC_DIR, "rail.js"), "r", encoding="utf-8") as f:
+        rail_code = f.read()
+
     # Optional historical speed profile built from the IBB hourly traffic-density dataset
     # (python3 tools/build_traffic_profile.py). Absent -> engine uses its seed hourly prior.
     traffic_profile = None
@@ -161,6 +164,9 @@ export default {
     if (path === "/metro/colors") return staticJson("metro_colors", METRO_COLORS, "public, max-age=86400, stale-while-revalidate=604800");
     if (path === "/marmaray/timetable") return handleTimetable(env, new URL(request.url.replace("/marmaray/timetable", "/timetable?code=B1")));
     if (path === "/metrobus/corridor") return staticJson("metrobus_corridor", METROBUS_CORRIDOR, "public, max-age=604800, stale-while-revalidate=604800");
+    if (path === "/rail/schedule") return handleRailSchedule(env, url);
+    if (path === "/rail/status") return handleRailStatus(env);
+    if (path === "/rail/departures") return handleRailDepartures(env, url);
     if (path === "/traffic") return handleTraffic(env);
     if (path === "/bus/eta") return handleBusEta(env, url);
     if (path === "/stop/arrivals") return handleStopArrivals(env, url);
@@ -275,11 +281,12 @@ export default {
       });
     }
 
-    return json({ error: "Not found", routes: ["/", "/classic", "/ferries/live", "/bootstrap", "/traffic", "/bus/eta?line=15B&id=A-100", "/stop/arrivals?code=100022", "/diag", "/manifest.json", "/sw.js", "/icon.svg", "/buses", "/line?code=15B", "/line/route?code=15B", "/lines", "/lines/map", "/stops", "/disruptions", "/metro/stations", "/metro/colors", "/status", "/config/carto", "/tile/voyager/{z}/{x}/{y}"] }, 404);
+    return json({ error: "Not found", routes: ["/", "/classic", "/ferries/live", "/bootstrap", "/traffic", "/bus/eta?line=15B&id=A-100", "/stop/arrivals?code=100022", "/diag", "/manifest.json", "/sw.js", "/icon.svg", "/buses", "/line?code=15B", "/line/route?code=15B", "/lines", "/lines/map", "/stops", "/disruptions", "/metro/stations", "/metro/colors", "/rail/schedule?line=M2", "/rail/status", "/rail/departures?line=M2&station=TAKSIM", "/status", "/config/carto", "/tile/voyager/{z}/{x}/{y}"] }, 404);
   },
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(refreshFleet(env).catch(e => console.error("Cron refresh failed:", String(e))));
+    ctx.waitUntil(prewarmRail(env).catch(e => console.error("Rail prewarm failed:", String(e))));
     if (env.AISSTREAM_API_KEY) {
       ctx.waitUntil(refreshFerries(env).catch(e => console.error("AIS refresh failed:", String(e))));
     }
@@ -297,6 +304,8 @@ export default {
         worker_code.strip(),
         "\n\n",
         engine_code.strip(),
+        "\n\n",
+        rail_code.strip(),
         "\n\n",
         f"const TRAFFIC_PROFILE = {json.dumps(traffic_profile, ensure_ascii=False, separators=(',', ':'))};\n",
         f"const BUS_LINES_MAP = {json.dumps(bus_lines_map, ensure_ascii=False)};\n",

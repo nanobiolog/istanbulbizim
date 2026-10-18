@@ -8,7 +8,7 @@ import '../services/schedule_engine.dart';
 /// the scheduled trains moving between them in real time.
 class LineStrip extends StatelessWidget {
   final RailLine line;
-  final RailStation station;
+  final NetworkStation station;
   final NetworkRepository repo;
   final ScheduleEngine engine;
   final DateTime now;
