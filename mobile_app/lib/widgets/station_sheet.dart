@@ -55,6 +55,8 @@ class StationSheet extends StatelessWidget {
             ),
             _header(context, st, line, plan, lines),
             const SizedBox(height: 10),
+            _architectureCard(plan),
+            const SizedBox(height: 10),
             if (reveal) ...[
               _layers(plan),
               const SizedBox(height: 10),
@@ -77,7 +79,7 @@ class StationSheet extends StatelessWidget {
               Expanded(
                 child: _button(
                   icon: Icons.directions_walk_rounded,
-                  label: 'Yürüyerek gir',
+                  label: 'İçinde Yürü (3D)',
                   primary: true,
                   onTap: engine == null
                       ? null
@@ -90,7 +92,7 @@ class StationSheet extends StatelessWidget {
               Expanded(
                 child: _button(
                   icon: Icons.view_in_ar_rounded,
-                  label: reveal ? 'Kapat' : 'Kesit',
+                  label: reveal ? 'Haritaya Dön' : '3D Kesit Planı',
                   primary: false,
                   onTap: () => provider.toggleReveal(),
                 ),
@@ -104,18 +106,53 @@ class StationSheet extends StatelessWidget {
             VehicleShowcase(
               look: VehicleLook.forLine(line),
               photos: provider.network.photos(VehicleLook.forLine(line).mediaKey),
-              height: 150,
+              height: 158,
             ),
             const SizedBox(height: 8),
             Text(
               'Tren konumları ve süreler ${engine?.isOfficial(line.code) == true ? 'Metro İstanbul resmi tarifesine' : (line.headwaySource == 'İBB GTFS' ? 'İBB GTFS sefer sıklığına' : 'tahmini sefer sıklığına')} göre hesaplanır · '
-              'derinlik: ${plan.depthSource == 'kaynak' ? 'yayımlanmış değer' : (plan.depthSource == 'osm' ? 'OSM kat verisi' : 'tahmini')} · '
-              'plan: © OpenStreetMap',
+              'derinlik: ${plan.depthSource == 'kaynak' ? 'mühendislik projesi' : (plan.depthSource == 'osm' ? 'OSM kat verisi' : 'tahmini')} · '
+              'girişler: © OpenStreetMap',
               style: const TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.w500),
             ),
           ]),
         ),
       ),
+    );
+  }
+
+  Widget _architectureCard(StationPlan plan) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(13, 11, 13, 11),
+      decoration: BoxDecoration(
+        color: const Color(0xFF252932),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(Icons.architecture_rounded, color: plan.line.color, size: 17),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              plan.architectureTitle,
+              style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w800),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          _chip(plan.island ? 'Ada Peron' : 'Yan Peron', Colors.white.withValues(alpha: 0.10), Colors.white70),
+          if (plan.hasPsd) ...[
+            const SizedBox(width: 5),
+            _chip('PAKS Kapı', const Color(0xFF0284C7).withValues(alpha: 0.28), const Color(0xFF7DD3FC)),
+          ],
+        ]),
+        const SizedBox(height: 5),
+        Text(
+          plan.architectureSummary,
+          style: TextStyle(color: Colors.white.withValues(alpha: 0.68), fontSize: 11.5, height: 1.32, fontWeight: FontWeight.w500),
+        ),
+      ]),
     );
   }
 

@@ -5,9 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../services/schedule_engine.dart';
+import '../services/app_clock.dart';
 import 'engine3d.dart';
 import 'station_scene.dart';
-import '../services/app_clock.dart';
+import 'vehicle_models.dart';
 
 /// Cut-away 3D view of a station (the "Reveal" mode): street above, concourse, escalators and
 /// platforms below, with trains arriving on the real schedule. Drag to orbit, pinch to zoom.
@@ -171,7 +172,9 @@ class _StationRevealViewState extends State<StationRevealView> with SingleTicker
       },
       onScaleEnd: (_) => _dragging = false,
       onScaleUpdate: (d) {
-        if (d.pointerCount >= 2) {
+        if (d.pointerCount >= 2 || (d.scale - 1.0).abs() > 1e-4) {
+          // Pinch out (d.scale > 1) -> decreases _gDist -> Zoom IN
+          // Pinch in  (d.scale < 1) -> increases _gDist -> Zoom OUT
           _gDist = (_scaleStartDist / d.scale).clamp(25.0, 420.0);
         }
         _gYaw += d.focalPointDelta.dx * 0.008;
@@ -180,8 +183,13 @@ class _StationRevealViewState extends State<StationRevealView> with SingleTicker
       onDoubleTap: () => _applyFocus(null),
       child: Listener(
         onPointerSignal: (e) {
-          // mouse wheel zoom on the website
-          if (e is PointerScrollEvent) _gDist = (_gDist * (1 + e.scrollDelta.dy * 0.0012)).clamp(25.0, 420.0);
+          // Mouse wheel & trackpad pinch zoom on the website
+          if (e is PointerScrollEvent) {
+            _gDist = (_gDist * (1 + e.scrollDelta.dy * 0.0012)).clamp(25.0, 420.0);
+          } else if (e is PointerScaleEvent && e.scale > 0) {
+            // Pinch out (e.scale > 1.0) -> divide _gDist -> Zoom IN
+            _gDist = (_gDist / math.pow(e.scale, 1.35)).clamp(25.0, 420.0);
+          }
         },
         child: CustomPaint(
           size: Size.infinite,
@@ -205,9 +213,10 @@ class _StationRevealViewState extends State<StationRevealView> with SingleTicker
 /// Auto-rotating, draggable 3D model (vehicles in the info sheets).
 class ModelViewer3D extends StatefulWidget {
   final Mesh mesh;
+  final VehicleKind? kind;
   final double height;
   final bool night;
-  const ModelViewer3D({super.key, required this.mesh, this.height = 170, this.night = true});
+  const ModelViewer3D({super.key, required this.mesh, this.kind, this.height = 170, this.night = true});
 
   @override
   State<ModelViewer3D> createState() => _ModelViewer3DState();
@@ -215,9 +224,9 @@ class ModelViewer3D extends StatefulWidget {
 
 class _ModelViewer3DState extends State<ModelViewer3D> with SingleTickerProviderStateMixin {
   final _renderer = Renderer3D();
-  final _cam = Camera3D(fovDeg: 34);
+  final _cam = Camera3D(fovDeg: 32);
   late final Ticker _ticker;
-  double _yaw = -math.pi / 2 + 0.6, _pitch = 0.22;
+  double _yaw = -math.pi / 2 + 0.55, _pitch = 0.24, _zoomScale = 0.92, _scaleStartZoom = 0.92;
   bool _dragging = false;
   int _frame = 0;
   Duration _last = Duration.zero;
@@ -231,13 +240,16 @@ class _ModelViewer3DState extends State<ModelViewer3D> with SingleTickerProvider
       final dt = _last == Duration.zero ? 0.0 : (elapsed - _last).inMicroseconds / 1e6;
       if (dt > 0 && dt < 1 / Render3DQuality.fps(active: true)) return;
       _last = elapsed;
-      if (!_dragging) _yaw += 0.25 * math.min(dt, 0.2); // ~14°/s whatever the frame rate
+      if (!_dragging) _yaw += 0.26 * math.min(dt, 0.2); // ~15°/s smooth showcase rotation
       if (mounted) setState(() => _frame++);
     })..start();
   }
 
   Mesh _groundFor(Mesh m) {
     final r = m.radius;
+    if (widget.kind != null) {
+      return VehicleModels.showcasePlinth(widget.kind!, r, night: widget.night);
+    }
     final g = Mesh();
     const segs = 28;
     for (var i = 0; i < segs; i++) {
@@ -251,7 +263,7 @@ class _ModelViewer3DState extends State<ModelViewer3D> with SingleTickerProvider
   @override
   void didUpdateWidget(covariant ModelViewer3D old) {
     super.didUpdateWidget(old);
-    if (old.mesh != widget.mesh) _ground = _groundFor(widget.mesh);
+    if (old.mesh != widget.mesh || old.kind != widget.kind) _ground = _groundFor(widget.mesh);
   }
 
   @override
@@ -271,32 +283,48 @@ class _ModelViewer3DState extends State<ModelViewer3D> with SingleTickerProvider
   }
 
   Widget _view(double r, double w, double h) {
-    // horizontal fov from the vertical one; frame the bounding sphere across the width
     final aspect = (w.isFinite && w > 0 ? w : 360) / h;
     final vf = _cam.fovDeg * math.pi / 360;
     final hf = math.atan(math.tan(vf) * aspect);
-    final dist = math.max(r / math.sin(math.min(vf, hf)) * 0.62, r / math.tan(hf) * 1.05);
+    final baseDist = math.max(r / math.sin(math.min(vf, hf)) * 0.58, r / math.tan(hf) * 0.96);
+    final dist = baseDist * _zoomScale;
     _cam.orbit(0, r * 0.08, 0, dist, _yaw, _pitch);
     return SizedBox(
       height: h,
       child: GestureDetector(
-        onPanStart: (_) => _dragging = true,
-        onPanEnd: (_) => _dragging = false,
-        onPanCancel: () => _dragging = false,
-        onPanUpdate: (d) {
-          _yaw += d.delta.dx * 0.012;
-          _pitch = (_pitch + d.delta.dy * 0.008).clamp(-0.05, 1.1);
+        onScaleStart: (_) {
+          _scaleStartZoom = _zoomScale;
+          _dragging = true;
         },
-        child: CustomPaint(
-          size: Size.infinite,
-          painter: ScenePainter(
-            renderer: _renderer,
-            camera: _cam,
-            meshes: [_ground, widget.mesh],
-            style: widget.night
-                ? const RenderStyle(sky: Color(0xFF0F172A), skyBottom: Color(0xFF1E293B), fog: Color(0xFF1E293B), fogStart: 400, fogEnd: 900, ambient: 0.58)
-                : const RenderStyle(sky: Color(0xFFE2E8F0), skyBottom: Color(0xFFF8FAFC), fog: Color(0xFFF1F5F9), fogStart: 400, fogEnd: 900),
-            frame: _frame,
+        onScaleEnd: (_) => _dragging = false,
+        onScaleUpdate: (d) {
+          if (d.pointerCount >= 2 || (d.scale - 1.0).abs() > 1e-4) {
+            _zoomScale = (_scaleStartZoom / d.scale).clamp(0.55, 1.45);
+          }
+          _yaw += d.focalPointDelta.dx * 0.012;
+          _pitch = (_pitch + d.focalPointDelta.dy * 0.008).clamp(0.02, 1.05);
+        },
+        onDoubleTap: () => setState(() => _zoomScale = _zoomScale < 0.85 ? 0.96 : 0.76),
+        child: Listener(
+          onPointerSignal: (e) {
+            if (e is PointerScrollEvent) {
+              setState(() => _zoomScale = (_zoomScale * (1 + e.scrollDelta.dy * 0.001)).clamp(0.55, 1.45));
+            } else if (e is PointerScaleEvent && e.scale > 0) {
+              setState(() => _zoomScale = (_zoomScale / math.pow(e.scale, 1.25)).clamp(0.55, 1.45));
+            }
+          },
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: ScenePainter(
+              renderer: _renderer,
+              camera: _cam,
+              meshes: [_ground, widget.mesh],
+              style: widget.night
+                  ? const RenderStyle(
+                      sky: Color(0xFF0B1324), skyBottom: Color(0xFF17253B), fog: Color(0xFF17253B), fogStart: 400, fogEnd: 900, ambient: 0.62)
+                  : const RenderStyle(sky: Color(0xFFE2E8F0), skyBottom: Color(0xFFF8FAFC), fog: Color(0xFFF1F5F9), fogStart: 400, fogEnd: 900),
+              frame: _frame,
+            ),
           ),
         ),
       ),

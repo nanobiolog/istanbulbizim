@@ -2401,9 +2401,9 @@
     <!-- Layer Toggles -->
     <div class="collapsible-section">
       <label class="toggle-row">
-        <span>🚌 Canlı İETT Otobüsleri</span>
+        <span>🚌 Yakın İETT Otobüsleri</span>
         <div class="switch">
-          <input type="checkbox" id="chk-buses" checked>
+          <input type="checkbox" id="chk-buses">
           <span class="slider"></span>
         </div>
       </label>
@@ -2424,7 +2424,7 @@
       <label class="toggle-row">
         <span>🚏 Otobüs Durakları</span>
         <div class="switch">
-          <input type="checkbox" id="chk-stops" checked>
+          <input type="checkbox" id="chk-stops">
           <span class="slider"></span>
         </div>
       </label>
@@ -2504,9 +2504,9 @@
       <!-- Layer Toggles -->
       <div class="layers-toggles-list">
         <label class="toggle-row">
-          <span>🚌 Canlı İETT Otobüsleri</span>
+          <span>🚌 Yakın İETT Otobüsleri</span>
           <div class="switch">
-            <input type="checkbox" id="chk-buses-modal" checked>
+            <input type="checkbox" id="chk-buses-modal">
             <span class="slider"></span>
           </div>
         </label>
@@ -2527,7 +2527,7 @@
         <label class="toggle-row">
           <span>🚏 Otobüs Durakları</span>
           <div class="switch">
-            <input type="checkbox" id="chk-stops-modal" checked>
+            <input type="checkbox" id="chk-stops-modal">
             <span class="slider"></span>
           </div>
         </label>
@@ -2638,11 +2638,58 @@
         zoom: 11,
         minZoom: 9,
         maxZoom: 18,
+        zoomSnap: 0.1,
+        zoomDelta: 0.5,
+        wheelPxPerZoomLevel: 40,
+        wheelDebounceTime: 20,
         preferCanvas: true,
         zoomControl: false
       });
 
       L.control.zoom({ position: "bottomright" }).addTo(map);
+
+      // ─── TRACKPAD / MAGIC TRACKPAD PINCH-IN & PINCH-OUT ZOOM ───
+      (function enableTrackpadPinchZoom() {
+        const mapContainer = map.getContainer();
+        if (!mapContainer) return;
+
+        // 1. Chrome / Firefox / Edge / Brave trackpad pinch (wheel with ctrlKey: true)
+        mapContainer.addEventListener("wheel", (e) => {
+          if (!e.ctrlKey) return;
+          e.preventDefault();
+          e.stopPropagation();
+          // Pinch out (spreading fingers apart) -> e.deltaY < 0 -> Zoom IN
+          // Pinch in  (bringing fingers together) -> e.deltaY > 0 -> Zoom OUT
+          const zoomChange = -e.deltaY * 0.016;
+          if (Math.abs(zoomChange) < 0.001) return;
+          const targetZoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), map.getZoom() + zoomChange));
+          const pt = map.mouseEventToContainerPoint(e);
+          map.setZoomAround(pt, targetZoom, { animate: false });
+        }, { passive: false, capture: true });
+
+        // 2. macOS Safari Magic Trackpad / MacBook trackpad pinch (GestureEvent)
+        let gestureStartZoom = map.getZoom();
+        mapContainer.addEventListener("gesturestart", (e) => {
+          e.preventDefault();
+          gestureStartZoom = map.getZoom();
+        }, { passive: false });
+
+        mapContainer.addEventListener("gesturechange", (e) => {
+          e.preventDefault();
+          if (!e.scale || e.scale <= 0) return;
+          // Pinch out (e.scale > 1) -> Zoom IN; Pinch in (e.scale < 1) -> Zoom OUT
+          const targetZoom = Math.max(
+            map.getMinZoom(),
+            Math.min(map.getMaxZoom(), gestureStartZoom + Math.log2(e.scale) * 1.35)
+          );
+          const pt = map.mouseEventToContainerPoint(e);
+          map.setZoomAround(pt, targetZoom, { animate: false });
+        }, { passive: false });
+
+        mapContainer.addEventListener("gestureend", (e) => {
+          e.preventDefault();
+        }, { passive: false });
+      })();
 
       // Basemap Tiles (Carto Retina Dark & Positron with dynamic key detection & proxy fallback)
       let cartoKeyParam = "__CARTO_KEY__";
@@ -3087,9 +3134,10 @@
       let activeTrains = [];
       let lastFleetTime = 0;
       let lastBatchArrivalTime = 0;
-      let currentBatchDuration = 36500;
+      let currentBatchDuration = 11500;
       const POLL_INTERVAL_MS = 2500;
       let isSheetExpanded = false;
+      let isFollowingVehicle = false;
 
       // ─── DOM SELECTORS ───
       const el = id => document.getElementById(id);
@@ -3347,6 +3395,7 @@
       // ─── 60 FPS CONTINUOUS VEHICLE ANIMATION ENGINE ───
       let animLoopRunning = false;
       let lastTrainFrameTime = 0;
+      let activeBusPopup = null;
       function startAnimationLoop() {
         if (animLoopRunning) return;
         animLoopRunning = true;
@@ -3356,24 +3405,25 @@
             if (!item.marker) continue;
 
             const elapsed = now - item.startTime;
+            const dur = Math.max(4000, Math.min(14000, item.duration || 11500));
+            const speed = item.data ? (item.data.s || 0) : 0;
+            const waiting = item.data && item.data.waiting_at_stop;
             let lat, lon;
 
-            if (elapsed <= item.duration) {
-              const progress = Math.min(1, Math.max(0, elapsed / item.duration));
-              const t = smoothStep(progress);
+            if (elapsed <= dur) {
+              // C1-continuous linear interpolation across GPS intervals (never stops/jumps at boundaries)
+              const t = Math.min(1, Math.max(0, elapsed / dur));
               lat = item.fromLat + (item.targetLat - item.fromLat) * t;
               lon = item.fromLon + (item.targetLon - item.fromLon) * t;
             } else {
-              // Target coordinate reached: settle smoothly, NO runaway linear extrapolation!
               lat = item.targetLat;
               lon = item.targetLon;
-              const speed = item.data ? (item.data.s || 0) : 0;
-              if (speed >= 8 && item.bearing != null) {
-                // Gentle decaying drift for at most 4 seconds and 20 meters
-                const extraSec = Math.min(4, (elapsed - item.duration) / 1000);
-                const decayFactor = 1 - Math.exp(-extraSec / 1.8);
-                const maxDriftM = Math.min(20, (speed * 1000 / 3600) * 1.2);
-                const distM = maxDriftM * decayFactor;
+              if (!waiting && speed >= 5 && item.bearing != null) {
+                // Smooth damped velocity dead-reckoning along road heading until next GPS packet
+                const extraSec = Math.min(8, (elapsed - dur) / 1000);
+                const effSeconds = 4.5 * (1 - Math.exp(-extraSec / 4.5));
+                const speedMs = Math.min(22, (speed * 1000 / 3600) * 0.72);
+                const distM = Math.min(48, speedMs * effSeconds);
                 const rad = item.bearing * (Math.PI / 180);
                 const dLat = (distM * Math.cos(rad)) / 111139;
                 const dLon = (distM * Math.sin(rad)) / (111139 * Math.cos(lat * Math.PI / 180));
@@ -3388,6 +3438,9 @@
               try {
                 item.marker.setLatLng([lat, lon]);
               } catch (_) {}
+              if (activeBusPopup && activeBusPopup.busId === id) {
+                try { activeBusPopup.setLatLng([lat, lon]); } catch (_) {}
+              }
             }
 
             if (!item.arrowEl || !item.arrowEl.isConnected) {
@@ -3406,6 +3459,28 @@
             const trainDt = Math.min(0.1, (now - (lastTrainFrameTime || now)) / 1000);
             lastTrainFrameTime = now;
             stepTrains(trainDt, now);
+          }
+
+          // Continuous Camera Follow Lock for clicked Bus or Train
+          if (isFollowingVehicle) {
+            let followTarget = null;
+            if (activeInspectedBus) {
+              const anim = busAnimMap.get(activeInspectedBus.id);
+              if (anim && typeof anim.currentLat === "number" && typeof anim.currentLon === "number") {
+                followTarget = [anim.currentLat, anim.currentLon];
+              } else if (activeInspectedBus.lat && activeInspectedBus.lon) {
+                followTarget = [activeInspectedBus.lat, activeInspectedBus.lon];
+              }
+            } else if (activeInspectedTrain && activeInspectedTrain.marker) {
+              const ll = activeInspectedTrain.marker.getLatLng();
+              if (ll) followTarget = [ll.lat, ll.lng];
+            }
+            if (followTarget) {
+              const cur = map.getCenter();
+              const nextLat = cur.lat + (followTarget[0] - cur.lat) * 0.25;
+              const nextLng = cur.lng + (followTarget[1] - cur.lng) * 0.25;
+              map.panTo([nextLat, nextLng], { animate: false });
+            }
           }
 
           requestAnimationFrame(animateFrame);
@@ -3481,6 +3556,8 @@
 
       function inspectVehicle(b) {
         activeInspectedBus = b;
+        activeInspectedTrain = null;
+        isFollowingVehicle = true;
         const mappedLine = b.line || doorLineMap[b.id];
         const lineTitle = b.name ? `${mappedLine} - ${b.name}` : mappedLine;
         const speedText = `${b.s || 0} km/s`;
@@ -3526,8 +3603,12 @@
             ? `<button class="btn-popup-filter" onclick="window.filterLine('${mappedLine}')">🔍 ${mappedLine} Hattı ve Güzergahını Gör</button>` 
             : "";
 
-          L.popup({ autoPanPadding: [20, 20] })
-            .setLatLng([b.lat, b.lon])
+          const anim = busAnimMap.get(b.id);
+          const initLat = anim && anim.currentLat ? anim.currentLat : b.lat;
+          const initLon = anim && anim.currentLon ? anim.currentLon : b.lon;
+
+          const popup = L.popup({ autoPanPadding: [20, 20] })
+            .setLatLng([initLat, initLon])
             .setContent(`
               <div class="popup-box">
                 <div class="popup-header">
@@ -3548,6 +3629,8 @@
               </div>
             `)
             .openOn(map);
+          popup.busId = b.id;
+          activeBusPopup = popup;
         }
       }
 
@@ -4104,10 +4187,11 @@
         const now = performance.now();
 
         // Prevent showing all 4,500+ buses at once.
-        // Viewport bounds culling and zoom-based density limit:
+        // Viewport bounds culling, zoom-based density limit, and minimum spatial separation:
         const bounds = map.getBounds().pad(0.08);
         const center = map.getCenter();
-        const maxBuses = zoom >= 14 ? 140 : (zoom >= 13 ? 90 : (zoom >= 11.5 ? 45 : 20));
+        const maxBuses = zoom >= 14.5 ? 70 : (zoom >= 13.5 ? 45 : (zoom >= 12 ? 25 : 14));
+        const minSepMeters = zoom >= 14.5 ? 110 : (zoom >= 13.5 ? 240 : 480);
 
         const candidates = [];
         for (let i = 0; i < fleetBuses.length; i++) {
@@ -4128,9 +4212,21 @@
           candidates.push({ bus: b, dist });
         }
 
-        // Sort by distance to map center so the most relevant local buses are rendered
+        // Sort by distance to map center and enforce spatial separation so markers never pile up
         candidates.sort((a, b) => a.dist - b.dist);
-        const visibleList = candidates.slice(0, maxBuses).map(c => c.bus);
+        const visibleList = [];
+        for (let i = 0; i < candidates.length && visibleList.length < maxBuses; i++) {
+          const b = candidates[i].bus;
+          let crowded = false;
+          for (let j = 0; j < visibleList.length; j++) {
+            const p = visibleList[j];
+            if (geoDistanceMeters(b.lat, b.lon, p.lat, p.lon) < minSepMeters) {
+              crowded = true;
+              break;
+            }
+          }
+          if (!crowded) visibleList.push(b);
+        }
 
         let renderedCount = 0;
         for (let i = 0; i < visibleList.length; i++) {
@@ -4847,8 +4943,8 @@
             const now = Date.now();
             const isFreshBatch = !lastFleetTime || data.updated_at > lastFleetTime;
             if (isFreshBatch && lastFleetTime > 0) {
-              const measuredInterval = now - (lastBatchArrivalTime || (now - 36500));
-              currentBatchDuration = Math.max(15000, Math.min(45000, measuredInterval));
+              const measuredInterval = now - (lastBatchArrivalTime || (now - 11500));
+              currentBatchDuration = Math.max(8000, Math.min(14000, measuredInterval));
             }
             if (isFreshBatch) {
               lastBatchArrivalTime = now;
@@ -5289,6 +5385,7 @@
       function inspectTrain(t) {
         activeInspectedTrain = t;
         activeInspectedBus = null;
+        isFollowingVehicle = true;
         const p = getTrainDisplayProps(t);
         const isMarmaray = t.line === "B1" || t.line === "MARMARAY";
         const operatorName = isMarmaray ? "TCDD Taşımacılık" : "Metro İstanbul";
@@ -5745,7 +5842,19 @@
       syncCheckboxes(chkStale, chkStaleModal, renderBuses);
       syncCheckboxes(chkStops, chkStopsModal, renderAllBusStops);
 
-      // Re-render visible buses & stops on map panning or zoom
+      // Re-render visible buses & stops on map panning or zoom, and unlock follow on user drag
+      map.on("dragstart", () => {
+        if (isFollowingVehicle) {
+          isFollowingVehicle = false;
+        }
+      });
+      map.on("popupclose", (e) => {
+        if (e.popup && (e.popup === activeBusPopup || e.popup === activeTrainPopup)) {
+          isFollowingVehicle = false;
+          if (e.popup === activeBusPopup) activeBusPopup = null;
+          if (e.popup === activeTrainPopup) activeTrainPopup = null;
+        }
+      });
       map.on("moveend", () => {
         if (!selectedLineCode && chkBuses && chkBuses.checked) {
           renderBuses();

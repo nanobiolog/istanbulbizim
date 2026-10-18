@@ -18,6 +18,31 @@ extension MotionStateText on MotionState {
       };
 }
 
+/// One articulated carriage of a [ScheduledTrain] sampled along its curved [MeasuredPath].
+class SampledTrainCar {
+  final int index;
+  final LatLng center;
+  final LatLng rear;
+  final LatLng front;
+  final double heading;
+  final double lengthM;
+  final List<LatLng> spine;
+  final bool isLead;
+  final bool isTail;
+
+  const SampledTrainCar({
+    required this.index,
+    required this.center,
+    required this.rear,
+    required this.front,
+    required this.heading,
+    required this.lengthM,
+    required this.spine,
+    required this.isLead,
+    required this.isTail,
+  });
+}
+
 /// A train placed on the real track from the timetable (deterministic: same answer on every device).
 class ScheduledTrain {
   final String id;
@@ -38,6 +63,9 @@ class ScheduledTrain {
   /// 0..1 between [fromIdx] and [toIdx] (0 while dwelling).
   final double segFrac;
 
+  /// Distance in metres from the start of [variant.path] to the centre of the train.
+  final double alongM;
+
   const ScheduledTrain({
     required this.id,
     required this.line,
@@ -52,11 +80,93 @@ class ScheduledTrain {
     required this.distanceToNextM,
     required this.progress,
     this.segFrac = 0,
+    this.alongM = 0,
   });
 
   bool get atStation => state == MotionState.atStation;
   String get fromStationId => variant.stops[fromIdx].stationId;
   String get toStationId => variant.stops[toIdx].stationId;
+
+  int get carCount {
+    final c = line.code;
+    if (c == 'B1') return 6;
+    if (c == 'M6') return 2;
+    if (c == 'T2' || c == 'T3' || c.startsWith('TF')) return 1;
+    if (c.startsWith('T')) return 3;
+    if (c.startsWith('F')) return 2;
+    return 4;
+  }
+
+  double get carLengthM {
+    final c = line.code;
+    if (c == 'B1') return 22.5;
+    if (c == 'T2' || c == 'T3') return 11.0;
+    if (c.startsWith('TF')) return 6.0;
+    if (c.startsWith('T') || c.startsWith('F')) return 15.5;
+    return 21.5;
+  }
+
+  /// Full curved polyline of the train consist from rear tail to front nose along [variant.path].
+  List<LatLng> curvedConsistSpine({double scale = 1.0}) {
+    final pathLen = variant.path.length;
+    if (pathLen <= 1) return [pos];
+    final n = carCount;
+    final cLen = carLengthM * scale;
+    final gap = (n > 1 ? 3.4 : 0.0) * scale;
+    final halfTotal = (n * cLen + (n - 1) * gap) * 0.5;
+    final s0 = (alongM - halfTotal).clamp(0.0, pathLen);
+    final s1 = (alongM + halfTotal).clamp(0.0, pathLen);
+    if (s1 - s0 < 1.0) return [pos];
+    return variant.path.slice(s0, s1);
+  }
+
+  /// Individual articulated carriages positioned and bogie-aligned along the curved [variant.path].
+  List<SampledTrainCar> sampledCars({double scale = 1.0}) {
+    final pathLen = variant.path.length;
+    final n = carCount;
+    final cLen = carLengthM * scale;
+    final gap = (n > 1 ? 3.4 : 0.0) * scale;
+    final pitch = cLen + gap;
+    if (pathLen <= 1) {
+      return [
+        SampledTrainCar(
+          index: 0,
+          center: pos,
+          rear: pos,
+          front: pos,
+          heading: heading,
+          lengthM: cLen,
+          spine: [pos],
+          isLead: true,
+          isTail: true,
+        ),
+      ];
+    }
+    final out = <SampledTrainCar>[];
+    for (var k = 0; k < n; k++) {
+      final offset = (k - (n - 1) / 2.0) * pitch;
+      final sCenter = (alongM + offset).clamp(0.0, pathLen);
+      final sRear = (sCenter - cLen * 0.46).clamp(0.0, pathLen);
+      final sFront = (sCenter + cLen * 0.46).clamp(0.0, pathLen);
+      final pRear = variant.path.rawPointAt(sRear);
+      final pFront = variant.path.rawPointAt(sFront);
+      final pCenter = variant.path.rawPointAt(sCenter);
+      final h = (sFront - sRear > 0.4) ? bearingDeg(pRear, pFront) : heading;
+      final carSpine = (sFront - sRear > 0.4) ? variant.path.slice(sRear, sFront) : <LatLng>[pRear, pFront];
+      out.add(SampledTrainCar(
+        index: k,
+        center: pCenter,
+        rear: pRear,
+        front: pFront,
+        heading: h,
+        lengthM: math.max(4.0, sFront - sRear),
+        spine: carSpine,
+        isLead: k == n - 1,
+        isTail: k == 0,
+      ));
+    }
+    return out;
+  }
 }
 
 class DepartureEstimate {
@@ -415,7 +525,7 @@ class ScheduleEngine {
   }
 
   static double secondsOfDay(DateTime now) =>
-      now.hour * 3600 + now.minute * 60 + now.second + now.millisecond / 1000.0;
+      now.hour * 3600 + now.minute * 60 + now.second + now.millisecond / 1000.0 + now.microsecond / 1000000.0;
 
   // ───────────── rail ─────────────
 
@@ -461,12 +571,13 @@ class ScheduleEngine {
     if (i == 0) i = 1;
     final prev = i - 1;
     if (tau >= r.arr[i]) {
-      final (p, h) = v.path.pointAt(v.stops[i].distM);
+      final alongAtStop = v.stops[i].distM;
+      final (p, h) = v.path.pointAt(alongAtStop);
       final last = i == v.stops.length - 1;
       return ScheduledTrain(
         id: id, line: r.line, variant: v, pos: p, heading: h, speedKmh: 0, state: MotionState.atStation,
         fromIdx: i, toIdx: last ? i : i + 1, etaSec: last ? 0 : math.max(0, r.dep[i] - tau),
-        distanceToNextM: 0, progress: tau / r.total);
+        distanceToNextM: 0, progress: tau / r.total, alongM: alongAtStop);
     }
     final seg = r.segs[i - 1];
     final (s, spd, st) = seg.at(tau - r.dep[prev]);
@@ -476,7 +587,7 @@ class ScheduleEngine {
     return ScheduledTrain(
       id: id, line: r.line, variant: v, pos: p, heading: h, speedKmh: spd * 3.6, state: st,
       fromIdx: prev, toIdx: i, etaSec: math.max(0, r.arr[i] - tau), distanceToNextM: math.max(0, d1 - along),
-      progress: tau / r.total, segFrac: d1 > d0 ? ((along - d0) / (d1 - d0)).clamp(0.0, 1.0) : 0);
+      progress: tau / r.total, segFrac: d1 > d0 ? ((along - d0) / (d1 - d0)).clamp(0.0, 1.0) : 0, alongM: along);
   }
 
   /// Re-find a train by id at a new time (keeps a selection alive while it moves).

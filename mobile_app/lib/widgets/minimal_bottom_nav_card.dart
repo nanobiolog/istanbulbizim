@@ -13,6 +13,8 @@ class MinimalBottomNavCard extends StatefulWidget {
   final String selectedDirection;
   final DateTime? lastUpdated;
   final bool isNightMode;
+  final bool isFollowing;
+  final VoidCallback? onToggleFollow;
   final LineTimetable? timetable;
   final bool isLoadingTimetable;
   final VoidCallback? onToggleTimetable;
@@ -33,6 +35,8 @@ class MinimalBottomNavCard extends StatefulWidget {
     required this.selectedDirection,
     this.lastUpdated,
     this.isNightMode = true,
+    this.isFollowing = false,
+    this.onToggleFollow,
     this.timetable,
     this.isLoadingTimetable = false,
     this.onToggleTimetable,
@@ -329,22 +333,68 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
                 ),
               ],
             ),
-            GestureDetector(
-              onTap: onClearSelection,
-              child: Container(
-                padding: const EdgeInsets.all(7),
-                decoration: BoxDecoration(
-                  color: isNightMode
-                      ? Colors.white.withValues(alpha: 0.10)
-                      : AppTheme.background,
-                  shape: BoxShape.circle,
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.onToggleFollow != null) ...[
+                  GestureDetector(
+                    onTap: widget.onToggleFollow,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: widget.isFollowing
+                            ? const Color(0xFF0EA5E9)
+                            : (isNightMode ? Colors.white.withValues(alpha: 0.10) : AppTheme.background),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: widget.isFollowing
+                              ? const Color(0xFF38BDF8)
+                              : (isNightMode ? Colors.white24 : AppTheme.borderMedium),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            widget.isFollowing ? Icons.gps_fixed_rounded : Icons.gps_not_fixed_rounded,
+                            size: 14,
+                            color: widget.isFollowing ? Colors.white : const Color(0xFF0EA5E9),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            widget.isFollowing ? 'Kilitli' : 'Takip Et',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: widget.isFollowing
+                                  ? Colors.white
+                                  : (isNightMode ? Colors.white : AppTheme.textPrimary),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                GestureDetector(
+                  onTap: onClearSelection,
+                  child: Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: isNightMode
+                          ? Colors.white.withValues(alpha: 0.10)
+                          : AppTheme.background,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 18,
+                      color: isNightMode ? Colors.white70 : AppTheme.textSecondary,
+                    ),
+                  ),
                 ),
-                child: Icon(
-                  Icons.close_rounded,
-                  size: 18,
-                  color: isNightMode ? Colors.white70 : AppTheme.textSecondary,
-                ),
-              ),
+              ],
             ),
           ],
         ),

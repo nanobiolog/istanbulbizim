@@ -17,60 +17,83 @@ class VehicleLook {
   static VehicleLook forLine(RailLine line) {
     final c = line.code;
     return switch (line.mode) {
-      RailMode.suburban => VehicleLook('marmaray', VehicleKind.marmaray, line.color, 'TCDD E32000 · Hyundai Rotem'),
-      RailMode.metro => (c == 'M5' || c == 'M8' || c == 'M11')
-          ? VehicleLook('metro_driverless', VehicleKind.metro, line.color, 'Sürücüsüz metro dizisi')
-          : VehicleLook('metro', VehicleKind.metro, line.color, '$c metro dizisi'),
+      RailMode.suburban => VehicleLook(
+          'marmaray',
+          VehicleKind.marmaray,
+          line.color,
+          c == 'B1' ? 'Marmaray · TCDD E32000 Hyundai Rotem' : '$c Banliyö · TCDD E32000',
+        ),
+      RailMode.metro => (c == 'M5' || c == 'M7' || c == 'M8' || c == 'M11')
+          ? VehicleLook(
+              'metro_driverless',
+              VehicleKind.metroDriverless,
+              line.color,
+              c == 'M11' ? '$c · CRRC Sürücüsüz Havalimanı Metrosu' : '$c · Tam Otomatik Sürücüsüz Metro',
+            )
+          : VehicleLook(
+              'metro',
+              VehicleKind.metro,
+              line.color,
+              c == 'M2'
+                  ? 'M2 · Hyundai Rotem Metro Dizisi'
+                  : (c == 'M4' ? 'M4 · CAF Metro Dizisi' : '$c · Metro İstanbul Raylı Dizi'),
+            ),
       RailMode.tram => (c == 'T2' || c == 'T3')
-          ? VehicleLook('nostalgic_tram', VehicleKind.nostalgicTram, line.color, 'Nostaljik tramvay')
-          : VehicleLook('tram', VehicleKind.tram, line.color, 'Alstom Citadis tramvay'),
-      RailMode.funicular => VehicleLook('funicular', VehicleKind.funicular, line.color, 'Füniküler'),
-      RailMode.cable => VehicleLook('cable', VehicleKind.cable, line.color, 'Teleferik kabini'),
+          ? VehicleLook('nostalgic_tram', VehicleKind.nostalgicTram, line.color, '$c · Tarihi Nostaljik Tramvay')
+          : VehicleLook(
+              'tram',
+              VehicleKind.tram,
+              line.color,
+              c == 'T1' ? 'T1 · Bombardier Flexity / Alstom Citadis' : '$c · Alçak Tabanlı Modern Tramvay',
+            ),
+      RailMode.funicular => VehicleLook(
+          'funicular',
+          VehicleKind.funicular,
+          line.color,
+          c == 'F2' ? 'F2 · Tarihi Karaköy–Beyoğlu Tünel (1875)' : '$c · Eğimli Füniküler Dizisi',
+        ),
+      RailMode.cable => VehicleLook('cable', VehicleKind.cable, line.color, '$c · Panoramik Teleferik Kabini'),
     };
   }
 
   static VehicleLook forFerry(FerryOperator? op, FerryLine? line) {
     final name = (line?.name ?? '').toLowerCase();
-    if (name.contains('arabalı')) return const VehicleLook('car_ferry', VehicleKind.carFerry, Color(0xFF1E3A8A), 'Arabalı vapur');
+    if (name.contains('arabalı')) {
+      return const VehicleLook('car_ferry', VehicleKind.carFerry, Color(0xFF1E3A8A), 'Arabalı Vapur · Çift Taraflı Ro-Ro');
+    }
     return switch (op?.id) {
-      'turyol' => VehicleLook('ferry_turyol', VehicleKind.privateFerry, op!.color, 'Turyol motoru'),
-      'dentur' => const VehicleLook('ferry_dentur', VehicleKind.privateFerry, Color(0xFF14B8A6), 'Dentur Avrasya motoru'),
-      'ido' => const VehicleLook('ferry_ido', VehicleKind.seaBus, Color(0xFF0EA5E9), 'İDO deniz otobüsü'),
-      _ => const VehicleLook('ferry_sh', VehicleKind.ferry, Color(0xFF0B5CAD), 'Şehir Hatları vapuru'),
+      'turyol' => VehicleLook('ferry_turyol', VehicleKind.privateFerry, op!.color, 'Turyol · Boğaz Yolcu Motoru'),
+      'dentur' => const VehicleLook('ferry_dentur', VehicleKind.privateFerry, Color(0xFF14B8A6), 'Dentur Avrasya · Yolcu Motoru'),
+      'ido' => const VehicleLook('ferry_ido', VehicleKind.seaBus, Color(0xFFD61F69), 'İDO · Hızlı Katamaran Deniz Otobüsü'),
+      _ => const VehicleLook('ferry_sh', VehicleKind.ferry, Color(0xFF0B5CAD), 'Şehir Hatları · Klasik Boğaz Vapuru'),
     };
   }
 
   static VehicleLook bus(String line) => line.startsWith('34')
-      ? const VehicleLook('metrobus', VehicleKind.metrobus, Color(0xFFE11D48), 'Metrobüs · Mercedes CapaCity')
-      : const VehicleLook('bus', VehicleKind.bus, Color(0xFFF4C430), 'İETT otobüsü');
+      ? const VehicleLook('metrobus', VehicleKind.metrobus, Color(0xFFE11D48), 'Metrobüs · Körüklü BRT Otobüsü')
+      : const VehicleLook('bus', VehicleKind.bus, Color(0xFFF4C430), 'İETT · Alçak Tabanlı Şehir Otobüsü');
 }
 
-/// Photo carousel (Wikimedia Commons, with credit) ↔ rotatable 3D model.
+/// Interactive 3D vehicle model ↔ Wikimedia Commons photo carousel.
 class VehicleShowcase extends StatefulWidget {
   final VehicleLook look;
   final List<VehiclePhoto> photos;
   final double height;
-  const VehicleShowcase({super.key, required this.look, required this.photos, this.height = 168});
+  const VehicleShowcase({super.key, required this.look, required this.photos, this.height = 172});
 
   @override
   State<VehicleShowcase> createState() => _VehicleShowcaseState();
 }
 
 class _VehicleShowcaseState extends State<VehicleShowcase> {
-  bool _show3d = false;
+  bool _show3d = true;
   int _page = 0;
 
   Mesh get _mesh => VehicleModels.build(widget.look.kind, accent: widget.look.accent, cars: switch (widget.look.kind) {
-        VehicleKind.marmaray || VehicleKind.metro => 2,
+        VehicleKind.marmaray || VehicleKind.metro || VehicleKind.metroDriverless => 2,
         VehicleKind.tram => 3,
         _ => 0,
       });
-
-  @override
-  void initState() {
-    super.initState();
-    _show3d = widget.photos.isEmpty;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -80,11 +103,15 @@ class _VehicleShowcaseState extends State<VehicleShowcase> {
       borderRadius: BorderRadius.circular(20),
       child: Container(
         height: widget.height,
-        color: const Color(0xFF0F172A),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0B1324),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        ),
         child: Stack(children: [
           Positioned.fill(
-            child: _show3d
-                ? ModelViewer3D(mesh: _mesh, height: widget.height)
+            child: _show3d || photos.isEmpty
+                ? ModelViewer3D(mesh: _mesh, kind: widget.look.kind, height: widget.height)
                 : PageView.builder(
                     itemCount: photos.length,
                     onPageChanged: (i) => setState(() => _page = i),
@@ -95,7 +122,7 @@ class _VehicleShowcaseState extends State<VehicleShowcase> {
                       loadingBuilder: (c, child, prog) => prog == null
                           ? child
                           : const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))),
-                      errorBuilder: (_, _, _) => ModelViewer3D(mesh: _mesh, height: widget.height),
+                      errorBuilder: (_, _, _) => ModelViewer3D(mesh: _mesh, kind: widget.look.kind, height: widget.height),
                     ),
                   ),
           ),
@@ -107,15 +134,16 @@ class _VehicleShowcaseState extends State<VehicleShowcase> {
             child: IgnorePointer(
               ignoring: _show3d || photo == null,
               child: Container(
-                padding: const EdgeInsets.fromLTRB(12, 26, 12, 9),
+                padding: const EdgeInsets.fromLTRB(12, 24, 12, 9),
                 decoration: const BoxDecoration(
-                  gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Color(0xCC000000)]),
+                  gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Color(0xD8040814)]),
                 ),
                 child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
                       Text(widget.look.title,
-                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w800)),
                       if (!_show3d && photo != null)
                         GestureDetector(
@@ -126,8 +154,8 @@ class _VehicleShowcaseState extends State<VehicleShowcase> {
                               style: const TextStyle(color: Colors.white70, fontSize: 9.5, fontWeight: FontWeight.w500)),
                         )
                       else
-                        const Text('3D model · sürükleyip çevir',
-                            style: TextStyle(color: Colors.white70, fontSize: 9.5, fontWeight: FontWeight.w500)),
+                        const Text('Etkileşimli 3D model · döndürmek için sürükleyin',
+                            style: TextStyle(color: Color(0xFF93C5FD), fontSize: 10, fontWeight: FontWeight.w600)),
                     ]),
                   ),
                   if (!_show3d && photos.length > 1)
@@ -144,16 +172,20 @@ class _VehicleShowcaseState extends State<VehicleShowcase> {
               ),
             ),
           ),
-          // photo / 3D toggle
+          // 3D / Foto toggle
           Positioned(
             top: 8,
             right: 8,
             child: Container(
-              decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.45), borderRadius: BorderRadius.circular(16)),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F172A).withValues(alpha: 0.78),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+              ),
               padding: const EdgeInsets.all(3),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
-                if (photos.isNotEmpty) _seg('Foto', !_show3d, () => setState(() => _show3d = false)),
-                _seg('3D', _show3d, () => setState(() => _show3d = true)),
+                _seg('3D Model', _show3d, () => setState(() => _show3d = true)),
+                if (photos.isNotEmpty) _seg('Fotoğraf', !_show3d, () => setState(() => _show3d = false)),
               ]),
             ),
           ),
@@ -166,8 +198,8 @@ class _VehicleShowcaseState extends State<VehicleShowcase> {
         onTap: tap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
-          decoration: BoxDecoration(color: on ? Colors.white : Colors.transparent, borderRadius: BorderRadius.circular(13)),
-          child: Text(label, style: TextStyle(color: on ? const Color(0xFF0F172A) : Colors.white, fontSize: 11.5, fontWeight: FontWeight.w800)),
+          decoration: BoxDecoration(color: on ? const Color(0xFF38BDF8) : Colors.transparent, borderRadius: BorderRadius.circular(13)),
+          child: Text(label, style: TextStyle(color: on ? const Color(0xFF090D16) : Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
         ),
       );
 }

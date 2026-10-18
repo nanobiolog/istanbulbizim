@@ -380,6 +380,39 @@ Widget _note(String text) => Container(
       child: Text(text, style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
     );
 
+Widget _followChip(TransitProvider provider) {
+  final locked = provider.isFollowingVehicle;
+  return GestureDetector(
+    onTap: provider.toggleFollowLocked,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: locked ? Colors.white : Colors.white.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            locked ? Icons.gps_fixed_rounded : Icons.gps_not_fixed_rounded,
+            size: 13,
+            color: locked ? const Color(0xFF0F172A) : Colors.white,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            locked ? 'Kamera Kilitli (Canlı Takip)' : 'Kamerayı Araca Kilitle',
+            style: TextStyle(
+              color: locked ? const Color(0xFF0F172A) : Colors.white,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 // ───────────────────────── vessel ─────────────────────────
 
 class VesselSheet extends StatelessWidget {
@@ -407,10 +440,11 @@ class VesselSheet extends StatelessWidget {
     return _SheetFrame(children: [
       _headerCard(
         color: v.op?.color ?? const Color(0xFF0B5CAD),
-        kicker: '${v.op?.name.toUpperCase() ?? 'VAPUR'} · TARİFEYE GÖRE',
+        kicker: '${v.op?.name.toUpperCase() ?? 'VAPUR'} · ${v.line.name.toUpperCase()}',
         icon: Icons.directions_boat_filled_rounded,
         title: '→ ${net.piers[v.trip.piers.last]?.name ?? ''}',
         subtitle: status,
+        chips: [_followChip(provider)],
         trailing: v.docked ? null : _bigStat(v.speedKn.toStringAsFixed(0), 'knot'),
         onClose: onClose,
       ),
@@ -451,7 +485,7 @@ class VesselSheet extends StatelessWidget {
         ]),
       ),
       const SizedBox(height: 12),
-      VehicleShowcase(look: look, photos: net.photos(look.mediaKey), height: 150),
+      VehicleShowcase(look: look, photos: net.photos(look.mediaKey), height: 165),
       const SizedBox(height: 8),
       Text('${v.line.name} · ${v.line.source}', style: const TextStyle(color: Colors.white38, fontSize: 10)),
       const SizedBox(height: 4),
@@ -479,10 +513,11 @@ class LiveVesselSheet extends StatelessWidget {
         icon: Icons.sensors_rounded,
         title: vessel.name.isEmpty ? 'MMSI ${vessel.mmsi}' : vessel.name,
         subtitle: '${vessel.sog.toStringAsFixed(1)} knot · rota ${vessel.cog.round()}° · ${vessel.ageSec} sn önce',
+        chips: [_followChip(provider)],
         onClose: onClose,
       ),
       const SizedBox(height: 12),
-      VehicleShowcase(look: look, photos: provider.network.photos(look.mediaKey), height: 150),
+      VehicleShowcase(look: look, photos: provider.network.photos(look.mediaKey), height: 165),
     ]);
   }
 }
@@ -526,6 +561,7 @@ class TrainSheet extends StatelessWidget {
         icon: t.line.mode.icon,
         title: '→ ${t.variant.to}',
         subtitle: t.atStation ? '${next?.name ?? ''} istasyonunda · kalkışa ${formatCountdown(eta)}' : '${t.state.label} · ${next?.name ?? ''} ${formatCountdown(eta)}',
+        chips: [_followChip(provider)],
         trailing: _bigStat('${t.speedKmh.round()}', 'km/s'),
         onClose: onClose,
       ),
@@ -593,7 +629,7 @@ class TrainSheet extends StatelessWidget {
         ),
       ],
       const SizedBox(height: 12),
-      VehicleShowcase(look: look, photos: net.photos(look.mediaKey), height: 150),
+      VehicleShowcase(look: look, photos: net.photos(look.mediaKey), height: 165),
       const SizedBox(height: 8),
       Text('${t.line.code} ${t.line.longName} · ${t.line.operator} · konum ${t.line.headwaySource} sefer sıklığından hesaplanır',
           style: const TextStyle(color: Colors.white38, fontSize: 10)),

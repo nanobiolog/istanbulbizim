@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -39,8 +40,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   static final LatLng istanbulCenter = const LatLng(41.0082, 28.9784);
   static const double initialZoom = 12.4;
   double _currentZoom = initialZoom;
-  LiveVessel? _liveSel;
   bool _deepLinkDone = false;
+  bool _isProgrammaticMove = false;
+  AnimationController? _activeMoveAnim;
 
   /// ?istasyon=Yenikapı&hat=B1&gorunum=kesit|yuru  ·  ?iskele=Kadıköy  ·  ?saat=08:30
   void _handleDeepLink(TransitProvider provider) {
@@ -109,32 +111,68 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _activeMoveAnim?.dispose();
     _pingPulseController.dispose();
     super.dispose();
   }
 
   void _animatedMapMove(LatLng dest, double destZoom) {
+    _activeMoveAnim?.stop();
+    _activeMoveAnim?.dispose();
     final latTween = Tween<double>(begin: _mapController.camera.center.latitude, end: dest.latitude);
     final lngTween = Tween<double>(begin: _mapController.camera.center.longitude, end: dest.longitude);
     final zoomTween = Tween<double>(begin: _mapController.camera.zoom, end: destZoom);
-    final controller = AnimationController(duration: const Duration(milliseconds: 520), vsync: this);
-    final animation = CurvedAnimation(parent: controller, curve: Curves.fastOutSlowIn);
+    final controller = AnimationController(duration: const Duration(milliseconds: 420), vsync: this);
+    _activeMoveAnim = controller;
+    final animation = CurvedAnimation(parent: controller, curve: Curves.easeOutCubic);
     controller.addListener(() {
+      if (!mounted) return;
+      _isProgrammaticMove = true;
       _mapController.move(LatLng(latTween.evaluate(animation), lngTween.evaluate(animation)), zoomTween.evaluate(animation));
+      _isProgrammaticMove = false;
     });
     animation.addStatusListener((status) {
-      if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) controller.dispose();
+      if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) {
+        if (_activeMoveAnim == controller) _activeMoveAnim = null;
+        controller.dispose();
+      }
     });
     controller.forward();
   }
 
-  /// Moves so [p] sits in the visible area above a bottom sheet of [sheetFraction] of the screen.
-  void _focusAbove(LatLng p, double zoom, {double sheetFraction = 0.5}) {
+  LatLng _offsetForSheet(LatLng p, double zoom, {double sheetFraction = 0.42}) {
     final h = MediaQuery.of(context).size.height;
     final px = h * sheetFraction / 2;
     final mpp = 156543.03392 * math.cos(p.latitude * math.pi / 180) / math.pow(2, zoom);
     final dLat = px * mpp / 111320.0;
-    _animatedMapMove(LatLng(p.latitude - dLat, p.longitude), zoom);
+    return LatLng(p.latitude - dLat, p.longitude);
+  }
+
+  /// Moves so [p] sits in the visible area above a bottom sheet of [sheetFraction] of the screen.
+  void _focusAbove(LatLng p, double zoom, {double sheetFraction = 0.46}) {
+    _animatedMapMove(_offsetForSheet(p, zoom, sheetFraction: sheetFraction), zoom);
+  }
+
+  /// Called on every vehicleTick when camera follow lock is active.
+  void _stepCameraFollow(TransitProvider provider) {
+    if (!mounted || !provider.isFollowingVehicle || provider.revealStation) return;
+    if (_activeMoveAnim != null && _activeMoveAnim!.isAnimating) return;
+    final target = provider.followedVehiclePosition;
+    if (target == null) return;
+    final cam = _mapController.camera;
+    final desired = _offsetForSheet(target, cam.zoom, sheetFraction: 0.42);
+    final cur = cam.center;
+    final dLat = desired.latitude - cur.latitude;
+    final dLon = desired.longitude - cur.longitude;
+    if (dLat.abs() < 1e-7 && dLon.abs() < 1e-7) return;
+    // Critically damped spring blend so camera lock feels silky even when zooming or switching targets
+    final blend = (dLat.abs() > 0.008 || dLon.abs() > 0.008) ? 0.35 : 0.65;
+    _isProgrammaticMove = true;
+    _mapController.move(
+      LatLng(cur.latitude + dLat * blend, cur.longitude + dLon * blend),
+      cam.zoom,
+    );
+    _isProgrammaticMove = false;
   }
 
   void _openSearch(TransitProvider provider) {
@@ -206,20 +244,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => StationViewScreen(station: st)));
   }
 
-  /// The timetable train closest to a scheduled train (for the 3D "ride along" camera).
-  String? _followIdFor(TransitProvider provider, ScheduledTrain t) {
-    String? id;
-    var bd = 1500.0;
-    for (final m in provider.metroTrains) {
-      if (m.lineCode != t.line.code) continue;
-      final d = haversine(t.pos.latitude, t.pos.longitude, m.currentLat, m.currentLon);
-      if (d < bd) {
-        bd = d;
-        id = m.id;
-      }
-    }
-    return id;
-  }
+  /// Returns the train ID for the 3D "ride along" camera.
+  String? _followIdFor(TransitProvider provider, ScheduledTrain t) => t.id;
 
   /// AR toward the selected stop, else the nearest rail station (or stop) to the user.
   Future<void> _openAr(TransitProvider provider) async {
@@ -268,22 +294,45 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   void _openStation(TransitProvider provider, NetworkStation st, {String? line}) {
-    _liveSel = null;
     provider.selectStation(st, line: line);
     _focusAbove(st.pos, math.max(_currentZoom, 15.6), sheetFraction: 0.62);
   }
 
   void _openPier(TransitProvider provider, Pier pier) {
-    _liveSel = null;
     provider.selectPier(pier);
     _focusAbove(pier.pos, math.max(_currentZoom, 15.0), sheetFraction: 0.6);
+  }
+
+  /// Handles web trackpad / Magic Trackpad pinch-in and pinch-out (`PointerScaleEvent`),
+  /// which Flutter Web emits when the browser dispatches `wheel` with `ctrlKey: true`
+  /// (or Safari `GestureEvent` via the web/index.html bridge) and which `flutter_map` ignores by default.
+  void _handleMapPointerSignal(PointerSignalEvent pointerSignal) {
+    if (pointerSignal is PointerScaleEvent && pointerSignal.scale > 0 && (pointerSignal.scale - 1.0).abs() > 1e-5) {
+      GestureBinding.instance.pointerSignalResolver.register(
+        pointerSignal,
+        (sig) {
+          if (!mounted) return;
+          final scaleEvent = sig as PointerScaleEvent;
+          final cam = _mapController.camera;
+          // Pinch out (scale > 1.0) -> positive zoomDelta -> Zoom IN
+          // Pinch in  (scale < 1.0) -> negative zoomDelta -> Zoom OUT
+          final zoomDelta = (math.log(scaleEvent.scale) / math.ln2) * 1.45;
+          final newZoom = (cam.zoom + zoomDelta).clamp(8.0, 19.0);
+          if ((newZoom - cam.zoom).abs() < 1e-5) return;
+          final newCenter = cam.focusedZoomCenter(scaleEvent.localPosition, newZoom);
+          _activeMoveAnim?.stop();
+          _isProgrammaticMove = true;
+          _mapController.move(newCenter, newZoom);
+          _isProgrammaticMove = false;
+        },
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<TransitProvider>();
     _handleDeepLink(provider);
-    if (provider.hasDetailSelection) _liveSel = null;
     final night = provider.isNightMode;
     final reveal = provider.revealStation;
     final plan = provider.selectedStationPlan;
@@ -294,65 +343,91 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       body: Stack(
         children: [
           // ─── 1. MAP ───
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: istanbulCenter,
-              initialZoom: initialZoom,
-              minZoom: 8.0,
-              maxZoom: 19,
-              interactionOptions: InteractionOptions(
-                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
-                cursorKeyboardRotationOptions: CursorKeyboardRotationOptions.disabled(),
-              ),
-              onMapReady: () {
-                final c = _mapController.camera;
-                provider.updateCameraPosition(c.center, c.zoom);
-              },
-              onPositionChanged: (camera, _) {
-                _currentZoom = camera.zoom;
-                provider.updateCameraPosition(camera.center, camera.zoom);
-              },
-              onTap: (_, _) {
-                if (provider.hasDetailSelection || _liveSel != null) {
-                  setState(() => _liveSel = null);
-                  provider.clearAllSelections();
-                } else if (provider.selectedRailLine != null) {
-                  provider.selectRailLine(null);
-                }
-              },
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: provider.tileUrl,
-                subdomains: const ['a', 'b', 'c', 'd'],
-                userAgentPackageName: 'com.istanbulbizim.mobile_app',
+          Listener(
+            onPointerSignal: _handleMapPointerSignal,
+            child: FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: istanbulCenter,
+                initialZoom: initialZoom,
+                minZoom: 8.0,
                 maxZoom: 19,
+                interactionOptions: InteractionOptions(
+                  flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+                  pinchZoomThreshold: 0.1,
+                  scrollWheelVelocity: 0.006,
+                  cursorKeyboardRotationOptions: CursorKeyboardRotationOptions.disabled(),
+                ),
+                onMapReady: () {
+                  final c = _mapController.camera;
+                  provider.updateCameraPosition(c.center, c.zoom);
+                },
+                onMapEvent: (event) {
+                  if (!_isProgrammaticMove &&
+                      event is MapEventMoveStart &&
+                      event.source != MapEventSource.mapController &&
+                      event.source != MapEventSource.scrollWheel &&
+                      provider.isFollowingVehicle) {
+                    provider.setFollowLocked(false);
+                  }
+                },
+                onPositionChanged: (camera, _) {
+                  _currentZoom = camera.zoom;
+                  provider.updateCameraPosition(camera.center, camera.zoom);
+                },
+                onTap: (_, _) {
+                  if (provider.hasDetailSelection) {
+                    provider.clearAllSelections();
+                  } else if (provider.selectedRailLine != null) {
+                    provider.selectRailLine(null);
+                  }
+                },
               ),
-              if (provider.showFerries && (!provider.liteMode || _currentZoom >= 12)) PolylineLayer(polylines: _ferryPolylines(provider)),
-              if (provider.showProjects) PolylineLayer(polylines: _projectPolylines(provider)),
-              if (provider.showMetroLines) PolylineLayer(polylines: _railPolylines(provider)),
-              if (provider.selectedLineRoute != null) PolylineLayer(polylines: _buildLineRoutePolylines(provider)),
-              if (provider.showBusStops && provider.selectedLineRoute == null) MarkerLayer(markers: _buildGeneralBusStopMarkers(provider)),
-              if (provider.selectedLineRoute != null) MarkerLayer(markers: _buildLineBusStopMarkers(provider)),
-              if (provider.showProjects && _currentZoom >= 11.5) MarkerLayer(markers: _projectStationMarkers(provider)),
-              if (provider.showFerries && _currentZoom >= 12.3) MarkerLayer(markers: _pierMarkers(provider)),
-              if (provider.showMetroLines && _currentZoom >= 11) MarkerLayer(markers: _stationMarkers(provider)),
-              if (provider.showEntrances && _currentZoom >= 16) MarkerLayer(markers: _entranceMarkers(provider)),
-              // Moving vehicles repaint on their own tick; nothing else rebuilds when they move.
-              ValueListenableBuilder<int>(
-                valueListenable: provider.vehicleTick,
-                builder: (context, _, _) => MarkerLayer(markers: [
-                  if (provider.showMetroLines && provider.showMetroTrains && _currentZoom >= 11.3) ..._trainMarkers(provider),
-                  if (provider.showFerries && _currentZoom >= 10.5) ..._vesselMarkers(provider),
-                ]),
-              ),
-              if (provider.showBuses) MarkerLayer(markers: _buildBusMarkers(provider)),
-              if (provider.userLocation != null)
-                MarkerLayer(markers: [
-                  Marker(point: provider.userLocation!, width: 44, height: 44, child: _buildUserLocationMarker()),
-                ]),
-            ],
+              children: [
+                TileLayer(
+                  urlTemplate: provider.tileUrl,
+                  subdomains: const ['a', 'b', 'c', 'd'],
+                  userAgentPackageName: 'com.istanbulbizim.mobile_app',
+                  maxZoom: 19,
+                ),
+                if (provider.showFerries && (!provider.liteMode || _currentZoom >= 12)) PolylineLayer(polylines: _ferryPolylines(provider)),
+                if (provider.showProjects) PolylineLayer(polylines: _projectPolylines(provider)),
+                if (provider.showMetroLines) PolylineLayer(polylines: _railPolylines(provider)),
+                if (provider.selectedLineRoute != null) PolylineLayer(polylines: _buildLineRoutePolylines(provider)),
+                if (provider.showBusStops && provider.selectedLineRoute == null) MarkerLayer(markers: _buildGeneralBusStopMarkers(provider)),
+                if (provider.selectedLineRoute != null) MarkerLayer(markers: _buildLineBusStopMarkers(provider)),
+                if (provider.showProjects && _currentZoom >= 11.5) MarkerLayer(markers: _projectStationMarkers(provider)),
+                if (provider.showFerries && _currentZoom >= 12.3) MarkerLayer(markers: _pierMarkers(provider)),
+                if (provider.showMetroLines && _currentZoom >= 11) MarkerLayer(markers: _stationMarkers(provider)),
+                if (provider.showEntrances && _currentZoom >= 16) MarkerLayer(markers: _entranceMarkers(provider)),
+                // Articulated multi-car train bodies curving along the real rail track geometry
+                if (provider.showMetroLines && provider.showMetroTrains && _currentZoom >= 12.0)
+                  ValueListenableBuilder<int>(
+                    valueListenable: provider.vehicleTick,
+                    builder: (context, _, _) => PolylineLayer(polylines: _trainConsistPolylines(provider)),
+                  ),
+                // Moving vehicles (trains, ferries, AND buses) repaint smoothly on vehicleTick (20–30 FPS)
+                // and drive continuous camera lock when a vehicle is selected.
+                ValueListenableBuilder<int>(
+                  valueListenable: provider.vehicleTick,
+                  builder: (context, _, _) {
+                    if (provider.isFollowingVehicle) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) => _stepCameraFollow(provider));
+                    }
+                    return MarkerLayer(markers: [
+                      if (provider.showMetroLines && provider.showMetroTrains && _currentZoom >= 11.3) ..._trainMarkers(provider),
+                      if (provider.showFerries && _currentZoom >= 10.5) ..._vesselMarkers(provider),
+                      if (provider.showBuses || provider.selectedLineCode != null || provider.selectedBus != null)
+                        ..._buildBusMarkers(provider),
+                    ]);
+                  },
+                ),
+                if (provider.userLocation != null)
+                  MarkerLayer(markers: [
+                    Marker(point: provider.userLocation!, width: 44, height: 44, child: _buildUserLocationMarker()),
+                  ]),
+              ],
+            ),
           ),
 
           // ─── 2. STATION CUT-AWAY (Reveal) ───
@@ -370,7 +445,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               child: _offlineBanner(provider),
             ),
 
-          // ─── 4. SEARCH + NEARBY LINES ───
+          // ─── 4. SEARCH + LAYER MODES + NEARBY LINES ───
           if (!reveal)
             Positioned(
               top: MediaQuery.of(context).padding.top + (provider.isOffline ? 52 : 8),
@@ -389,8 +464,22 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 onToggleMetro: () => provider.toggleMetroLines(),
                 showTrains: provider.showMetroTrains,
                 onToggleTrains: () => provider.toggleMetroTrains(),
+                showFerries: provider.showFerries,
+                onToggleFerries: () => provider.toggleFerries(),
+                showBuses: provider.showBuses,
+                onToggleBuses: () => provider.toggleBuses(),
+                showStops: provider.showBusStops,
+                onToggleStops: () => provider.toggleBusStops(),
                 isNightMode: night,
               ),
+            ),
+
+          // ─── 4B. LIVE VEHICLE CAMERA LOCK BANNER ───
+          if (!reveal && provider.hasFollowedVehicle)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + (provider.isOffline ? 142 : 98),
+              left: 14,
+              child: _followVehiclePill(provider),
             ),
 
           // ─── 5. RIGHT CONTROL RAIL ───
@@ -461,10 +550,65 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
   }
 
+  Widget _followVehiclePill(TransitProvider provider) {
+    final locked = provider.isFollowingVehicle;
+    final label = provider.followedVehicleLabel ?? 'Araç';
+    final night = provider.isNightMode;
+    return GestureDetector(
+      onTap: () {
+        if (locked) {
+          provider.setFollowLocked(false);
+        } else {
+          provider.setFollowLocked(true);
+          final pos = provider.followedVehiclePosition;
+          if (pos != null) {
+            _focusAbove(pos, math.max(_currentZoom, 14.8), sheetFraction: 0.42);
+          }
+        }
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: locked
+              ? const Color(0xFF0EA5E9)
+              : (night ? const Color(0xE60F172A) : Colors.white.withValues(alpha: 0.95)),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: locked ? Colors.white.withValues(alpha: 0.6) : const Color(0xFF0EA5E9),
+            width: 1.4,
+          ),
+          boxShadow: const [
+            BoxShadow(color: Color(0x38000000), blurRadius: 10, offset: Offset(0, 3)),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              locked ? Icons.gps_fixed_rounded : Icons.gps_not_fixed_rounded,
+              size: 15,
+              color: locked ? Colors.white : const Color(0xFF0EA5E9),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              locked ? 'Takip Ediliyor · $label' : 'Kamerayı Kilitle · $label',
+              style: TextStyle(
+                color: locked ? Colors.white : (night ? Colors.white : AppTheme.textPrimary),
+                fontSize: 11.5,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String _sheetKey(TransitProvider p) {
     if (p.selectedStation != null) return 'st-${p.selectedStation!.id}';
     if (p.selectedPier != null) return 'pier-${p.selectedPier!.id}';
-    if (_liveSel != null) return 'ais-${_liveSel!.mmsi}';
+    if (p.selectedLiveVessel != null) return 'ais-${p.selectedLiveVessel!.mmsi}';
     if (p.selectedVessel != null) return 'vessel';
     if (p.selectedTrain != null) return 'train';
     if (p.selectedStop != null) return 'stop';
@@ -488,8 +632,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       );
     }
     if (provider.selectedPier != null) return PierSheet(provider: provider, onClose: () => provider.selectPier(null));
-    if (_liveSel != null) {
-      return LiveVesselSheet(vessel: _liveSel!, provider: provider, onClose: () => setState(() => _liveSel = null));
+    if (provider.selectedLiveVessel != null) {
+      return LiveVesselSheet(
+        vessel: provider.selectedLiveVessel!,
+        provider: provider,
+        onClose: () => provider.selectLiveVessel(null),
+      );
     }
     if (provider.selectedVessel != null) {
       return VesselSheet(
@@ -537,6 +685,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       selectedDirection: provider.selectedDirection,
       lastUpdated: provider.lastUpdated,
       isNightMode: provider.isNightMode,
+      isFollowing: provider.isFollowingVehicle,
+      onToggleFollow: () {
+        provider.toggleFollowLocked();
+        if (provider.isFollowingVehicle && provider.followedVehiclePosition != null) {
+          _focusAbove(provider.followedVehiclePosition!, math.max(_currentZoom, 15.2), sheetFraction: 0.42);
+        }
+      },
       timetable: provider.selectedLineTimetable,
       isLoadingTimetable: provider.isLoadingTimetable,
       onToggleTimetable: () {
@@ -754,35 +909,151 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     return out;
   }
 
-  List<Marker> _trainMarkers(TransitProvider provider) {
-    final out = <Marker>[];
+  List<ScheduledTrain> _visibleScheduledTrains(TransitProvider provider) {
     final z = _currentZoom;
     final hl = provider.selectedRailLine?.code;
     final selId = provider.selectedTrain?.id;
-    final detailed = z >= 15;
-    for (final t in provider.scheduledTrains) {
+    final minSepM = (hl != null || z >= 14.2) ? 0.0 : (z < 12.2 ? 900.0 : (z < 13.2 ? 480.0 : 220.0));
+    final placed = <LatLng>[];
+    final visible = <ScheduledTrain>[];
+
+    // Ensure selected train is evaluated first so it is never culled
+    final trains = provider.scheduledTrains;
+    for (final t in trains) {
+      if (t.id != selId) continue;
+      placed.add(t.pos);
+      visible.add(t);
+    }
+    for (final t in trains) {
+      if (t.id == selId) continue;
       if (!_inView(t.pos, pad: 0.05)) continue;
       if (hl != null && t.line.code != hl) continue;
+      if (minSepM > 0) {
+        bool tooClose = false;
+        for (final p in placed) {
+          if (haversine(p.latitude, p.longitude, t.pos.latitude, t.pos.longitude) < minSepM) {
+            tooClose = true;
+            break;
+          }
+        }
+        if (tooClose) continue;
+      }
+      placed.add(t.pos);
+      visible.add(t);
+    }
+    return visible;
+  }
+
+  /// Renders each train as an articulated multi-car consist whose individual cars bend
+  /// smoothly along the real curved rail polyline (`t.variant.path`) through every turn.
+  List<Polyline> _trainConsistPolylines(TransitProvider provider) {
+    final z = _currentZoom;
+    final selId = provider.selectedTrain?.id;
+    // Gently exaggerate physical car length at medium zoom so curved articulation is clearly legible
+    final scale = math.pow(2.0, (15.4 - z).clamp(0.0, 2.2)).toDouble();
+    final carWidth = (z >= 16 ? 9.5 : (z >= 14.5 ? 7.8 : (z >= 13.2 ? 6.2 : 4.8)));
+    final out = <Polyline>[];
+
+    for (final t in _visibleScheduledTrains(provider)) {
       final sel = t.id == selId;
-      if (z < (provider.liteMode ? 14.5 : 13.4) && !sel) {
+      final spine = t.curvedConsistSpine(scale: scale);
+      if (spine.length >= 2) {
+        // Selection halo + dark articulated underframe/gangway spine connecting the cars
+        if (sel) {
+          out.add(Polyline(
+            points: spine,
+            strokeWidth: carWidth + 6.0,
+            color: const Color(0xFFFDE047).withValues(alpha: 0.85),
+            strokeCap: StrokeCap.round,
+            strokeJoin: StrokeJoin.round,
+          ));
+        }
+        out.add(Polyline(
+          points: spine,
+          strokeWidth: carWidth + 2.4,
+          color: const Color(0xFF090D16).withValues(alpha: 0.92),
+          strokeCap: StrokeCap.round,
+          strokeJoin: StrokeJoin.round,
+        ));
+      }
+
+      // Individual articulated carriages sliced along the curved track with gangway gaps between cars
+      final cars = t.sampledCars(scale: scale);
+      for (final car in cars) {
+        if (car.spine.length < 2) continue;
+        // White metallic body shell rim
+        out.add(Polyline(
+          points: car.spine,
+          strokeWidth: carWidth + 0.6,
+          color: Colors.white.withValues(alpha: 0.96),
+          strokeCap: StrokeCap.butt,
+          strokeJoin: StrokeJoin.round,
+        ));
+        // Line-coloured car body
+        out.add(Polyline(
+          points: car.spine,
+          strokeWidth: carWidth - 1.2,
+          color: t.line.color,
+          strokeCap: StrokeCap.butt,
+          strokeJoin: StrokeJoin.round,
+        ));
+        // Subtle metallic roof/window ribbon on zoomed-in views
+        if (z >= 14.0) {
+          out.add(Polyline(
+            points: car.spine,
+            strokeWidth: (carWidth - 4.2).clamp(1.4, 4.0),
+            color: Colors.white.withValues(alpha: 0.55),
+            strokeCap: StrokeCap.round,
+            strokeJoin: StrokeJoin.round,
+          ));
+        }
+        // Lead cab nose highlight in the direction of travel
+        if (car.isLead && car.spine.length >= 2) {
+          final noseStart = car.spine[car.spine.length - 2];
+          final noseTip = car.spine.last;
+          out.add(Polyline(
+            points: [noseStart, noseTip],
+            strokeWidth: carWidth - 0.8,
+            color: sel ? const Color(0xFFFDE047) : Colors.white,
+            strokeCap: StrokeCap.round,
+          ));
+        }
+      }
+    }
+    return out;
+  }
+
+  List<Marker> _trainMarkers(TransitProvider provider) {
+    final out = <Marker>[];
+    final z = _currentZoom;
+    final selId = provider.selectedTrain?.id;
+    final detailed = z >= 15;
+
+    for (final t in _visibleScheduledTrains(provider)) {
+      final sel = t.id == selId;
+      if (z < (provider.liteMode ? 14.5 : 13.2) && !sel) {
         out.add(Marker(
           point: t.pos,
-          width: 18,
-          height: 18,
+          width: 24,
+          height: 24,
           child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
             onTap: () {
-              _liveSel = null;
               provider.selectScheduledTrain(t);
-              _focusAbove(t.pos, 14.5, sheetFraction: 0.55);
+              _focusAbove(t.pos, math.max(z, 14.8), sheetFraction: 0.42);
             },
             child: Center(
-              child: Container(
-                width: 11,
-                height: 11,
-                decoration: BoxDecoration(
-                  color: t.line.color,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 1.8),
+              child: Transform.rotate(
+                angle: (t.heading - 90) * math.pi / 180,
+                child: Container(
+                  width: 14,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: t.line.color,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.white, width: 1.5),
+                    boxShadow: const [BoxShadow(color: Color(0x40000000), blurRadius: 3)],
+                  ),
                 ),
               ),
             ),
@@ -795,22 +1066,27 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           : t.line.code;
       out.add(Marker(
         point: t.pos,
-        width: detailed ? 150 : 64,
-        height: 28,
+        width: detailed ? 154 : 72,
+        height: 44,
+        // Float the callout pill slightly above the track so the curved multi-car train consist underneath is unobstructed
+        alignment: const Alignment(0, -0.75),
         child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
           onTap: () {
-            _liveSel = null;
             provider.selectScheduledTrain(t);
-            _focusAbove(t.pos, math.max(z, 14.5), sheetFraction: 0.55);
+            _focusAbove(t.pos, math.max(z, 14.8), sheetFraction: 0.42);
           },
-          child: Center(
+          child: Align(
+            alignment: Alignment.topCenter,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+              padding: const EdgeInsets.symmetric(horizontal: 6.5, vertical: 2.5),
               decoration: BoxDecoration(
-                color: t.line.color,
+                color: t.line.color.withValues(alpha: 0.94),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: sel ? const Color(0xFFFDE047) : Colors.white, width: sel ? 2.4 : 1.6),
-                boxShadow: sel ? [BoxShadow(color: t.line.color.withValues(alpha: 0.45), blurRadius: 12, offset: const Offset(0, 2))] : null,
+                border: Border.all(color: sel ? const Color(0xFFFDE047) : Colors.white, width: sel ? 2.2 : 1.5),
+                boxShadow: sel
+                    ? [BoxShadow(color: t.line.color.withValues(alpha: 0.55), blurRadius: 10, offset: const Offset(0, 2))]
+                    : const [BoxShadow(color: Color(0x33000000), blurRadius: 4, offset: Offset(0, 1))],
               ),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 Transform.rotate(
@@ -925,6 +1201,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     final net = provider.network;
     final live = provider.liveVessels;
     final selId = provider.selectedVessel?.id;
+    final selLiveMmsi = provider.selectedLiveVessel?.mmsi;
+    final now = AppClock.now();
     Widget boat(Color color, double heading, String text, bool sel, {bool liveDot = false}) => Container(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
           decoration: BoxDecoration(
@@ -955,19 +1233,21 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         );
     if (live.isNotEmpty) {
       for (final v in live) {
-        if (!_inView(v.pos, pad: 0.05)) continue;
+        final vPos = v.posAt(provider.liveVesselsAt, now);
+        if (!_inView(vPos, pad: 0.05)) continue;
         final op = net.operators[v.operatorId];
+        final isSel = selLiveMmsi == v.mmsi;
         out.add(Marker(
-          point: v.pos,
+          point: vPos,
           width: _currentZoom >= 14 ? 140 : 48,
           height: 26,
           child: GestureDetector(
             onTap: () {
-              provider.clearAllSelections();
-              setState(() => _liveSel = v);
+              provider.selectLiveVessel(v);
+              _focusAbove(vPos, math.max(_currentZoom, 14.0), sheetFraction: 0.42);
             },
             child: Center(
-                child: boat(op?.color ?? const Color(0xFF0B5CAD), v.cog, _currentZoom >= 14 ? v.name : '', _liveSel?.mmsi == v.mmsi,
+                child: boat(op?.color ?? const Color(0xFF0B5CAD), v.cog, _currentZoom >= 14 ? v.name : '', isSel,
                     liveDot: true)),
           ),
         ));
@@ -987,7 +1267,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           child: GestureDetector(
             onTap: () {
               provider.selectVessel(v);
-              _focusAbove(v.pos, 13.5, sheetFraction: 0.55);
+              _focusAbove(v.pos, math.max(_currentZoom, 14.0), sheetFraction: 0.42);
             },
             child: Center(
               child: Container(
@@ -1011,9 +1291,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         height: 26,
         child: GestureDetector(
           onTap: () {
-            _liveSel = null;
             provider.selectVessel(v);
-            _focusAbove(v.pos, math.max(_currentZoom, 13.5), sheetFraction: 0.55);
+            _focusAbove(v.pos, math.max(_currentZoom, 14.0), sheetFraction: 0.42);
           },
           child: Center(child: boat(v.op?.color ?? const Color(0xFF0B5CAD), v.heading, _currentZoom >= 14 ? '→ $dest' : '', sel)),
         ),
@@ -1076,12 +1355,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     return out;
   }
 
-  // ─── BUSES (unchanged behaviour) ───
+  // ─── BUSES (C1-continuous smooth display coordinates + auto-follow on tap) ───
   List<Marker> _buildBusMarkers(TransitProvider provider) {
     final markers = <Marker>[];
     for (final bus in provider.visibleBuses) {
       final isSelected = provider.selectedBus?.id == bus.id;
-      final point = LatLng(bus.lat, bus.lon);
+      final point = LatLng(bus.displayLat, bus.displayLon);
+      if (!isSelected && !_inView(point, pad: 0.08)) continue;
       markers.add(Marker(
         point: point,
         width: isSelected ? 52 : 42,
@@ -1089,9 +1369,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         alignment: Alignment.center,
         child: GestureDetector(
           onTap: () {
-            _liveSel = null;
             provider.selectBus(bus);
-            _animatedMapMove(point, 15.5);
+            _focusAbove(point, math.max(_currentZoom, 15.4), sheetFraction: 0.42);
           },
           child: _buildBusMarkerWidget(bus, isSelected),
         ),
@@ -1101,11 +1380,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildBusMarkerWidget(BusVehicle bus, bool isSelected) {
-    final hasBearing = bus.bearing != null && bus.speed > 2.0;
+    final bearing = bus.displayBearing;
+    final hasBearing = bearing != null && bus.speed > 1.5;
+    final isMetrobus = bus.line.toUpperCase().startsWith('34');
+    final accent = isMetrobus ? const Color(0xFFE11D48) : AppTheme.accentBlack;
     return Stack(alignment: Alignment.center, children: [
       if (hasBearing)
         Transform.rotate(
-          angle: (bus.bearing! * math.pi / 180),
+          angle: (bearing * math.pi / 180),
           child: Align(
             alignment: Alignment.topCenter,
             child: Container(
@@ -1113,7 +1395,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               height: 7,
               margin: const EdgeInsets.only(top: 1),
               decoration: BoxDecoration(
-                color: isSelected ? Colors.white : AppTheme.accentBlack,
+                color: isSelected ? const Color(0xFFFDE047) : accent,
                 shape: BoxShape.circle,
                 boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 3)],
               ),
@@ -1124,17 +1406,17 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         width: isSelected ? 44 : 34,
         height: isSelected ? 44 : 34,
         decoration: BoxDecoration(
-          color: isSelected ? AppTheme.accentBlack : Colors.white,
+          color: isSelected ? accent : Colors.white,
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: isSelected ? 0.35 : 0.18),
+              color: Colors.black.withValues(alpha: isSelected ? 0.38 : 0.18),
               blurRadius: isSelected ? 10 : 5,
               spreadRadius: isSelected ? 2 : 0,
               offset: const Offset(0, 2),
             ),
           ],
-          border: Border.all(color: isSelected ? Colors.white : AppTheme.accentBlack, width: isSelected ? 2.5 : 1.8),
+          border: Border.all(color: isSelected ? const Color(0xFFFDE047) : accent, width: isSelected ? 2.5 : 1.8),
         ),
         child: Center(
           child: bus.line.isNotEmpty
@@ -1142,8 +1424,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   maxLines: 1,
                   overflow: TextOverflow.clip,
                   style: TextStyle(
-                      color: isSelected ? Colors.white : AppTheme.accentBlack, fontSize: bus.line.length > 3 ? 9 : 11, fontWeight: FontWeight.w900))
-              : Icon(Icons.directions_bus_rounded, color: isSelected ? Colors.white : AppTheme.accentBlack, size: 16),
+                      color: isSelected ? Colors.white : accent, fontSize: bus.line.length > 3 ? 9 : 11, fontWeight: FontWeight.w900))
+              : Icon(Icons.directions_bus_rounded, color: isSelected ? Colors.white : accent, size: 16),
         ),
       ),
       Positioned(
@@ -1213,7 +1495,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   List<Marker> _buildGeneralBusStopMarkers(TransitProvider provider) {
-    if (_currentZoom < 13.5) return [];
+    if (_currentZoom < 14.2) return [];
     final markers = <Marker>[];
     for (final stop in provider.visibleBusStops) {
       final isSelected = provider.selectedStop?.code == stop.code;
@@ -1226,7 +1508,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () {
-            _liveSel = null;
             provider.selectBusStop(stop);
             _animatedMapMove(point, math.max(_currentZoom, 15.0));
           },

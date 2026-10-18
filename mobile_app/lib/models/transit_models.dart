@@ -32,6 +32,17 @@ class BusVehicle {
   /// Moment this telemetry was received; live age = [ageSeconds] + time since.
   final DateTime receivedAt;
 
+  /// Smoothly interpolated & dead-reckoned position rendered on the map (prevents 10s poll jumps).
+  double displayLat;
+  double displayLon;
+  double? displayBearing;
+  double _startLat;
+  double _startLon;
+  double _targetLat;
+  double _targetLon;
+  DateTime _animStartAt;
+  double _animDurationSec;
+
   BusVehicle({
     required this.id,
     required this.lat,
@@ -55,7 +66,83 @@ class BusVehicle {
     this.etaConf = '',
     this.stopsLeft = 0,
     DateTime? receivedAt,
-  }) : receivedAt = receivedAt ?? DateTime.now();
+    double? displayLat,
+    double? displayLon,
+    double? displayBearing,
+  })  : receivedAt = receivedAt ?? DateTime.now(),
+        displayLat = displayLat ?? lat,
+        displayLon = displayLon ?? lon,
+        displayBearing = displayBearing ?? bearing,
+        _startLat = displayLat ?? lat,
+        _startLon = displayLon ?? lon,
+        _targetLat = lat,
+        _targetLon = lon,
+        _animStartAt = receivedAt ?? DateTime.now(),
+        _animDurationSec = 10.5 {
+    _initDefaultLead();
+  }
+
+  void _initDefaultLead() {
+    if (speed > 2.5 && bearing != null && _targetLat == lat && _targetLon == lon) {
+      final leadM = (math.min(speed, 48.0) / 3.6 * 6.5).clamp(0.0, 55.0);
+      final rad = bearing! * math.pi / 180.0;
+      _targetLat = lat + (leadM * math.cos(rad)) / 110540.0;
+      _targetLon = lon + (leadM * math.sin(rad)) / (111320.0 * math.cos(lat * math.pi / 180.0));
+    }
+  }
+
+  /// Smoothly transitions from [prev]'s current rendered position to the new telemetry fix without jumping.
+  void inheritSmoothMotionFrom(BusVehicle prev, DateTime now) {
+    prev.stepDisplayPosition(now);
+    displayLat = prev.displayLat;
+    displayLon = prev.displayLon;
+    _startLat = prev.displayLat;
+    _startLon = prev.displayLon;
+    _animStartAt = now;
+    _animDurationSec = 10.5;
+
+    final kx = 111320.0 * math.cos(lat * math.pi / 180.0);
+    const ky = 110540.0;
+    final rawDx = (lon - prev.lon) * kx;
+    final rawDy = (lat - prev.lat) * ky;
+    final rawMoveM = math.sqrt(rawDx * rawDx + rawDy * rawDy);
+
+    if (rawMoveM > 1.8 && rawMoveM < 1200.0) {
+      // GPS fix advanced: glide from current rendered position to the new GPS point + gentle velocity lead
+      final moveBearingRad = math.atan2(rawDx, rawDy);
+      final moveBearingDeg = (moveBearingRad * 180.0 / math.pi + 360.0) % 360.0;
+      displayBearing = bearing ?? moveBearingDeg;
+      final leadM = speed > 3.0 ? math.min(35.0, rawMoveM * 0.25) : 0.0;
+      _targetLat = lat + (leadM * math.cos(moveBearingRad)) / ky;
+      _targetLon = lon + (leadM * math.sin(moveBearingRad)) / kx;
+    } else {
+      // Same GPS fix in this poll: preserve previous smooth trajectory or dead-reckon softly
+      displayBearing = bearing ?? prev.displayBearing;
+      final driftDx = (prev._targetLon - lon) * kx;
+      final driftDy = (prev._targetLat - lat) * ky;
+      final driftM = math.sqrt(driftDx * driftDx + driftDy * driftDy);
+      if (speed > 3.5 && displayBearing != null && driftM < 65.0) {
+        final stepM = (math.min(speed, 42.0) / 3.6 * 4.5).clamp(0.0, 42.0);
+        final rad = displayBearing! * math.pi / 180.0;
+        _targetLat = displayLat + (stepM * math.cos(rad)) / ky;
+        _targetLon = displayLon + (stepM * math.sin(rad)) / kx;
+      } else {
+        _targetLat = prev._targetLat;
+        _targetLon = prev._targetLon;
+      }
+    }
+  }
+
+  /// Advances [displayLat] and [displayLon] at 20–60 FPS along the active segment.
+  void stepDisplayPosition(DateTime now) {
+    final elapsed = now.difference(_animStartAt).inMicroseconds / 1e6;
+    if (elapsed <= 0) return;
+    final u = (elapsed / _animDurationSec).clamp(0.0, 1.0);
+    // C1 continuous velocity profile: constant velocity through 82% of the interval, soft ease-out tail
+    final s = u < 0.82 ? u : 0.82 + 0.18 * (1.0 - math.pow(1.0 - (u - 0.82) / 0.18, 2));
+    displayLat = _startLat + (_targetLat - _startLat) * s;
+    displayLon = _startLon + (_targetLon - _startLon) * s;
+  }
 
   factory BusVehicle.fromJson(Map<String, dynamic> json) {
     final now = DateTime.now();
@@ -111,7 +198,7 @@ class BusVehicle {
     String? etaConf,
     int? stopsLeft,
   }) {
-    return BusVehicle(
+    final out = BusVehicle(
       id: id ?? this.id,
       lat: lat ?? this.lat,
       lon: lon ?? this.lon,
@@ -134,7 +221,17 @@ class BusVehicle {
       etaConf: etaConf ?? this.etaConf,
       stopsLeft: stopsLeft ?? this.stopsLeft,
       receivedAt: receivedAt,
+      displayLat: displayLat,
+      displayLon: displayLon,
+      displayBearing: displayBearing,
     );
+    out._startLat = _startLat;
+    out._startLon = _startLon;
+    out._targetLat = _targetLat;
+    out._targetLon = _targetLon;
+    out._animStartAt = _animStartAt;
+    out._animDurationSec = _animDurationSec;
+    return out;
   }
 
   /// Seconds until the next stop, recomputed from the absolute timestamp (null = unknown).

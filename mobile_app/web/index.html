@@ -21,7 +21,7 @@
   <title>İstanbul Bizim</title>
   <link rel="manifest" href="manifest.json">
   <style>
-    html, body { margin: 0; height: 100%; background: #0B1220; overscroll-behavior: none; }
+    html, body { margin: 0; height: 100%; background: #0B1220; overscroll-behavior: none; touch-action: none; }
     #splash {
       position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 18px; color: #E2E8F0; font: 600 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -51,6 +51,53 @@
       s.style.opacity = '0';
       setTimeout(function () { s.remove(); }, 400);
     });
+
+    // Normalize macOS / Magic Trackpad pinch-in & pinch-out on Safari (GestureEvent)
+    // into standard ctrl+wheel events so Flutter Web receives PointerScaleEvent.
+    (function () {
+      var lastGestureScale = 1.0;
+      window.addEventListener('gesturestart', function (e) {
+        e.preventDefault();
+        lastGestureScale = e.scale || 1.0;
+      }, { passive: false });
+
+      window.addEventListener('gesturechange', function (e) {
+        e.preventDefault();
+        var curScale = e.scale || 1.0;
+        if (curScale > 0 && lastGestureScale > 0) {
+          var ratio = curScale / lastGestureScale;
+          // Pinch out (spreading fingers apart, ratio > 1) -> negative deltaY -> Zoom IN
+          // Pinch in  (bringing fingers together, ratio < 1) -> positive deltaY -> Zoom OUT
+          var deltaY = -Math.log(ratio) * 200;
+          if (Math.abs(deltaY) > 0.05) {
+            var cx = typeof e.clientX === 'number' ? e.clientX : window.innerWidth / 2;
+            var cy = typeof e.clientY === 'number' ? e.clientY : window.innerHeight / 2;
+            var target = document.elementFromPoint(cx, cy) || document.body;
+            target.dispatchEvent(new WheelEvent('wheel', {
+              deltaY: deltaY,
+              ctrlKey: true,
+              clientX: cx,
+              clientY: cy,
+              bubbles: true,
+              cancelable: true
+            }));
+          }
+        }
+        lastGestureScale = curScale;
+      }, { passive: false });
+
+      window.addEventListener('gestureend', function (e) {
+        e.preventDefault();
+        lastGestureScale = 1.0;
+      }, { passive: false });
+
+      // Prevent browser UI page-zoom on trackpad pinch while letting Flutter handle the event
+      window.addEventListener('wheel', function (e) {
+        if (e.ctrlKey) {
+          e.preventDefault();
+        }
+      }, { passive: false });
+    })();
   </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>

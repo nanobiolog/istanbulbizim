@@ -67,11 +67,11 @@ class MeasuredPath {
 
   double get length => cum.isEmpty ? 0 : cum[cum.length - 1];
 
-  /// Point and heading at [s] metres along the path.
-  (LatLng, double) pointAt(double s) {
-    if (points.length < 2) return (points.isEmpty ? const LatLng(0, 0) : points.first, 0);
-    if (s <= 0) return (points.first, bearingDeg(points[0], points[1]));
-    if (s >= length) return (points.last, bearingDeg(points[points.length - 2], points.last));
+  /// Raw interpolated point at [s] metres along the path without tangent bearing calculation.
+  LatLng rawPointAt(double s) {
+    if (points.isEmpty) return const LatLng(0, 0);
+    if (points.length == 1 || s <= 0) return points.first;
+    if (s >= length) return points.last;
     var lo = 0, hi = cum.length - 1;
     while (hi - lo > 1) {
       final mid = (lo + hi) >> 1;
@@ -84,20 +84,36 @@ class MeasuredPath {
     final seg = cum[hi] - cum[lo];
     final t = seg <= 0 ? 0.0 : (s - cum[lo]) / seg;
     final a = points[lo], b = points[hi];
-    return (
-      LatLng(a.latitude + (b.latitude - a.latitude) * t, a.longitude + (b.longitude - a.longitude) * t),
-      bearingDeg(a, b),
-    );
+    return LatLng(a.latitude + (b.latitude - a.latitude) * t, a.longitude + (b.longitude - a.longitude) * t);
   }
 
-  /// Sub-path between two distances (used to highlight a leg).
+  /// Point and smooth bogie-chord tangent heading at [s] metres along the path.
+  (LatLng, double) pointAt(double s) {
+    if (points.length < 2) return (points.isEmpty ? const LatLng(0, 0) : points.first, 0);
+    if (s <= 0) return (points.first, bearingDeg(points[0], points[1]));
+    if (s >= length) return (points.last, bearingDeg(points[points.length - 2], points.last));
+    final pt = rawPointAt(s);
+    final sRear = math.max(0.0, s - 12.0);
+    final sFront = math.min(length, s + 12.0);
+    final pRear = rawPointAt(sRear);
+    final pFront = rawPointAt(sFront);
+    final h = (sFront - sRear > 0.5) ? bearingDeg(pRear, pFront) : bearingDeg(points.first, points.last);
+    return (pt, h);
+  }
+
+  /// Sub-path between two distances (used to highlight a leg or slice a curved train spine).
   List<LatLng> slice(double from, double to) {
-    final out = <LatLng>[pointAt(from).$1];
+    if (points.isEmpty) return const [];
+    final a = from.clamp(0.0, length);
+    final b = to.clamp(0.0, length);
+    final lo = math.min(a, b);
+    final hi = math.max(a, b);
+    final out = <LatLng>[rawPointAt(lo)];
     for (var i = 0; i < points.length; i++) {
-      if (cum[i] > from && cum[i] < to) out.add(points[i]);
+      if (cum[i] > lo && cum[i] < hi) out.add(points[i]);
     }
-    out.add(pointAt(to).$1);
-    return out;
+    if (hi > lo) out.add(rawPointAt(hi));
+    return from <= to ? out : out.reversed.toList();
   }
 }
 
@@ -518,6 +534,18 @@ class LiveVessel {
   final String operatorId;
   final int ageSec;
   const LiveVessel(this.mmsi, this.name, this.pos, this.sog, this.cog, this.operatorId, this.ageSec);
+
+  /// Smooth dead-reckoned position along [cog] at [sog] knots since [fetchedAt].
+  LatLng posAt(DateTime? fetchedAt, DateTime now) {
+    if (fetchedAt == null || sog < 0.8) return pos;
+    final dtSec = (now.difference(fetchedAt).inMicroseconds / 1e6).clamp(0.0, 32.0);
+    final distM = (sog * 0.514444 * dtSec).clamp(0.0, 180.0);
+    if (distM < 0.2) return pos;
+    final rad = cog * math.pi / 180.0;
+    final dLat = (distM * math.cos(rad)) / 110540.0;
+    final dLon = (distM * math.sin(rad)) / (111320.0 * math.cos(pos.latitude * math.pi / 180.0));
+    return LatLng(pos.latitude + dLat, pos.longitude + dLon);
+  }
 
   factory LiveVessel.fromJson(Map<String, dynamic> j) => LiveVessel(
         (j['mmsi'] as num?)?.toInt() ?? 0,

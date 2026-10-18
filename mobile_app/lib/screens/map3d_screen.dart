@@ -8,7 +8,8 @@ import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:provider/provider.dart';
 
 import '../models/transit_models.dart';
-import '../services/rail_engine.dart' show istanbulClock, bearingDeg;
+import '../services/rail_engine.dart' show bearingDeg;
+import '../services/schedule_engine.dart';
 import '../services/transit_provider.dart';
 import '../services/walking_directions_service.dart';
 import '../theme/app_theme.dart';
@@ -121,7 +122,7 @@ class _Map3DScreenState extends State<Map3DScreen> {
 
     c.onFeatureTapped.add(_onFeatureTap);
     _tick?.cancel();
-    _tick = Timer.periodic(const Duration(milliseconds: 1000), (_) => _pushLive());
+    _tick = Timer.periodic(const Duration(milliseconds: 240), (_) => _pushLive());
     await _pushLive();
 
     final st = widget.focusStation;
@@ -378,13 +379,28 @@ class _Map3DScreenState extends State<Map3DScreen> {
     return [pt(h, ww), pt(h, -ww), pt(-h, -ww), pt(-h, ww), pt(h, ww)];
   }
 
-  static double _trainLength(String code) {
-    if (code == 'B1') return 230;
-    if (code.startsWith('TF')) return 10;
-    if (code.startsWith('F')) return 35;
-    if (code.startsWith('T')) return 55;
-    if (code == 'M1A' || code == 'M1B') return 75;
-    return 90;
+  /// Builds a 3D GeoJSON polygon ring for an individual articulated carriage between its
+  /// [rear] and [front] bogie positions on the curved track, with cross-track width [wid] metres.
+  static List<List<double>> _carPolygon(ll.LatLng rear, ll.LatLng front, double wid) {
+    final midLat = (rear.latitude + front.latitude) * 0.5;
+    final kx = 111320 * math.cos(midLat * math.pi / 180);
+    const ky = 110540.0;
+    final dx = (front.longitude - rear.longitude) * kx;
+    final dy = (front.latitude - rear.latitude) * ky;
+    final segLen = math.sqrt(dx * dx + dy * dy);
+    if (segLen < 0.25) {
+      return _box(midLat, (rear.longitude + front.longitude) * 0.5, 0, wid, wid);
+    }
+    // Unit normal across the track (right-hand perpendicular to rear -> front)
+    final nx = (dy / segLen) * (wid * 0.5) / kx;
+    final ny = (-dx / segLen) * (wid * 0.5) / ky;
+    return [
+      [front.longitude + nx, front.latitude + ny],
+      [front.longitude - nx, front.latitude - ny],
+      [rear.longitude - nx, rear.latitude - ny],
+      [rear.longitude + nx, rear.latitude + ny],
+      [front.longitude + nx, front.latitude + ny],
+    ];
   }
 
   Future<void> _pushLive() async {
@@ -396,44 +412,81 @@ class _Map3DScreenState extends State<Map3DScreen> {
       final target = cam?.target ?? LatLng(widget.center.latitude, widget.center.longitude);
       _zoom = cam?.zoom ?? _zoom;
       // Exaggerate vehicles when zoomed out so they stay readable in 3D.
-      final k = math.pow(2, 15.5 - _zoom).toDouble().clamp(1.0, 6.0);
+      final k = math.pow(2, 15.5 - _zoom).toDouble().clamp(1.0, 5.0);
       final radius = (6000 * math.pow(2, 14 - _zoom)).toDouble().clamp(1500.0, 25000.0);
       double dist(double lat, double lon) => _distM(target.latitude, target.longitude, lat, lon);
 
       final trainBoxes = <Map<String, dynamic>>[];
       final trainLabels = <Map<String, dynamic>>[];
-      MetroTrainVehicle? follow;
-      for (final t in _p.metroTrains) {
+      ScheduledTrain? follow;
+      final carScale = (k * 0.65).clamp(1.0, 3.2);
+      final carWidthM = (7.2 * math.pow(k, 0.72)).toDouble();
+
+      for (final t in _p.scheduledTrains) {
         if (t.id == _followId) follow = t;
-        if (t.id != _selectedTrainId && dist(t.currentLat, t.currentLon) > radius) continue;
-        final color = _hex(t.color);
+        if (t.id != _selectedTrainId && dist(t.pos.latitude, t.pos.longitude) > radius) continue;
+        final color = _hex(t.line.color);
         final selected = t.id == _selectedTrainId;
-        trainBoxes.add({
-          'type': 'Feature',
-          'id': 'tr:${t.id}',
-          'properties': {'color': selected ? '#fef08a' : color, 'h': 12 + 4 * k, 'b': 2},
-          'geometry': {
-            'type': 'Polygon',
-            'coordinates': [_box(t.currentLat, t.currentLon, t.bearing, _trainLength(t.lineCode) * k, 9 * k)]
-          },
-        });
+        final cars = t.sampledCars(scale: carScale);
+
+        // Extrude each articulated carriage individually along the curved track geometry
+        for (var i = 0; i < cars.length; i++) {
+          final car = cars[i];
+          final carColor = selected
+              ? (car.isLead ? '#fef08a' : '#fde047')
+              : (car.isLead ? color : color);
+          trainBoxes.add({
+            'type': 'Feature',
+            'id': 'tr:${t.id}:${car.index}',
+            'properties': {
+              'color': carColor,
+              'h': (car.isLead ? 12.6 : 11.8) + 3.2 * k,
+              'b': 1.8,
+            },
+            'geometry': {
+              'type': 'Polygon',
+              'coordinates': [_carPolygon(car.rear, car.front, carWidthM)],
+            },
+          });
+
+          // Extrude the recessed dark articulated gangway/coupler bellows between adjacent cars
+          if (i + 1 < cars.length) {
+            final nextCar = cars[i + 1];
+            trainBoxes.add({
+              'type': 'Feature',
+              'id': 'tr:${t.id}:g$i',
+              'properties': {
+                'color': selected ? '#ca8a04' : '#0f172a',
+                'h': 10.2 + 2.6 * k,
+                'b': 2.2,
+              },
+              'geometry': {
+                'type': 'Polygon',
+                'coordinates': [_carPolygon(car.front, nextCar.rear, carWidthM * 0.76)],
+              },
+            });
+          }
+        }
+
         trainLabels.add({
           'type': 'Feature',
           'id': 'tl:${t.id}',
-          'properties': {'label': t.lineCode == 'B1' ? 'MARMARAY' : t.lineCode, 'color': color},
+          'properties': {'label': t.line.code == 'B1' ? 'MARMARAY' : t.line.code, 'color': color},
           'geometry': {
             'type': 'Point',
-            'coordinates': [t.currentLon, t.currentLat]
+            'coordinates': [t.pos.longitude, t.pos.latitude]
           },
         });
       }
 
       final busDots = <Map<String, dynamic>>[];
       final busBoxes = <Map<String, dynamic>>[];
-      final busRadius = math.min(radius, 3500.0);
+      final busRadius = math.min(radius, 2500.0);
+      final now = DateTime.now();
       for (final b in _p.allBuses) {
-        if (busDots.length >= 300) break;
-        if (dist(b.lat, b.lon) > busRadius) continue;
+        if (busDots.length >= 60) break;
+        b.stepDisplayPosition(now);
+        if (dist(b.displayLat, b.displayLon) > busRadius) continue;
         final color = _hex(b.speedColor);
         busDots.add({
           'type': 'Feature',
@@ -441,7 +494,7 @@ class _Map3DScreenState extends State<Map3DScreen> {
           'properties': {'color': color, 'line': b.line},
           'geometry': {
             'type': 'Point',
-            'coordinates': [b.lon, b.lat]
+            'coordinates': [b.displayLon, b.displayLat]
           },
         });
         busBoxes.add({
@@ -450,7 +503,7 @@ class _Map3DScreenState extends State<Map3DScreen> {
           'properties': {'color': color, 'h': 4 + 2 * k},
           'geometry': {
             'type': 'Polygon',
-            'coordinates': [_box(b.lat, b.lon, b.bearing ?? 0, 13 * k, 4 * k)]
+            'coordinates': [_box(b.displayLat, b.displayLon, b.displayBearing ?? 0, 13 * k, 4 * k)]
           },
         });
       }
@@ -461,15 +514,15 @@ class _Map3DScreenState extends State<Map3DScreen> {
       await c.setGeoJsonSource('ib-bus-boxes', {'type': 'FeatureCollection', 'features': busBoxes});
 
       if (follow != null) {
-        // Ride along: camera sits behind the train looking down the track.
+        // Ride along: camera sits behind the train looking smoothly down the curved track tangent.
         await c.animateCamera(
           CameraUpdate.newCameraPosition(CameraPosition(
-            target: LatLng(follow.currentLat, follow.currentLon),
+            target: LatLng(follow.pos.latitude, follow.pos.longitude),
             zoom: math.max(_zoom, 15.8),
             tilt: 68,
-            bearing: follow.bearing,
+            bearing: follow.heading,
           )),
-          duration: const Duration(milliseconds: 950),
+          duration: const Duration(milliseconds: 230),
         );
       }
       if (mounted) setState(() {});
@@ -488,8 +541,13 @@ class _Map3DScreenState extends State<Map3DScreen> {
 
   void _onFeatureTap(math.Point<double> point, LatLng coords, String id, String layerId, Annotation? annotation) {
     if (id.startsWith('tr:') || id.startsWith('tl:')) {
+      final raw = id.substring(3);
+      // Feature IDs for individual cars are formatted as 'tr:<trainId>:<carIdx>'
+      final colonIdx = id.startsWith('tr:') ? raw.lastIndexOf(':') : -1;
+      final tid = colonIdx > 0 ? raw.substring(0, colonIdx) : raw;
       setState(() {
-        _selectedTrainId = id.substring(3);
+        _selectedTrainId = tid;
+        _followId = tid;
         _selectedStation = null;
       });
       _pushLive();
@@ -545,7 +603,7 @@ class _Map3DScreenState extends State<Map3DScreen> {
   @override
   Widget build(BuildContext context) {
     final top = MediaQuery.of(context).padding.top;
-    final train = _selectedTrainId == null ? null : _p.metroTrains.where((t) => t.id == _selectedTrainId).firstOrNull;
+    final train = _selectedTrainId == null ? null : _p.scheduledTrains.where((t) => t.id == _selectedTrainId).firstOrNull;
     return Scaffold(
       backgroundColor: _night ? const Color(0xFF090D16) : AppTheme.background,
       body: Stack(
@@ -601,7 +659,7 @@ class _Map3DScreenState extends State<Map3DScreen> {
                     child: Text(
                       _followId != null
                           ? 'Trenle birlikte ilerliyorsunuz'
-                          : '3D Canlı Harita • ${_p.metroTrains.length} tren • ${_p.activeBusCount} otobüs',
+                          : '3D Canlı Harita • ${_p.scheduledTrains.length} tren • ${_p.activeBusCount} otobüs',
                       style: TextStyle(
                         color: _night ? AppTheme.textLight : AppTheme.textPrimary,
                         fontWeight: FontWeight.w800,
@@ -657,8 +715,9 @@ class _Map3DScreenState extends State<Map3DScreen> {
         child: child,
       );
 
-  Widget _trainCard(MetroTrainVehicle t) {
-    final next = t.upcoming.isNotEmpty ? t.upcoming.first : null;
+  Widget _trainCard(ScheduledTrain t) {
+    final destName = _p.network.stations[t.variant.stops.last.stationId]?.name ?? t.line.name;
+    final nextName = _p.network.stations[t.toStationId]?.name ?? '';
     final following = _followId == t.id;
     return _cardShell(Column(
       mainAxisSize: MainAxisSize.min,
@@ -666,38 +725,32 @@ class _Map3DScreenState extends State<Map3DScreen> {
       children: [
         Row(
           children: [
-            _LineBadge(code: t.lineCode, color: t.color),
+            _LineBadge(code: t.line.code, color: t.line.color),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                '➔ ${t.headsign}',
+                '➔ $destName',
                 style: const TextStyle(color: AppTheme.textLight, fontWeight: FontWeight.w800, fontSize: 16),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
             Text(
-              '${t.currentSpeed.round()} km/s',
+              '${t.carCount} vagon',
               style: const TextStyle(color: AppTheme.textMutedDark, fontWeight: FontWeight.w700, fontSize: 12),
             ),
           ],
         ),
         const SizedBox(height: 8),
-        ValueListenableBuilder<int>(
-          valueListenable: _p.clock,
-          builder: (_, _, _) {
-            final sec = next == null ? 0 : math.max(0, next.at.difference(DateTime.now()).inSeconds);
-            return Text(
-              next == null
-                  ? 'Son durakta'
-                  : 'Sonraki: ${next.name} • ${BusVehicle.formatEta(sec)} (${istanbulClock(next.at)})',
-              style: const TextStyle(color: Color(0xFFFEF08A), fontWeight: FontWeight.w700, fontSize: 13),
-            );
-          },
+        Text(
+          t.atStation
+              ? 'Şu an istasyonda: $nextName'
+              : 'Sonraki: $nextName • ${formatCountdown(Duration(seconds: t.etaSec.round()))}',
+          style: const TextStyle(color: Color(0xFFFEF08A), fontWeight: FontWeight.w700, fontSize: 13),
         ),
         const SizedBox(height: 4),
-        Text(
-          t.official ? 'Resmî tarifeye göre konum' : 'Tahmini konum (sefer planı)',
-          style: TextStyle(color: t.official ? AppTheme.statusLive : const Color(0xFFFCD34D), fontSize: 11, fontWeight: FontWeight.w600),
+        const Text(
+          'Kıvrımlı ray geometrisi üzerinde eklemli vagon dizisi',
+          style: TextStyle(color: AppTheme.statusLive, fontSize: 11, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 10),
         Row(

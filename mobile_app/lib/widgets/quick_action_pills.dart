@@ -12,6 +12,12 @@ class QuickActionPills extends StatelessWidget {
   final VoidCallback onToggleMetro;
   final bool showTrains;
   final VoidCallback onToggleTrains;
+  final bool showFerries;
+  final VoidCallback? onToggleFerries;
+  final bool showBuses;
+  final VoidCallback? onToggleBuses;
+  final bool showStops;
+  final VoidCallback? onToggleStops;
   final bool isNightMode;
 
   const QuickActionPills({
@@ -25,69 +31,126 @@ class QuickActionPills extends StatelessWidget {
     required this.onToggleMetro,
     required this.showTrains,
     required this.onToggleTrains,
+    this.showFerries = true,
+    this.onToggleFerries,
+    this.showBuses = false,
+    this.onToggleBuses,
+    this.showStops = false,
+    this.onToggleStops,
     this.isNightMode = true,
   });
 
+  static const List<String> _featuredRail = ['B1', 'M2', 'M4', 'M5', 'M7', 'T1', 'M11'];
+
   @override
   Widget build(BuildContext context) {
-    // If a line is selected and not in current nearby view, ensure it appears at start
     final hasSelectedInList = selectedLine != null &&
-        nearbyLines.any((l) => l.lineCode.toUpperCase() == selectedLine!.toUpperCase());
+        (nearbyLines.any((l) => l.lineCode.toUpperCase() == selectedLine!.toUpperCase()) ||
+            _featuredRail.contains(selectedLine!.toUpperCase()));
 
-    return SizedBox(
-      height: 44,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        physics: const BouncingScrollPhysics(),
-        children: [
-          // 1. Compact Search Button
-          _buildSearchButton(),
-          const SizedBox(width: 7),
-
-          // 2. Clear Selection Button (if a line is currently active)
-          if (selectedLine != null) ...[
-            _buildClearFilterButton(),
-            const SizedBox(width: 7),
-          ],
-
-          // 3. Highlighted active line if not already in nearby list
-          if (selectedLine != null && !hasSelectedInList) ...[
-            _buildLineChip(
-              NearbyBusLine(
-                lineCode: selectedLine!,
-                busCount: 0,
-                distanceMeters: 0,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Row 1: Search bar + Primary Layer Mode Toggles
+        SizedBox(
+          height: 42,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            physics: const BouncingScrollPhysics(),
+            children: [
+              _buildSearchButton(),
+              const SizedBox(width: 7),
+              if (selectedLine != null) ...[
+                _buildClearFilterButton(),
+                const SizedBox(width: 7),
+              ],
+              _buildToggleChip(
+                label: 'Raylı',
+                icon: Icons.subway_rounded,
+                activeColor: const Color(0xFF38BDF8),
+                isSelected: showMetro,
+                onTap: onToggleMetro,
               ),
-            ),
-            const SizedBox(width: 7),
-          ],
-
-          // 4. Closest Bus Lines in Field View Area
-          ...nearbyLines.map((line) {
-            return Padding(
-              padding: const EdgeInsets.only(right: 7),
-              child: _buildLineChip(line),
-            );
-          }),
-
-          // 5. Metro & Train Network Toggles at end of row
-          const SizedBox(width: 4),
-          _buildToggleChip(
-            label: 'Metro',
-            icon: Icons.subway_rounded,
-            isSelected: showMetro,
-            onTap: onToggleMetro,
+              const SizedBox(width: 6),
+              if (onToggleFerries != null) ...[
+                _buildToggleChip(
+                  label: 'Vapur',
+                  icon: Icons.directions_boat_filled_rounded,
+                  activeColor: const Color(0xFF0EA5E9),
+                  isSelected: showFerries,
+                  onTap: onToggleFerries!,
+                ),
+                const SizedBox(width: 6),
+              ],
+              if (onToggleBuses != null) ...[
+                _buildToggleChip(
+                  label: 'Yakın Otobüs',
+                  icon: Icons.directions_bus_rounded,
+                  activeColor: const Color(0xFFF59E0B),
+                  isSelected: showBuses,
+                  onTap: onToggleBuses!,
+                ),
+                const SizedBox(width: 6),
+              ],
+              if (onToggleStops != null) ...[
+                _buildToggleChip(
+                  label: 'Duraklar',
+                  icon: Icons.place_rounded,
+                  activeColor: const Color(0xFF10B981),
+                  isSelected: showStops,
+                  onTap: onToggleStops!,
+                ),
+                const SizedBox(width: 6),
+              ],
+              _buildToggleChip(
+                label: 'Canlı Tren',
+                icon: Icons.train_rounded,
+                activeColor: const Color(0xFFA855F7),
+                isSelected: showTrains,
+                onTap: onToggleTrains,
+              ),
+            ],
           ),
-          const SizedBox(width: 7),
-          _buildToggleChip(
-            label: 'Trenler',
-            icon: Icons.train_rounded,
-            isSelected: showTrains,
-            onTap: onToggleTrains,
+        ),
+        const SizedBox(height: 6),
+        // Row 2: Featured Rail Lines + Nearby Bus Lines in current viewport
+        SizedBox(
+          height: 36,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            physics: const BouncingScrollPhysics(),
+            children: [
+              if (selectedLine != null && !hasSelectedInList) ...[
+                _buildLineChip(
+                  NearbyBusLine(
+                    lineCode: selectedLine!,
+                    busCount: 0,
+                    distanceMeters: 0,
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              for (final railCode in _featuredRail)
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: _buildRailChip(railCode),
+                ),
+              ...nearbyLines
+                  .where((l) => !_featuredRail.contains(l.lineCode.toUpperCase()) && l.lineCode.toUpperCase() != 'MARMARAY')
+                  .take(12)
+                  .map((line) {
+                return Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: _buildLineChip(line),
+                );
+              }),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -96,34 +159,38 @@ class QuickActionPills extends StatelessWidget {
       onTap: onSearchTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           color: isNightMode
-              ? const Color(0xFF0D1117).withValues(alpha: 0.92)
-              : Colors.white,
+              ? const Color(0xFF0B1120).withValues(alpha: 0.94)
+              : Colors.white.withValues(alpha: 0.96),
           borderRadius: BorderRadius.circular(22),
           border: Border.all(
             color: isNightMode
-                ? Colors.white.withValues(alpha: 0.16)
+                ? const Color(0xFF38BDF8).withValues(alpha: 0.35)
                 : AppTheme.borderMedium,
             width: 1.2,
           ),
+          boxShadow: const [
+            BoxShadow(color: Color(0x29000000), blurRadius: 10, offset: Offset(0, 3)),
+          ],
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
+            const Icon(
               Icons.search_rounded,
               size: 16,
-              color: isNightMode ? Colors.white : AppTheme.textPrimary,
+              color: Color(0xFF38BDF8),
             ),
-            const SizedBox(width: 5),
+            const SizedBox(width: 6),
             Text(
-              'Ara',
+              'Hat / İstasyon Ara',
               style: TextStyle(
                 color: isNightMode ? Colors.white : AppTheme.textPrimary,
                 fontWeight: FontWeight.w800,
-                fontSize: 13,
+                fontSize: 12.5,
+                letterSpacing: -0.2,
               ),
             ),
           ],
@@ -138,28 +205,79 @@ class QuickActionPills extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isNightMode ? Colors.white : AppTheme.accentBlack,
+          color: const Color(0xFFEF4444),
           borderRadius: BorderRadius.circular(22),
+          boxShadow: const [
+            BoxShadow(color: Color(0x33EF4444), blurRadius: 8, offset: Offset(0, 2)),
+          ],
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.close_rounded, size: 14, color: Colors.white),
+            SizedBox(width: 4),
+            Text(
+              'Filtreyi Kaldır',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRailChip(String code) {
+    final isSelected = selectedLine != null &&
+        (selectedLine!.toUpperCase() == code || (code == 'B1' && selectedLine!.toUpperCase() == 'MARMARAY'));
+    final color = AppTheme.lineColor(code);
+    final label = code == 'B1' ? 'Marmaray' : code;
+
+    return GestureDetector(
+      onTap: () {
+        if (isSelected) {
+          onClearLine();
+        } else {
+          onSelectLine(code);
+        }
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? color
+              : (isNightMode ? const Color(0xFF0F172A).withValues(alpha: 0.90) : Colors.white.withValues(alpha: 0.94)),
+          borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: isNightMode ? Colors.white : AppTheme.accentBlack,
-            width: 1.2,
+            color: isSelected ? Colors.white : color.withValues(alpha: 0.65),
+            width: isSelected ? 1.6 : 1.2,
           ),
+          boxShadow: isSelected
+              ? [BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 8, offset: const Offset(0, 2))]
+              : null,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.close_rounded,
-              size: 14,
-              color: isNightMode ? AppTheme.accentBlack : Colors.white,
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: isSelected ? Colors.white : color,
+                shape: BoxShape.circle,
+              ),
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: 5),
             Text(
-              'Tüm Hatlar',
+              label,
               style: TextStyle(
-                color: isNightMode ? AppTheme.accentBlack : Colors.white,
-                fontWeight: FontWeight.w800,
-                fontSize: 13,
+                color: isSelected ? Colors.white : (isNightMode ? Colors.white : AppTheme.textPrimary),
+                fontWeight: FontWeight.w900,
+                fontSize: 11.5,
               ),
             ),
           ],
@@ -182,21 +300,21 @@ class QuickActionPills extends StatelessWidget {
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
         decoration: BoxDecoration(
           color: isSelected
               ? (isNightMode ? Colors.white : AppTheme.accentBlack)
               : (isNightMode
-                  ? const Color(0xFF0D1117).withValues(alpha: 0.92)
-                  : Colors.white),
-          borderRadius: BorderRadius.circular(22),
+                  ? const Color(0xFF0F172A).withValues(alpha: 0.88)
+                  : Colors.white.withValues(alpha: 0.94)),
+          borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: isSelected
                 ? (isNightMode ? Colors.white : AppTheme.accentBlack)
                 : (isNightMode
-                    ? Colors.white.withValues(alpha: 0.16)
+                    ? Colors.white.withValues(alpha: 0.15)
                     : AppTheme.borderMedium),
-            width: isSelected ? 1.5 : 1.2,
+            width: isSelected ? 1.5 : 1.1,
           ),
         ),
         child: Row(
@@ -204,12 +322,12 @@ class QuickActionPills extends StatelessWidget {
           children: [
             Icon(
               Icons.directions_bus_rounded,
-              size: 15,
+              size: 13,
               color: isSelected
                   ? (isNightMode ? AppTheme.accentBlack : Colors.white)
                   : AppTheme.lineColor(line.lineCode),
             ),
-            const SizedBox(width: 5),
+            const SizedBox(width: 4),
             Text(
               line.lineCode,
               style: TextStyle(
@@ -217,34 +335,28 @@ class QuickActionPills extends StatelessWidget {
                     ? (isNightMode ? AppTheme.accentBlack : Colors.white)
                     : (isNightMode ? Colors.white : AppTheme.textPrimary),
                 fontWeight: FontWeight.w800,
-                fontSize: 13.5,
+                fontSize: 12,
               ),
             ),
             if (line.busCount > 0) ...[
-              const SizedBox(width: 6),
+              const SizedBox(width: 5),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                padding: const EdgeInsets.symmetric(horizontal: 4.5, vertical: 1),
                 decoration: BoxDecoration(
                   color: isSelected
                       ? (isNightMode ? Colors.black12 : Colors.white24)
                       : (isNightMode
                           ? Colors.white.withValues(alpha: 0.12)
                           : AppTheme.lightGray),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: isSelected
-                        ? (isNightMode ? Colors.black26 : Colors.white38)
-                        : (isNightMode ? Colors.white24 : AppTheme.borderMedium),
-                    width: 0.8,
-                  ),
+                  borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
                   '${line.busCount}',
                   style: TextStyle(
                     color: isSelected
                         ? (isNightMode ? AppTheme.accentBlack : Colors.white)
-                        : (isNightMode ? Colors.white : AppTheme.textPrimary),
-                    fontSize: 10,
+                        : (isNightMode ? Colors.white70 : AppTheme.textPrimary),
+                    fontSize: 9.5,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -259,6 +371,7 @@ class QuickActionPills extends StatelessWidget {
   Widget _buildToggleChip({
     required String label,
     required IconData icon,
+    required Color activeColor,
     required bool isSelected,
     required VoidCallback onTap,
   }) {
@@ -266,21 +379,21 @@ class QuickActionPills extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected
-              ? (isNightMode ? Colors.white : AppTheme.accentBlack)
+              ? activeColor.withValues(alpha: isNightMode ? 0.22 : 0.15)
               : (isNightMode
                   ? const Color(0xFF0D1117).withValues(alpha: 0.85)
-                  : Colors.white),
+                  : Colors.white.withValues(alpha: 0.92)),
           borderRadius: BorderRadius.circular(22),
           border: Border.all(
             color: isSelected
-                ? (isNightMode ? Colors.white : AppTheme.accentBlack)
+                ? activeColor
                 : (isNightMode
                     ? Colors.white.withValues(alpha: 0.14)
                     : AppTheme.borderMedium),
-            width: 1.2,
+            width: isSelected ? 1.4 : 1.1,
           ),
         ),
         child: Row(
@@ -288,20 +401,20 @@ class QuickActionPills extends StatelessWidget {
           children: [
             Icon(
               icon,
-              size: 15,
+              size: 14,
               color: isSelected
-                  ? (isNightMode ? AppTheme.accentBlack : Colors.white)
-                  : (isNightMode ? Colors.white70 : AppTheme.textPrimary),
+                  ? activeColor
+                  : (isNightMode ? Colors.white60 : AppTheme.textSecondary),
             ),
             const SizedBox(width: 5),
             Text(
               label,
               style: TextStyle(
                 color: isSelected
-                    ? (isNightMode ? AppTheme.accentBlack : Colors.white)
-                    : (isNightMode ? Colors.white70 : AppTheme.textPrimary),
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
+                    ? (isNightMode ? Colors.white : AppTheme.textPrimary)
+                    : (isNightMode ? Colors.white60 : AppTheme.textSecondary),
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w700,
+                fontSize: 12,
               ),
             ),
           ],

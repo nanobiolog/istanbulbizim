@@ -56,16 +56,18 @@ class TransitProvider extends ChangeNotifier {
   String? _selectedStationLine;
   Pier? _selectedPier;
   String? _selectedVesselId;
+  int? _selectedLiveVesselMmsi;
+  bool _followLocked = false;
   bool _revealStation = false;
   StationStage? _revealFocus;
   String? _selectedRailLine;
 
-  // Layers & Map Modes
+  // Layers & Map Modes (Buses & bus stops off by default until a line is chosen or toggled, keeping the map clean)
   bool _isNightMode = true; // Night mode enabled by default (Carto dark_all)
-  bool _showBuses = true;
+  bool _showBuses = false;
   bool _showMetroLines = true;
   bool _showMetroTrains = true;
-  bool _showBusStops = true;
+  bool _showBusStops = false;
   bool _showFerries = true;
   bool _showProjects = false;
   bool _showEntrances = true;
@@ -219,6 +221,71 @@ class TransitProvider extends ChangeNotifier {
     return _engine?.vesselById(id, AppClock.now());
   }
 
+  LiveVessel? get selectedLiveVessel {
+    final mmsi = _selectedLiveVesselMmsi;
+    if (mmsi == null) return null;
+    for (final v in _liveVessels) {
+      if (v.mmsi == mmsi) return v;
+    }
+    return null;
+  }
+
+  bool get hasFollowedVehicle =>
+      _selectedBus != null ||
+      _selectedTrainId != null ||
+      _selectedVesselId != null ||
+      _selectedLiveVesselMmsi != null;
+
+  bool get isFollowingVehicle => _followLocked && followedVehiclePosition != null;
+
+  void setFollowLocked(bool locked) {
+    if (_followLocked == locked) return;
+    _followLocked = locked;
+    notifyListeners();
+  }
+
+  void toggleFollowLocked() {
+    _followLocked = !_followLocked;
+    notifyListeners();
+  }
+
+  /// Live interpolated coordinate of whichever vehicle is currently selected/followed.
+  LatLng? get followedVehiclePosition {
+    if (_selectedBus != null) {
+      return LatLng(_selectedBus!.displayLat, _selectedBus!.displayLon);
+    }
+    if (_selectedTrainId != null) {
+      return selectedTrain?.pos;
+    }
+    if (_selectedVesselId != null) {
+      return selectedVessel?.pos;
+    }
+    if (_selectedLiveVesselMmsi != null) {
+      final lv = selectedLiveVessel;
+      if (lv != null) return lv.posAt(_liveVesselsAt, AppClock.now());
+    }
+    return null;
+  }
+
+  String? get followedVehicleLabel {
+    if (_selectedBus != null) {
+      final dest = _selectedBus!.destination.isNotEmpty ? ' → ${_selectedBus!.destination}' : '';
+      return '${_selectedBus!.line}$dest';
+    }
+    if (_selectedTrainId != null) {
+      final t = selectedTrain;
+      if (t != null) return '${t.line.code} → ${t.variant.to}';
+    }
+    if (_selectedVesselId != null) {
+      final v = selectedVessel;
+      if (v != null) return '${v.op?.name ?? 'Vapur'} (${v.line.name})';
+    }
+    if (_selectedLiveVesselMmsi != null) {
+      final lv = selectedLiveVessel;
+      if (lv != null) return lv.name;
+    }
+    return null;
+  }
 
   bool get isNightMode => _isNightMode;
   bool get showBuses => _showBuses;
@@ -295,12 +362,14 @@ class TransitProvider extends ChangeNotifier {
   String? _lastFilterLine;
   String _lastFilterDir = 'ALL';
 
-  /// Crucial Performance Filter:
-  /// When a line is selected, show that line's buses.
-  /// When viewing the entire fleet and zoomed out (< 11.5), do NOT render all buses at once (too heavy).
-  /// Above 11.5, render buses in viewport radius with zoom-based limits.
+  /// Crucial Performance & De-Crowding Filter:
+  /// - When a bus line is selected, always show that line's buses.
+  /// - When no bus line is selected, only show buses if [_showBuses] ("Yakın Otobüsler") is enabled,
+  ///   and apply spatial separation + tight viewport caps so the map never looks overcrowded.
   List<BusVehicle> get visibleBuses {
-    if (!_showBuses) return const [];
+    if (_selectedLineCode == null && !_showBuses) {
+      return _selectedBus != null ? [_selectedBus!] : const [];
+    }
 
     // Recompute if filter parameters changed significantly (focus on map viewport center)
     final center = _cameraCenter;
@@ -329,22 +398,42 @@ class TransitProvider extends ChangeNotifier {
       return _cachedVisibleBuses;
     }
 
-    // Zoomed out the map belongs to the rail/ferry network; buses appear from street level up.
-    if (_currentZoom < 13.0) {
-      _cachedVisibleBuses = const [];
+    // Zoomed out the map belongs to the rail/ferry network; nearby buses appear from neighborhood level up.
+    if (_currentZoom < 12.6) {
+      _cachedVisibleBuses = _selectedBus != null ? [_selectedBus!] : const [];
       return _cachedVisibleBuses;
     }
 
-    // Dynamic density control based on zoom level:
-    final double radiusMeters = _currentZoom >= 14.0 ? 5000 : (_currentZoom >= 12.5 ? 4000 : 3000);
-    final int maxBuses = _currentZoom >= 14.0 ? 120 : (_currentZoom >= 13.0 ? 70 : 35);
+    // Dynamic density control + spatial separation so general buses never overlap each other:
+    final double radiusMeters = _currentZoom >= 14.5 ? 2800 : (_currentZoom >= 13.5 ? 2400 : 2000);
+    final int maxBuses = _currentZoom >= 15.0 ? 32 : (_currentZoom >= 14.0 ? 24 : 16);
+    final double minSeparationMeters = _currentZoom >= 15.0 ? 55 : (_currentZoom >= 14.0 ? 95 : 140);
+
+    final candidates = <({BusVehicle bus, double dist})>[];
+    for (final bus in _buses) {
+      final d = _distanceMeters(center.latitude, center.longitude, bus.displayLat, bus.displayLon);
+      if (d <= radiusMeters) {
+        candidates.add((bus: bus, dist: d));
+      }
+    }
+    candidates.sort((a, b) => a.dist.compareTo(b.dist));
 
     final nearBuses = <BusVehicle>[];
-    for (final bus in _buses) {
-      final d = _distanceMeters(center.latitude, center.longitude, bus.lat, bus.lon);
-      if (d <= radiusMeters) {
-        nearBuses.add(bus);
-        if (nearBuses.length >= maxBuses) break;
+    if (_selectedBus != null) {
+      nearBuses.add(_selectedBus!);
+    }
+    for (final c in candidates) {
+      if (nearBuses.length >= maxBuses) break;
+      if (_selectedBus != null && c.bus.id == _selectedBus!.id) continue;
+      bool tooClose = false;
+      for (final placed in nearBuses) {
+        if (_distanceMeters(placed.displayLat, placed.displayLon, c.bus.displayLat, c.bus.displayLon) < minSeparationMeters) {
+          tooClose = true;
+          break;
+        }
+      }
+      if (!tooClose) {
+        nearBuses.add(c.bus);
       }
     }
 
@@ -352,14 +441,18 @@ class TransitProvider extends ChangeNotifier {
     return _cachedVisibleBuses;
   }
 
-  /// Viewport filtered bus stops using spatial grid indexing for peak 60 FPS performance
+  /// Viewport filtered bus stops using spatial grid indexing and separation for a clean map
   List<BusStop> get visibleBusStops {
-    if (!_showBusStops || _busStops.isEmpty) return const [];
-    if (_currentZoom < 13.5) return const []; // Match map_screen zoom threshold
+    if (!_showBusStops || _busStops.isEmpty) {
+      return _selectedStop != null ? [_selectedStop!] : const [];
+    }
+    if (_currentZoom < 14.2) {
+      return _selectedStop != null ? [_selectedStop!] : const [];
+    }
 
     final center = _cameraCenter;
-    final double radiusMeters = _currentZoom >= 15.5 ? 2000 : (_currentZoom >= 14.5 ? 3200 : 4500);
-    final int maxStops = _currentZoom >= 15.0 ? 500 : 350;
+    final double radiusMeters = _currentZoom >= 15.5 ? 1400 : 2000;
+    final int maxStops = _currentZoom >= 15.5 ? 70 : 42;
 
     final grid = _apiService.busStopsGrid;
     final stopsList = <BusStop>[];
@@ -645,16 +738,20 @@ class TransitProvider extends ChangeNotifier {
         raw = _isRailLine(_selectedLineCode!) ? const [] : await _apiService.fetchBusesForLine(_selectedLineCode!);
       } else {
         raw = await _apiService.fetchFleetBuses();
-        _fleetBuses = raw;
       }
-      _buses = _enrichBusesWithNextStops(raw);
+      final enriched = _enrichBusesWithNextStops(raw);
+      _buses = enriched;
+      if (_selectedLineCode == null) {
+        _fleetBuses = enriched;
+      }
+      _cachedVisibleBuses = [];
       _lastUpdated = DateTime.now();
       _lastSuccessfulSync = DateTime.now();
       _isOffline = false;
       _errorMessage = null;
       _computeNearbyLines();
 
-      // Keep active selected bus updated with latest telemetry
+      // Keep active selected bus updated with latest telemetry and smooth motion state
       if (_selectedBus != null) {
         final match = _buses.where((b) => b.id == _selectedBus!.id).firstOrNull;
         if (match != null) {
@@ -672,10 +769,17 @@ class TransitProvider extends ChangeNotifier {
     }
   }
 
-  /// Calculates destination, upcoming next stop and live ETA for buses
+  /// Calculates destination, upcoming next stop, live ETA, and C1-continuous motion state for buses
   List<BusVehicle> _enrichBusesWithNextStops(List<BusVehicle> input) {
     if (input.isEmpty) return input;
     final now = DateTime.now();
+    final prevById = <String, BusVehicle>{
+      for (final b in _fleetBuses) b.id: b,
+      for (final b in _buses) b.id: b,
+    };
+    final selBus = _selectedBus;
+    if (selBus != null) prevById[selBus.id] = selBus;
+
     // Route-aware, traffic-aware ETA for the selected line (keeps server ETAs when present)
     final list = (_selectedLineRoute != null && _selectedLineCode != null)
         ? EtaEngine.annotate(input, _selectedLineRoute, _apiService.traffic, now)
@@ -797,7 +901,7 @@ class TransitProvider extends ChangeNotifier {
             : (bus.direction == 'D' ? 'Dönüş İstikameti' : (bus.direction == 'G' ? 'Gidiş İstikameti' : ''));
       }
 
-      return bus.copyWith(
+      final updated = bus.copyWith(
         destination: dest,
         nextStop: nextStop,
         nextStopEtaSec: etaSec,
@@ -807,6 +911,11 @@ class TransitProvider extends ChangeNotifier {
         etaAt: bus.etaAt ?? (etaSec == null ? null : now.add(Duration(seconds: etaSec))),
         etaConf: bus.etaConf.isEmpty && etaSec != null ? 'low' : null,
       );
+      final prev = prevById[updated.id];
+      if (prev != null) {
+        updated.inheritSmoothMotionFrom(prev, now);
+      }
+      return updated;
     }).toList();
   }
 
@@ -817,6 +926,8 @@ class TransitProvider extends ChangeNotifier {
       _selectedLineTimetable = null;
       _selectedDirection = 'ALL';
       _selectedBus = null;
+      _followLocked = false;
+      _cachedVisibleBuses = [];
       await refreshFleet();
       return;
     }
@@ -826,6 +937,7 @@ class TransitProvider extends ChangeNotifier {
     _selectedRailLine = null;
     _clearSelections();
     _selectedLineTimetable = null;
+    _cachedVisibleBuses = [];
     _isLoading = true;
     notifyListeners();
 
@@ -833,6 +945,7 @@ class TransitProvider extends ChangeNotifier {
       _selectedLineRoute = await _apiService.fetchLineRoute(upper);
       final raw = _isRailLine(upper) ? const <BusVehicle>[] : await _apiService.fetchBusesForLine(upper);
       _buses = _enrichBusesWithNextStops(raw);
+      _cachedVisibleBuses = [];
       _lastUpdated = DateTime.now();
       _lastSuccessfulSync = DateTime.now();
       _isOffline = false;
@@ -869,6 +982,7 @@ class TransitProvider extends ChangeNotifier {
 
   void setDirectionFilter(String dir) {
     _selectedDirection = dir;
+    _cachedVisibleBuses = [];
     notifyListeners();
   }
 
@@ -880,6 +994,8 @@ class TransitProvider extends ChangeNotifier {
     _selectedStationLine = null;
     _selectedPier = null;
     _selectedVesselId = null;
+    _selectedLiveVesselMmsi = null;
+    _followLocked = false;
     _revealStation = false;
     _revealFocus = null;
   }
@@ -918,12 +1034,21 @@ class TransitProvider extends ChangeNotifier {
   void selectVessel(FerryVessel? v) {
     _clearSelections();
     _selectedVesselId = v?.id;
+    _followLocked = v != null;
+    notifyListeners();
+  }
+
+  void selectLiveVessel(LiveVessel? v) {
+    _clearSelections();
+    _selectedLiveVesselMmsi = v?.mmsi;
+    _followLocked = v != null;
     notifyListeners();
   }
 
   void selectScheduledTrain(ScheduledTrain? t) {
     _clearSelections();
     _selectedTrainId = t?.id;
+    _followLocked = t != null;
     notifyListeners();
   }
 
@@ -934,7 +1059,7 @@ class TransitProvider extends ChangeNotifier {
 
   bool get hasDetailSelection =>
       _selectedBus != null || _selectedTrainId != null || _selectedStop != null || _selectedStation != null ||
-      _selectedPier != null || _selectedVesselId != null;
+      _selectedPier != null || _selectedVesselId != null || _selectedLiveVesselMmsi != null;
 
   void selectBus(BusVehicle? bus) {
     _selectedBus = bus;
@@ -943,6 +1068,8 @@ class TransitProvider extends ChangeNotifier {
       _selectedStation = null;
       _selectedPier = null;
       _selectedVesselId = null;
+      _selectedLiveVesselMmsi = null;
+      _followLocked = true;
       _revealStation = false;
       _selectedStop = null;
       if (bus.line.isNotEmpty) {
@@ -950,6 +1077,8 @@ class TransitProvider extends ChangeNotifier {
           loadTimetableForLine(bus.line);
         }
       }
+    } else {
+      _followLocked = false;
     }
     notifyListeners();
   }
@@ -991,6 +1120,8 @@ class TransitProvider extends ChangeNotifier {
 
   void toggleBuses() {
     _showBuses = !_showBuses;
+    _cachedVisibleBuses = [];
+    _stepVehicles();
     notifyListeners();
   }
 
@@ -1071,22 +1202,28 @@ class TransitProvider extends ChangeNotifier {
   }
 
 
-  // ─── SCHEDULE-DRIVEN TRAINS & FERRIES (positions along real geometry, 5 Hz) ───
-  /// How often vehicles move on the map: slower when zoomed out (a dot moving 30 m is invisible
-  /// at city scale) and in lite mode; faster when zoomed in or following a vehicle.
+  // ─── SCHEDULE-DRIVEN TRAINS, FERRIES & CONTINUOUS BUS KINEMATICS (20–30 FPS) ───
+  /// Smooth high-frequency ticker so trains, ferries, and buses glide seamlessly without stepping.
   Duration get _tickInterval {
-    var ms = _currentZoom < 12 ? 2000 : (_currentZoom < 14 ? 1000 : 500);
-    if (_selectedTrainId != null || _selectedVesselId != null) ms = math.min(ms, 1000);
-    if (liteMode) ms = math.max(1000, ms * 2);
-    return Duration(milliseconds: ms);
+    if (liteMode) return const Duration(milliseconds: 85);
+    if (_followLocked && hasFollowedVehicle) return const Duration(milliseconds: 33);
+    if (_currentZoom < 11.2 && _selectedLineCode == null) return const Duration(milliseconds: 90);
+    return const Duration(milliseconds: 50);
   }
 
   void _stepVehicles() {
     final e = _engine;
     if (e == null || _disposed) return;
     final now = AppClock.now();
+    final wallNow = DateTime.now();
     _trains = (_showMetroLines && _showMetroTrains) ? e.trainsAt(now) : const [];
     _vessels = _showFerries ? e.vesselsAt(now) : const [];
+    if (_showBuses || _selectedLineCode != null || _selectedBus != null) {
+      for (final b in visibleBuses) {
+        b.stepDisplayPosition(wallNow);
+      }
+      _selectedBus?.stepDisplayPosition(wallNow);
+    }
     vehicleTick.value++;
   }
 
@@ -1097,7 +1234,12 @@ class TransitProvider extends ChangeNotifier {
     void schedule() {
       _trainTicker = Timer(_tickInterval, () {
         if (_disposed) return;
-        if ((_showMetroLines && _showMetroTrains) || _showFerries) _stepVehicles();
+        final active = (_showMetroLines && _showMetroTrains) ||
+            _showFerries ||
+            _showBuses ||
+            _selectedLineCode != null ||
+            hasFollowedVehicle;
+        if (active) _stepVehicles();
         schedule();
       });
     }
