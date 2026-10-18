@@ -61,6 +61,40 @@
 
 ---
 
+## 🆕 Tek Uygulama: Web Sitesi = Flutter (WebAssembly)
+
+Web sitesi artık mobil uygulamanın kendisi: Flutter uygulaması **WebAssembly** (`--wasm`, eski tarayıcılar için otomatik JS yedeği) olarak derlenip Cloudflare Workers **static assets** ile sunulur. Aynı kod Android, iOS ve web'de çalışır. Eski Leaflet sayfası `/classic` adresinde duruyor.
+
+- **🚆 Gerçek ray geometrisi:** 25 raylı sistem hattı (Marmaray B1 dahil, M11 havalimanı hattı, T5, T6, F3, B2…) ve 285 istasyon OpenStreetMap rota ilişkilerinden; Marmaray 43 istasyon, 75,6 km, Boğaz tüpü dahil gerçek güzergah. Duraklar arası düz çizgi yok.
+- **⏱️ Tarifeye göre trenler:** Trenler gerçek hat üzerinde, İBB GTFS sefer sıklıklarından ve hızlanma/seyir/fren kinematiğinden deterministik olarak hesaplanır; haritadaki tren ile istasyondaki geri sayım her zaman aynı kaynaktan gelir.
+- **🏗️ İstasyon planları (katmanlar):** Her istasyon için giriş, asansör, yürüyen merdiven, peron sayısı ve hat bazında derinlik (OSM kat verisi / yayımlanmış değerler / tahmin). İstasyon kartında *Sokak → Turnike & güvenlik → Yürüyen merdiven → Peronlar* katmanları.
+- **🧊 3D Kesit ve “Yürüyerek gir”:** Saf Dart ile yazılmış küçük bir 3D motor (eklenti yok, web/mobil aynı): istasyonun yer altı kesiti (gerçek tarifeyle gelen trenler) ve sokaktan perona birinci şahıs yürüyüş (basılı tut / klavyede ↑-W), derinlik göstergesi ve canlı hat şeridi.
+- **🚧 Projeler katmanı:** İnşaat halindeki raylı sistemler (M10, M12, M13, M14, T7, uzatmalar) ve proje istasyonları.
+- **⛴️ Vapurlar:** 98 iskele ve denizden giden rotalar (İBB Açık Veri). Şehir Hatları güncel (Kış 2026) tarifeleri sehirhatlari.istanbul tablolarından, Turyol / Dentur Avrasya / İDO tarifeleri İBB GTFS'ten. Gemiler tarifeye göre rotada ilerler; Worker'a `AISSTREAM_API_KEY` eklenirse **canlı AIS** konumları gösterilir.
+- **📷 Araç fotoğrafları + 3D modeller:** Marmaray E32000, metro, Citadis tramvay, nostaljik tramvay, füniküler, teleferik, İETT otobüsü, metrobüs, Şehir Hatları vapuru, Turyol, Dentur, İDO deniz otobüsü, arabalı vapur — Wikimedia Commons fotoğrafları (yazar + lisans atfıyla) ve döndürülebilir 3D modeller.
+- **🔗 Derin bağlantılar:** `/?istasyon=Yenikapı&hat=B1&gorunum=kesit` · `gorunum=yuru` · `/?hat=M2` · `/?iskele=Kadıköy` · `&saat=08:30` (tarife saatini sabitler: planlama/demo).
+
+### Veri üretimi
+
+```bash
+python3 -I tools/build_transit_data.py all --gtfs <İBB GTFS klasörü> --geo <deniz_hat/deniz_iskele geojson klasörü>
+# -> mobile_app/assets/data/rail_network.json, ferry_network.json, vehicle_media.json
+```
+
+Kaynaklar: OpenStreetMap (ODbL) rota ilişkileri + Overpass (girişler, asansör/merdiven, peronlar, inşaat hatları) ·
+[İBB Toplu Taşıma GTFS](https://data.ibb.gov.tr/dataset/public-transport-gtfs-data) · İBB Deniz Ulaşım Hatları/İstasyonları vektör verisi ·
+sehirhatlari.istanbul sefer tabloları · Wikimedia Commons.
+
+### Dağıtım
+
+```bash
+python3 build.py --web          # Flutter → WASM site (mobile_app/build/web) + src/bundle.js
+npx wrangler deploy             # Worker + static assets
+npx wrangler secret put AISSTREAM_API_KEY   # (isteğe bağlı) canlı vapur konumları, ücretsiz anahtar: aisstream.io
+```
+
+---
+
 ## 🏗️ Mimari & Teknoloji (Architecture)
 
 ```
@@ -75,8 +109,10 @@
        ├─► /metro/stations  (Metro istasyon koordinatları)
        └─► /status          (Saatlik kota ve sistem sağlığı)
        │
-       ▼ (HTML5 Canvas & Leaflet.js)
-[Modern Web Uygulaması (Mobil & Masaüstü)]
+       ├─► /ferries/live    (AIS canlı vapur konumları, isteğe bağlı)
+       │
+       ▼ (Flutter: Android · iOS · Web/WebAssembly — aynı kod)
+[Uygulama: harita + raylı ağ + vapurlar + 3D istasyonlar]
 ```
 
 ---
@@ -108,8 +144,8 @@ id = "<KV_NAMESPACE_ID>"
 
 ### 3. Projeyi Derleyin ve Canlıya Alın
 ```bash
-# bundle.js oluştur
-python3 build.py
+# web sitesi (Flutter → WASM) + bundle.js oluştur
+python3 build.py --web
 
 # Cloudflare Workers'a deploy et
 npx wrangler deploy

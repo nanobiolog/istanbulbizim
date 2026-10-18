@@ -4,14 +4,41 @@ build.py - Compiles worker.js, bus_lines_map.json, metro stations/colors,
 index.html, manifest.json, sw.js, and app icons into src/bundle.js for Cloudflare Workers deployment.
 """
 
+import argparse
 import base64
 import json
 import os
+import shutil
+import subprocess
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC_DIR = os.path.join(BASE_DIR, "src")
 
+WEB_DIR = os.path.join(BASE_DIR, "mobile_app", "build", "web")
+
+
+def build_web():
+    """Flutter app -> WebAssembly website (with an automatic JS fallback for older browsers)."""
+    flutter = shutil.which("flutter")
+    if not flutter:
+        raise SystemExit("flutter not found on PATH (needed for --web)")
+    print("Building the website: flutter build web --wasm --release ...")
+    subprocess.run([flutter, "build", "web", "--wasm", "--release", "--no-web-resources-cdn"], cwd=os.path.join(BASE_DIR, "mobile_app"), check=True)
+    # debug symbols are not needed in production; keep them out of the static-asset upload
+    with open(os.path.join(WEB_DIR, ".assetsignore"), "w", encoding="utf-8") as f:
+        f.write("*.symbols\n.last_build_id\n")
+    print("Website ready in mobile_app/build/web")
+
+
 def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--web", action="store_true", help="also build the Flutter WASM website (static assets)")
+    args = ap.parse_args()
+    if args.web:
+        build_web()
+    elif not os.path.isdir(WEB_DIR):
+        print("note: mobile_app/build/web is missing - run `python3 build.py --web` before `wrangler deploy`")
+
     print("Building src/bundle.js...")
     
     with open(os.path.join(SRC_DIR, "worker.js"), "r", encoding="utf-8") as f:
@@ -83,7 +110,9 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    if (path === "/") {
+    // The website is the Flutter app compiled to WebAssembly, served as static assets
+    // (wrangler.toml [assets]); this branch only runs when the assets are not deployed.
+    if (path === "/classic" || path === "/") {
       const key = resolveCartoKey(env);
       const page = HTML_PAGE.replace(/__CARTO_KEY__/g, key);
       return new Response(page, {
@@ -120,6 +149,7 @@ export default {
       });
     }
 
+    if (path === "/ferries/live") return handleFerriesLive(env);
     if (path === "/buses") return handleBuses(request, env);
     if (path === "/line") return handleLine(env, url);
     if (path === "/line/route") return handleLineRoute(env, url);
@@ -245,11 +275,14 @@ export default {
       });
     }
 
-    return json({ error: "Not found", routes: ["/", "/bootstrap", "/traffic", "/bus/eta?line=15B&id=A-100", "/stop/arrivals?code=100022", "/diag", "/manifest.json", "/sw.js", "/icon.svg", "/buses", "/line?code=15B", "/line/route?code=15B", "/lines", "/lines/map", "/stops", "/disruptions", "/metro/stations", "/metro/colors", "/status", "/config/carto", "/tile/voyager/{z}/{x}/{y}"] }, 404);
+    return json({ error: "Not found", routes: ["/", "/classic", "/ferries/live", "/bootstrap", "/traffic", "/bus/eta?line=15B&id=A-100", "/stop/arrivals?code=100022", "/diag", "/manifest.json", "/sw.js", "/icon.svg", "/buses", "/line?code=15B", "/line/route?code=15B", "/lines", "/lines/map", "/stops", "/disruptions", "/metro/stations", "/metro/colors", "/status", "/config/carto", "/tile/voyager/{z}/{x}/{y}"] }, 404);
   },
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(refreshFleet(env).catch(e => console.error("Cron refresh failed:", String(e))));
+    if (env.AISSTREAM_API_KEY) {
+      ctx.waitUntil(refreshFerries(env).catch(e => console.error("AIS refresh failed:", String(e))));
+    }
   }
 };
 """

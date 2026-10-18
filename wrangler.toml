@@ -2,6 +2,12 @@ name = "istanbulbizim"
 main = "src/bundle.js"
 compatibility_date = "2026-10-05"
 
+# The website: Flutter app compiled to WebAssembly (python3 build.py --web).
+# Static files are served before the Worker runs; API routes (/buses, /line, /tile/*, …) fall through to it.
+[assets]
+directory = "./mobile_app/build/web"
+binding = "ASSETS"
+
 [[kv_namespaces]]
 binding = "LIVE"
 id = "3c69b4e4e6264a52909affe5116b373c"

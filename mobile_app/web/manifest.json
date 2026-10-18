@@ -1,12 +1,12 @@
 {
-    "name": "mobile_app",
-    "short_name": "mobile_app",
+    "name": "İstanbul Bizim",
+    "short_name": "İstanbul Bizim",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#0B1220",
+    "theme_color": "#0B1220",
+    "description": "İstanbul toplu taşıma: otobüs, Marmaray, metro, tramvay ve vapurlar canlı haritada.",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {
@@ -31,5 +31,6 @@
             "type": "image/png",
             "purpose": "maskable"
         }
-    ]
+    ],
+    "lang": "tr"
 }

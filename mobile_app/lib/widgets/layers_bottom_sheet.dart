@@ -1,277 +1,119 @@
 import 'package:flutter/material.dart';
+
 import '../services/transit_provider.dart';
 import '../theme/app_theme.dart';
 
+/// Map layers as a simple grid of toggles.
 class LayersBottomSheet extends StatelessWidget {
   final TransitProvider provider;
   final VoidCallback onClose;
 
-  const LayersBottomSheet({
-    super.key,
-    required this.provider,
-    required this.onClose,
-  });
+  const LayersBottomSheet({super.key, required this.provider, required this.onClose});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-      decoration: BoxDecoration(
-        color: AppTheme.cardDark,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(28),
-          topRight: Radius.circular(28),
-        ),
-        border: Border.all(color: AppTheme.cardBorderDark, width: 1.2),
-        boxShadow: AppTheme.sheetShadow,
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Top Drag Handle Bar
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppTheme.textMutedDark.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(2),
+    return AnimatedBuilder(
+      animation: provider,
+      builder: (context, _) {
+        final p = provider;
+        final tiles = <_LayerTile>[
+          _LayerTile(Icons.directions_bus_rounded, 'Otobüsler', '${p.activeBusCount} canlı', p.showBuses, p.toggleBuses),
+          _LayerTile(Icons.signpost_rounded, 'Duraklar', 'yakınlaşınca', p.showBusStops, p.toggleBusStops),
+          _LayerTile(Icons.subway_rounded, 'Raylı hatlar', '${p.network.lines.length} hat · ${p.network.stations.length} istasyon', p.showMetroLines,
+              p.toggleMetroLines),
+          _LayerTile(Icons.train_rounded, 'Trenler', '${p.scheduledTrains.length} seyirde', p.showMetroTrains, p.toggleMetroTrains),
+          _LayerTile(Icons.directions_boat_filled_rounded, 'Vapurlar', p.hasLiveFerries ? '${p.liveVessels.length} canlı (AIS)' : '${p.scheduledVessels.length} tarifeye göre',
+              p.showFerries, p.toggleFerries),
+          _LayerTile(Icons.door_front_door_rounded, 'İstasyon girişleri', 'yakınlaşınca', p.showEntrances, p.toggleEntrances),
+          _LayerTile(Icons.construction_rounded, 'Projeler', '${p.network.projects.length} inşaat hattı', p.showProjects, p.toggleProjects),
+        ];
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+          decoration: const BoxDecoration(
+            color: Color(0xFF1C1F24),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Center(
+                child: Container(
+                  width: 38,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
                 ),
               ),
-            ),
-            const SizedBox(height: 14),
-
-            // Header: Title & Close Button
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.layers_rounded,
-                      color: AppTheme.textLight,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Katmanlar ve Seçenekler',
-                      style: TextStyle(
-                        color: AppTheme.textLight,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 18,
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                  ],
-                ),
+              Row(children: [
+                const Text('Katmanlar', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
+                const Spacer(),
                 GestureDetector(
                   onTap: onClose,
-                  behavior: HitTestBehavior.opaque,
                   child: Container(
                     padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.08),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.close_rounded,
-                      size: 18,
-                      color: AppTheme.textMutedDark,
-                    ),
+                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.08), shape: BoxShape.circle),
+                    child: const Icon(Icons.close_rounded, size: 18, color: AppTheme.textMutedDark),
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Layer Toggle Switches matching media_1791311521309.png
-            _buildToggleRow(
-              icon: '🚌',
-              title: 'Canlı İETT Otobüsleri',
-              value: provider.showBuses,
-              onChanged: (_) => provider.toggleBuses(),
-            ),
-            const Divider(color: AppTheme.cardBorderDark, height: 16),
-
-            _buildToggleRow(
-              icon: '🚇',
-              title: 'Raylı Sistemler (Metro / Tramvay)',
-              value: provider.showMetroLines,
-              onChanged: (_) => provider.toggleMetroLines(),
-            ),
-            const Divider(color: AppTheme.cardBorderDark, height: 16),
-
-            _buildToggleRow(
-              icon: '🚅',
-              title: 'Hareketli Trenler (Tarife / Canlı)',
-              value: provider.showMetroTrains,
-              onChanged: (_) => provider.toggleMetroTrains(),
-            ),
-            const Divider(color: AppTheme.cardBorderDark, height: 16),
-
-            _buildToggleRow(
-              icon: '🚏',
-              title: 'Otobüs Durakları',
-              value: provider.showBusStops,
-              onChanged: (_) => provider.toggleBusStops(),
-            ),
-            const SizedBox(height: 20),
-
-            // Live Fleet Stats Row
-            Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppTheme.cardBorderDark),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${provider.activeBusCount}',
-                          style: const TextStyle(
-                            color: Color(0xFF10B981),
-                            fontWeight: FontWeight.w900,
-                            fontSize: 20,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        const Text(
-                          'Canlı İETT Otobüsü',
-                          style: TextStyle(
-                            color: AppTheme.textMutedDark,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppTheme.cardBorderDark),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${provider.metroTrains.length}',
-                          style: const TextStyle(
-                            color: Color(0xFF38BDF8),
-                            fontWeight: FontWeight.w900,
-                            fontSize: 20,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        const Text(
-                          'Canlı Metro / Raylı',
-                          style: TextStyle(
-                            color: AppTheme.textMutedDark,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            // Speed Color Legend
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.03),
-                borderRadius: BorderRadius.circular(12),
+              ]),
+              const SizedBox(height: 14),
+              LayoutBuilder(builder: (context, c) {
+                final cols = c.maxWidth > 520 ? 3 : 2;
+                final w = (c.maxWidth - (cols - 1) * 10) / cols;
+                return Wrap(spacing: 10, runSpacing: 10, children: [
+                  for (final t in tiles) SizedBox(width: w, child: t),
+                ]);
+              }),
+              const SizedBox(height: 14),
+              Text(
+                'Hat geometrisi, istasyon girişleri ve projeler © OpenStreetMap katkıcıları (ODbL) · '
+                'vapur hatları, iskeleler ve özel işletme tarifeleri İBB Açık Veri · Şehir Hatları tarifesi sehirhatlari.istanbul · '
+                'harita © CARTO · fotoğraflar Wikimedia Commons',
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 10.5, height: 1.35),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildLegendItem(const Color(0xFF10B981), 'Akıcı (>15)'),
-                  _buildLegendItem(const Color(0xFFF59E0B), 'Yoğun (5-15)'),
-                  _buildLegendItem(const Color(0xFF64748B), 'Duran (0-5)'),
-                ],
-              ),
-            ),
-          ],
+            ]),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _LayerTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String sub;
+  final bool on;
+  final VoidCallback onTap;
+  const _LayerTile(this.icon, this.title, this.sub, this.on, this.onTap);
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: on ? const Color(0xFF1D4ED8) : const Color(0xFF2A2E35),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: on ? const Color(0xFF60A5FA) : Colors.white10),
         ),
+        child: Row(children: [
+          Icon(icon, color: on ? Colors.white : const Color(0xFF93C5FD), size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800)),
+              Text(sub,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.white.withValues(alpha: on ? 0.85 : 0.5), fontSize: 11, fontWeight: FontWeight.w600)),
+            ]),
+          ),
+        ]),
       ),
-    );
-  }
-
-  Widget _buildToggleRow({
-    required String icon,
-    required String title,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Row(
-          children: [
-            Text(icon, style: const TextStyle(fontSize: 18)),
-            const SizedBox(width: 10),
-            Text(
-              title,
-              style: const TextStyle(
-                color: AppTheme.textLight,
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
-              ),
-            ),
-          ],
-        ),
-        Switch.adaptive(
-          value: value,
-          onChanged: onChanged,
-          activeThumbColor: const Color(0xFF0284C7),
-          activeTrackColor: const Color(0xFF0284C7).withValues(alpha: 0.5),
-          inactiveThumbColor: Colors.white54,
-          inactiveTrackColor: Colors.white12,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildLegendItem(Color color, String label) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: const TextStyle(
-            color: AppTheme.textMutedDark,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
     );
   }
 }

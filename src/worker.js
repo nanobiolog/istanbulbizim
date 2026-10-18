@@ -8,7 +8,8 @@ const NS = "http://tempuri.org/";
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
-  "access-control-allow-headers": "Content-Type, Authorization, X-Requested-With, X-IBB-Key"
+  "access-control-allow-headers": "Content-Type, Authorization, X-Requested-With, X-IBB-Key, If-None-Match",
+  "access-control-expose-headers": "ETag"
 };
 
 function esc(s) {
@@ -1267,3 +1268,113 @@ async function handleDisruptions(env, url) {
 
 
 
+
+
+// ───────────────────────── Live ferries (AIS) ─────────────────────────
+// Optional: set the AISSTREAM_API_KEY secret (free key from https://aisstream.io) and the cron
+// listens to AIS for a few seconds every minute, keeping passenger vessels inside Istanbul's waters.
+// Without a key /ferries/live answers { configured: false } and the app sails ferries by timetable.
+
+const AIS_BBOX = [[40.80, 28.55], [41.26, 29.42]]; // [[lat, lon], [lat, lon]]
+const FERRY_CACHE_URL = "https://cache.istanbulbizim.internal/ferries/live";
+const FERRY_KV_EVERY_MS = 180000; // KV write at most every 3 min (free-tier write quota)
+let inMemoryFerries = null;
+let lastFerryKvWrite = 0;
+
+function ferryOperatorOf(name) {
+  const n = String(name || "").toUpperCase();
+  if (n.includes("DENTUR")) return "dentur";
+  if (n.includes("TURYOL")) return "turyol";
+  if (/\bIDO\b|DENIZ ?OTOB|DENİZ ?OTOB/.test(n)) return "ido";
+  if (/SEHIR ?HAT|ŞEHİR ?HAT/.test(n)) return "sh";
+  return "";
+}
+
+async function loadFerries(env) {
+  if (inMemoryFerries && Date.now() - inMemoryFerries.updated_at < 90000) return inMemoryFerries;
+  const edge = await getEdgeCache(FERRY_CACHE_URL);
+  if (edge) {
+    try { inMemoryFerries = JSON.parse(edge); return inMemoryFerries; } catch (e) {}
+  }
+  const kv = env.LIVE ? await env.LIVE.get("ferries_live", { type: "json", cacheTtl: 60 }).catch(() => null) : null;
+  if (kv) inMemoryFerries = kv;
+  return kv;
+}
+
+async function refreshFerries(env, listenMs = 12000) {
+  const key = env.AISSTREAM_API_KEY;
+  if (!key) return null;
+  const prev = (await loadFerries(env)) || { vessels: [] };
+  const byMmsi = new Map(prev.vessels.map((v) => [v.mmsi, v]));
+  const res = await fetch("https://stream.aisstream.io/v0/stream", { headers: { Upgrade: "websocket" } });
+  const ws = res.webSocket;
+  if (!ws) throw new Error("AIS websocket upgrade failed: HTTP " + res.status);
+  ws.accept();
+  ws.send(JSON.stringify({
+    APIKey: key,
+    BoundingBoxes: [AIS_BBOX],
+    FilterMessageTypes: ["PositionReport", "StandardClassBPositionReport", "ShipStaticData", "StaticDataReport"]
+  }));
+  const decoder = new TextDecoder();
+  await new Promise((resolve) => {
+    const done = () => { try { ws.close(1000, "done"); } catch (e) {} resolve(); };
+    const timer = setTimeout(done, listenMs);
+    ws.addEventListener("close", () => { clearTimeout(timer); resolve(); });
+    ws.addEventListener("error", () => { clearTimeout(timer); resolve(); });
+    ws.addEventListener("message", (ev) => {
+      let m;
+      try { m = JSON.parse(typeof ev.data === "string" ? ev.data : decoder.decode(ev.data)); } catch (e) { return; }
+      const md = m.MetaData || {};
+      const mmsi = md.MMSI;
+      if (!mmsi) return;
+      const v = byMmsi.get(mmsi) || { mmsi, name: "", type: 0 };
+      if (md.ShipName && md.ShipName.trim()) v.name = md.ShipName.trim();
+      const msg = m.Message || {};
+      const pos = msg.PositionReport || msg.StandardClassBPositionReport;
+      if (pos) {
+        v.lat = pos.Latitude; v.lon = pos.Longitude;
+        v.sog = pos.Sog; v.cog = pos.Cog;
+        v.t = Date.now();
+      }
+      const st = msg.ShipStaticData || (msg.StaticDataReport && msg.StaticDataReport.ReportB);
+      if (st) {
+        if (st.Type) v.type = st.Type;
+        if (st.ShipType) v.type = st.ShipType;
+        if (st.Name && st.Name.trim()) v.name = st.Name.trim();
+      }
+      byMmsi.set(mmsi, v);
+    });
+  });
+  const now = Date.now();
+  const vessels = [];
+  for (const v of byMmsi.values()) {
+    if (v.lat == null || !v.t || now - v.t > 15 * 60000) continue;
+    const op = ferryOperatorOf(v.name);
+    const passenger = v.type >= 60 && v.type <= 69;
+    if (!passenger && !op) continue;
+    if (v.sog > 40) continue;
+    vessels.push({ mmsi: v.mmsi, name: v.name, type: v.type, lat: +(+v.lat).toFixed(5), lon: +(+v.lon).toFixed(5), sog: v.sog || 0, cog: v.cog || 0, op, t: v.t });
+  }
+  const out = { configured: true, updated_at: now, vessels };
+  inMemoryFerries = out;
+  const body = JSON.stringify(out);
+  await putEdgeCache(FERRY_CACHE_URL, body);
+  if (now - lastFerryKvWrite > FERRY_KV_EVERY_MS) {
+    lastFerryKvWrite = now;
+    await safeKvPut(env, "ferries_live", body, { expirationTtl: 1800 });
+  }
+  return out;
+}
+
+async function handleFerriesLive(env) {
+  if (!env.AISSTREAM_API_KEY) {
+    return json({ configured: false, vessels: [], note: "Set the AISSTREAM_API_KEY secret to enable live AIS ferry positions." }, 200, { "cache-control": "public, max-age=300" });
+  }
+  let data = await loadFerries(env);
+  if (!data || Date.now() - data.updated_at > 5 * 60000) {
+    data = await refreshFerries(env, 6000).catch((e) => ({ configured: true, error: String(e), vessels: [] }));
+  }
+  const now = Date.now();
+  const vessels = (data.vessels || []).map((v) => Object.assign({}, v, { age: Math.round((now - v.t) / 1000) }));
+  return json({ configured: true, updated_at: data.updated_at, vessels }, 200, { "cache-control": "public, max-age=15" });
+}

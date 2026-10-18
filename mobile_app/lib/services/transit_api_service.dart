@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/network_models.dart';
 import '../models/transit_models.dart';
 
 class TransitApiService {
@@ -13,7 +14,20 @@ class TransitApiService {
   static const String directIettFleet = "https://api.ibb.gov.tr/iett/FiloDurum/SeferGerceklesme.asmx";
   static const String directIbbRoute = "https://api.ibb.gov.tr/iett/ibb/ibb.asmx";
 
-  String baseUrl = defaultWorkerUrl;
+  /// On the website (served by the Worker) call the same origin: no CORS preflight, one TLS session.
+  String baseUrl = _initialBaseUrl();
+
+  /// Conditional requests need CORS approval for If-None-Match; only send it same-origin / natively.
+  bool get _sameOrigin => !kIsWeb || baseUrl == Uri.base.origin;
+
+  static String _initialBaseUrl() {
+    if (kIsWeb) {
+      final b = Uri.base;
+      final local = b.host == 'localhost' || b.host == '127.0.0.1' || b.host.isEmpty;
+      if (!local && (b.scheme == 'https' || b.scheme == 'http')) return b.origin;
+    }
+    return defaultWorkerUrl;
+  }
 
   /// CARTO key. Resolved synchronously at startup from (1) --dart-define=CARTO_API_KEY,
   /// (2) the last value persisted on this device, so the first tile request never waits on the network.
@@ -76,6 +90,24 @@ class TransitApiService {
         if (data is Map) traffic = TrafficSummary.fromJson(data['city']) ?? traffic;
       }
     } catch (_) {}
+  }
+
+  /// Live ferry positions from AIS. Returns (aisConfigured, vessels); null when unreachable.
+  Future<(bool, List<LiveVessel>)?> fetchLiveFerries() async {
+    try {
+      final res = await _client.get(Uri.parse('$baseUrl/ferries/live')).timeout(const Duration(seconds: 6));
+      if (res.statusCode != 200) return null;
+      final data = jsonDecode(res.body);
+      if (data is! Map) return null;
+      final list = (data['vessels'] as List? ?? const [])
+          .whereType<Map>()
+          .map((v) => LiveVessel.fromJson(v.cast<String, dynamic>()))
+          .where((v) => v.ageSec < 900)
+          .toList();
+      return (data['configured'] == true, list);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Route-aware, traffic-aware arrivals for a stop (server side, 10 s cache).
@@ -300,7 +332,7 @@ class TransitApiService {
         Uri.parse('$baseUrl/buses'),
         headers: {
           'Accept': 'application/json',
-          if (_busesEtag != null && _lastFleet.isNotEmpty) 'If-None-Match': _busesEtag!,
+          if (_busesEtag != null && _lastFleet.isNotEmpty && _sameOrigin) 'If-None-Match': _busesEtag!,
         },
       ).timeout(const Duration(seconds: 5));
 

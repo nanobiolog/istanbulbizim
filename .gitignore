@@ -30,3 +30,6 @@ Thumbs.db
 tmp/
 tools/api_report.json
 api_report.json
+
+# Transit data build cache (downloaded source data)
+tools/.cache/

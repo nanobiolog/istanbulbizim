@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android APK & Website
 
 on:
   push:
@@ -46,6 +46,9 @@ jobs:
 
       - name: Run Tests
         run: flutter test
+
+      - name: Build Website (Flutter → WebAssembly)
+        run: flutter build web --wasm --release --no-web-resources-cdn
 
       - name: Build Android APK (Release)
         run: flutter build apk --release --dart-define=CARTO_API_KEY=${{ secrets.CARTO_API_KEY }}

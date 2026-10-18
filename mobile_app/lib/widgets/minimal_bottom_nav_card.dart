@@ -20,6 +20,9 @@ class MinimalBottomNavCard extends StatefulWidget {
   final VoidCallback onClearSelection;
   final VoidCallback onSearchTap;
 
+  /// Photo / 3D card of the vehicle type, shown under a selected bus.
+  final Widget? vehicleMedia;
+
   const MinimalBottomNavCard({
     super.key,
     this.selectedBus,
@@ -36,6 +39,7 @@ class MinimalBottomNavCard extends StatefulWidget {
     required this.onDirectionChanged,
     required this.onClearSelection,
     required this.onSearchTap,
+    this.vehicleMedia,
   });
 
   @override
@@ -757,6 +761,10 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
             const SizedBox(height: 10),
             _buildTimetableSection(bus.line),
           ],
+        ],
+        if (widget.vehicleMedia != null) ...[
+          const SizedBox(height: 12),
+          widget.vehicleMedia!,
         ],
       ],
     );
