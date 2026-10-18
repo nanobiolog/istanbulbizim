@@ -2853,6 +2853,21 @@ const HUB_SH = "https://sehirhatlari.istanbul";
 const HUB_OVERPASS = ["https://maps.mail.ru/osm/tools/overpass/api/interpreter", "https://overpass-api.de/api/interpreter"];
 const HUB_UA = "IstanbulBizim/2.0 (+https://github.com/nanobiolog/istanbulbizim)";
 
+// Şehir Hatları answers some cloud / Worker traffic with a Cloudflare challenge page instead of
+// content. Never treat that page as data: throw, keep the last good copy, and back off.
+async function shGet(path) {
+  const res = await fetch(HUB_SH + path, { headers: { "user-agent": HUB_UA, "accept-language": "tr" } });
+  const html = await res.text();
+  // (normal pages also load /cdn-cgi/challenge-platform/scripts/jsd, so match only the interstitial)
+  if (!res.ok || /<title>\s*Just a moment|window\._cf_chl_opt|id="challenge-form"|cf-chl-widget/i.test(html.slice(0, 30000))) {
+    const err = new Error(`sehirhatlari unavailable (HTTP ${res.status}${res.ok ? ", challenge page" : ""})`);
+    err.blocked = true;
+    err.status = res.status;
+    throw err;
+  }
+  return html;
+}
+
 export class TransitHub {
   constructor(ctx, env) {
     this.ctx = ctx;
@@ -2987,7 +3002,8 @@ export class TransitHub {
     const s = this.state;
     let dirty = false;
     // Şehir Hatları cancellations and replacement timetables
-    if (now - (s.ferryStatusAt || 0) > 10 * 60000) {
+    const statusEvery = s.shBlocked && now - s.shBlocked.at < 6 * 3600000 ? 30 * 60000 : 10 * 60000;
+    if (now - (s.ferryStatusAt || 0) > statusEvery) {
       s.ferryStatusAt = now;
       dirty = true;
       await this.refreshFerryStatus().catch((e) => console.warn("ferry status:", String(e)));
@@ -3038,7 +3054,24 @@ export class TransitHub {
 
   // ── Şehir Hatları: today's cancellations + replacement timetables ──
   async refreshFerryStatus() {
-    const html = await (await fetch(HUB_SH + "/tr/iptal-seferler", { headers: { "user-agent": HUB_UA } })).text();
+    let html;
+    try {
+      html = await shGet("/tr/iptal-seferler");
+      delete this.state.shBlocked;
+    } catch (e) {
+      if (!e.blocked) throw e;
+      this.state.shBlocked = { at: Date.now(), status: e.status };
+      const prev = await this.doc("ferry_status");
+      // keep a good notice for today; otherwise publish "no data" rather than a stale or broken one
+      if (!(prev && prev.available === true && prev.date === railServiceDay().dateKey)) {
+        await this.setDoc("ferry_status", {
+          updated_at: prev && prev.available === true ? prev.updated_at : 0,
+          date: "", active: false, available: false, blocked_at: Date.now(), operator: "sh",
+          message: "", cancelled_names: [], cancelled_line_ids: [], overrides: {}
+        });
+      }
+      throw e;
+    }
     const net = await this.asset("ferry_network.json");
     const main = shMainContent(html);
     const text = shText(main);
@@ -3088,6 +3121,7 @@ export class TransitHub {
       updated_at: Date.now(),
       date: date || today,
       active,
+      available: true,
       operator: "sh",
       source: HUB_SH + "/tr/iptal-seferler",
       message: active ? message : "",
@@ -3103,9 +3137,17 @@ export class TransitHub {
     const day = railServiceDay().dateKey;
     const st = this.state.sh || {};
     if (st.done === day) return false;
+    if (st.retryAt && Date.now() < st.retryAt) return false;
     const net = await this.asset("ferry_network.json");
     if (st.day !== day || !st.pages) {
-      const idx = await (await fetch(HUB_SH + "/tr/seferler/ic-hatlar", { headers: { "user-agent": HUB_UA } })).text();
+      let idx;
+      try {
+        idx = await shGet("/tr/seferler/ic-hatlar");
+      } catch (e) {
+        if (!e.blocked) throw e;
+        this.state.sh = { day, retryAt: Date.now() + 3 * 3600000, blocked: e.status };
+        return true;
+      }
       const pages = Array.from(new Set((idx.match(/href="(\/tr\/seferler\/ic-hatlar\/[a-z-]+\/[a-z0-9-]+-\d+)"/g) || []).map((h) => h.slice(6, -1))));
       this.state.sh = { day, pages, i: 0, lines: [] };
       this.mem.sh_partial = [];
@@ -3115,7 +3157,7 @@ export class TransitHub {
     if (st.i < st.pages.length) {
       const href = st.pages[st.i++];
       try {
-        const html = await (await fetch(HUB_SH + href, { headers: { "user-agent": HUB_UA } })).text();
+        const html = await shGet(href);
         const tm = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/) || html.match(/<title>([\s\S]*?)<\/title>/);
         const title = tm ? shText(tm[1]).replace(/\s*[-|]\s*Şehir Hatları.*$/, "").trim() : href;
         const tables = shParseTables(html);
@@ -3128,6 +3170,7 @@ export class TransitHub {
         }
       } catch (e) {
         console.warn("sh page", href, String(e));
+        if (e.blocked) { st.i--; st.retryAt = Date.now() + 3 * 3600000; st.blocked = e.status; }
       }
       await this.putBig("sh_partial", this.mem.sh_partial);
       return true;

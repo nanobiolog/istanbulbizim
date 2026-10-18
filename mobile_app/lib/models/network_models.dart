@@ -572,7 +572,7 @@ class FerryStatus {
     final t = (j['updated_at'] as num?)?.toInt() ?? 0;
     return FerryStatus(
       date: j['date']?.toString() ?? '',
-      active: j['active'] == true,
+      active: j['active'] == true && j['available'] != false, // hub couldn't reach Şehir Hatları
       message: j['message']?.toString() ?? '',
       cancelledLineIds: ((j['cancelled_line_ids'] as List?) ?? const []).map((e) => e.toString()).toSet(),
       cancelledNames: ((j['cancelled_names'] as List?) ?? const []).map((e) => e.toString()).toList(),
