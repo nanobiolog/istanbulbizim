@@ -14,3 +14,13 @@ id = "3c69b4e4e6264a52909affe5116b373c"
 
 [triggers]
 crons = ["*/1 * * * *"]
+
+# TransitHub: one Durable Object holding the live fleet, timetables, cancellations and network
+# changes (SQLite storage; available on the Workers Free plan). Replaces per-minute KV writes.
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "TransitHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TransitHub"]

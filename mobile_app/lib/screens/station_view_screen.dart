@@ -83,7 +83,7 @@ class _StationViewScreenState extends State<StationViewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    context.watch<TransitProvider>(); // trains move with the provider tick
+    context.watch<TransitProvider>(); // schedules / status / location changes
     final st = widget.station;
     final me = _p.userLocation;
     final distM = me == null ? null : const Distance().as(LengthUnit.Meter, me, LatLng(st.lat, st.lon));
@@ -135,7 +135,9 @@ class _StationViewScreenState extends State<StationViewScreen> {
           const SizedBox(height: 12),
           for (final l in _lines)
             for (final s in _p.railStatusFor(l.line)) _statusBanner(l.line, s),
-          for (final l in _lines) _lineSection(l.line, l.index),
+          // trains on the platform diagrams move once a second (the map's vehicle tick may be paused)
+          for (final l in _lines)
+            ValueListenableBuilder<int>(valueListenable: _p.clock, builder: (_, _, _) => _lineSection(l.line, l.index)),
           const SizedBox(height: 8),
           _directionsSection(),
         ],

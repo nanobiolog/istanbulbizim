@@ -529,3 +529,65 @@ class LiveVessel {
         (j['age'] as num?)?.toInt() ?? 0,
       );
 }
+
+/// Today's ferry service notice (Şehir Hatları cancellations / replacement timetables), from the
+/// Worker's TransitHub (/ferries/status).
+/// UTC instant → DateTime whose fields are Istanbul wall-clock time (UTC+3), like AppClock.now().
+DateTime _istanbulWall(DateTime utc) {
+  final u = utc.add(const Duration(hours: 3));
+  return DateTime(u.year, u.month, u.day, u.hour, u.minute, u.second);
+}
+
+class FerryStatus {
+  final String date; // yyyy-mm-dd the notice applies to
+  final bool active;
+  final String message;
+  final Set<String> cancelledLineIds;
+  final List<String> cancelledNames;
+  final Map<String, List<FerryTrip>> overrides;
+  final DateTime? updatedAt;
+  final String source;
+
+  const FerryStatus({
+    this.date = '',
+    this.active = false,
+    this.message = '',
+    this.cancelledLineIds = const {},
+    this.cancelledNames = const [],
+    this.overrides = const {},
+    this.updatedAt,
+    this.source = '',
+  });
+
+  static FerryStatus fromJson(Map<String, dynamic> j) {
+    final ov = <String, List<FerryTrip>>{};
+    final raw = j['overrides'];
+    if (raw is Map) {
+      raw.forEach((id, v) {
+        if (v is Map && v['patterns'] is List) {
+          ov[id.toString()] = FerryLine.fromJson({'id': id, 'patterns': v['patterns']}).trips;
+        }
+      });
+    }
+    final t = (j['updated_at'] as num?)?.toInt() ?? 0;
+    return FerryStatus(
+      date: j['date']?.toString() ?? '',
+      active: j['active'] == true,
+      message: j['message']?.toString() ?? '',
+      cancelledLineIds: ((j['cancelled_line_ids'] as List?) ?? const []).map((e) => e.toString()).toSet(),
+      cancelledNames: ((j['cancelled_names'] as List?) ?? const []).map((e) => e.toString()).toList(),
+      overrides: ov,
+      updatedAt: t > 0 ? _istanbulWall(DateTime.fromMillisecondsSinceEpoch(t, isUtc: true)) : null,
+      source: j['source']?.toString() ?? '',
+    );
+  }
+
+  /// True when the notice is about [day] (Istanbul date).
+  bool appliesTo(DateTime day) {
+    if (!active || date.isEmpty) return false;
+    final key = '${day.year.toString().padLeft(4, '0')}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+    return key == date;
+  }
+
+  bool get hasNotice => active && (cancelledLineIds.isNotEmpty || overrides.isNotEmpty || message.isNotEmpty);
+}

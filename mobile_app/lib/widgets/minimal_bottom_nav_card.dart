@@ -1424,7 +1424,8 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
                   ),
                   const SizedBox(width: 5),
                   Text(
-                    '$visibleBusCount Araç',
+                    // zoomed out no bus is drawn; show the live fleet size instead of "0"
+                    '${visibleBusCount > 0 ? visibleBusCount : totalBusCount} Araç',
                     style: TextStyle(
                       color: isNightMode ? Colors.white : AppTheme.textPrimary,
                       fontWeight: FontWeight.w800,

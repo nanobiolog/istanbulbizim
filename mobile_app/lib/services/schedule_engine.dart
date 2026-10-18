@@ -189,7 +189,9 @@ class PierDeparture {
   final FerryTrip trip;
   final int stopIdx;
   final DateTime at;
-  const PierDeparture(this.line, this.trip, this.stopIdx, this.at);
+  final bool cancelled; // the operator cancelled this sailing today
+  final bool special; // from today's replacement timetable
+  const PierDeparture(this.line, this.trip, this.stopIdx, this.at, {this.cancelled = false, this.special = false});
   String get destination => trip.piers.last;
 }
 
@@ -555,6 +557,22 @@ class ScheduleEngine {
 
   // ───────────── ferries ─────────────
 
+  /// Today's operator notice (cancellations / replacement timetables). Null = none.
+  FerryStatus? ferryStatus;
+
+  /// Trips [line] really runs on [day]: replacement timetable, nothing (cancelled) or the normal one.
+  (List<FerryTrip>, bool cancelled, bool special) tripsFor(FerryLine line, DateTime day) {
+    final st = ferryStatus;
+    if (st != null && st.appliesTo(day)) {
+      final ov = st.overrides[line.id];
+      if (ov != null && ov.isNotEmpty) return (ov, false, true);
+      if (st.cancelledLineIds.contains(line.id)) return (line.trips, true, false);
+    }
+    return (line.trips, false, false);
+  }
+
+  bool lineCancelledToday(FerryLine line, DateTime now) => tripsFor(line, now).$2;
+
   MeasuredPath _leg(String a, String b) =>
       _legCache.putIfAbsent('$a|$b', () => MeasuredPath(repo.legPath(a, b)));
 
@@ -565,9 +583,12 @@ class ScheduleEngine {
     final yesterday = today == 1 ? 7 : today - 1;
     for (final line in repo.ferryLines) {
       final op = repo.operators[line.operatorId];
-      for (final trip in line.trips) {
+      final (trips, cancelled, special) = tripsFor(line, now);
+      if (cancelled) continue;
+      for (final trip in trips) {
         for (final (wd, base) in [(today, 0.0), (yesterday, -86400.0)]) {
-          if (!trip.runsOn(wd)) continue;
+          if (!special && !trip.runsOn(wd)) continue;
+          if (special && wd != today) continue;
           final first = trip.minutes.first * 60.0 + base, last = trip.minutes.last * 60.0 + base;
           if (t < first - 240 || t > last) continue;
           final v = _placeVessel(line, op, trip, t - base, '${line.id}-${trip.minutes.first}-$wd');
@@ -622,12 +643,15 @@ class ScheduleEngine {
     final midnight = DateTime(now.year, now.month, now.day);
     for (final line in repo.ferryLines) {
       if (!line.piers.contains(pierId)) continue;
-      for (final trip in line.trips) {
-        if (!trip.runsOn(now.weekday)) continue;
+      final (trips, cancelled, special) = tripsFor(line, now);
+      for (final trip in trips) {
+        if (!special && !trip.runsOn(now.weekday)) continue;
         for (var k = 0; k < trip.piers.length - 1; k++) {
           if (trip.piers[k] != pierId) continue;
           final s = trip.minutes[k] * 60.0;
-          if (s >= t - 30) out.add(PierDeparture(line, trip, k, midnight.add(Duration(seconds: s.round()))));
+          if (s >= t - 30) {
+            out.add(PierDeparture(line, trip, k, midnight.add(Duration(seconds: s.round())), cancelled: cancelled, special: special));
+          }
         }
       }
     }
@@ -642,8 +666,9 @@ class ScheduleEngine {
   List<(DateTime, FerryTrip, int)> lineTimetableAt(FerryLine line, String pierId, DateTime day) {
     final midnight = DateTime(day.year, day.month, day.day);
     final out = <(DateTime, FerryTrip, int)>[];
-    for (final trip in line.trips) {
-      if (!trip.runsOn(day.weekday)) continue;
+    final (trips, _, special) = tripsFor(line, day);
+    for (final trip in trips) {
+      if (!special && !trip.runsOn(day.weekday)) continue;
       for (var k = 0; k < trip.piers.length - 1; k++) {
         if (trip.piers[k] == pierId) out.add((midnight.add(Duration(minutes: trip.minutes[k])), trip, k));
       }

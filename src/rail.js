@@ -433,9 +433,16 @@ async function getRailSchedule(code, env, opts = {}) {
     return s;
   }
   const kvKey = `rail_v${RAIL_SCHEMA}:${key}`;
+  // memory → edge cache → KV (one read per colo per day) → build (one KV write per line per day)
+  const edge = await edgeGetJson(kvKey);
+  if (edge && edge.directions && edge.directions.length) { railMemo.set(key, edge); return edge; }
   try {
-    const c = await env.LIVE.get(kvKey, { type: "json", cacheTtl: 600 });
-    if (c && c.directions && c.directions.length) { railMemo.set(key, c); return c; }
+    const c = await env.LIVE.get(kvKey, { type: "json", cacheTtl: 3600 });
+    if (c && c.directions && c.directions.length) {
+      railMemo.set(key, c);
+      await edgePutJson(kvKey, c, 3 * 3600);
+      return c;
+    }
   } catch (e) { /* rebuild */ }
   if (opts.cacheOnly) return null;
   if (railInflight.has(key)) return railInflight.get(key);
@@ -445,6 +452,7 @@ async function getRailSchedule(code, env, opts = {}) {
       railMemo.set(key, s);
       if (railMemo.size > 60) railMemo.delete(railMemo.keys().next().value);
       await safeKvPut(env, kvKey, JSON.stringify(s), { expirationTtl: 30 * 3600 });
+      await edgePutJson(kvKey, s, 3 * 3600);
       return s;
     } finally {
       railInflight.delete(key);

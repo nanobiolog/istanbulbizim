@@ -43,8 +43,11 @@ class _StationRevealViewState extends State<StationRevealView> with SingleTicker
   void initState() {
     super.initState();
     _rebuild();
-    _ticker = createTicker((_) => _tick())..start();
+    _ticker = createTicker(_tick)..start();
   }
+
+  Duration _lastPaint = Duration.zero;
+  bool _dragging = false;
 
   void _rebuild() {
     _scene = StationScene(widget.plan, reveal: true);
@@ -108,8 +111,9 @@ class _StationRevealViewState extends State<StationRevealView> with SingleTicker
     }
   }
 
-  void _tick() {
+  void _tick(Duration elapsed) {
     const k = 0.12;
+    final moving = (_gx - _tx).abs() + (_gy - _ty).abs() + (_gDist - _dist).abs() + (_gYaw - _yaw).abs() * 50 + (_gPitch - _pitch).abs() * 50 > 0.05;
     _tx += (_gx - _tx) * k;
     _ty += (_gy - _ty) * k;
     _tz += (_gz - _tz) * k;
@@ -121,6 +125,11 @@ class _StationRevealViewState extends State<StationRevealView> with SingleTicker
       _eventsSecond = now.second;
       _events = widget.engine.stationEvents(widget.plan.station, widget.plan.line, now);
     }
+    final t = ScheduleEngine.secondsOfDay(now);
+    final trainInView = _events.values.any((e) => e.trainOffset(widget.plan.line, t) != null);
+    final fps = Render3DQuality.fps(active: moving || _dragging || trainInView);
+    if ((elapsed - _lastPaint).inMicroseconds < 1e6 / fps) return;
+    _lastPaint = elapsed;
     if (mounted) setState(() => _frame++);
   }
 
@@ -156,7 +165,11 @@ class _StationRevealViewState extends State<StationRevealView> with SingleTicker
     _aspect = aspect;
     _cam.orbit(_tx, _ty, _tz, _dist, _yaw, _pitch);
     return GestureDetector(
-      onScaleStart: (_) => _scaleStartDist = _gDist,
+      onScaleStart: (_) {
+        _scaleStartDist = _gDist;
+        _dragging = true;
+      },
+      onScaleEnd: (_) => _dragging = false,
       onScaleUpdate: (d) {
         if (d.pointerCount >= 2) {
           _gDist = (_scaleStartDist / d.scale).clamp(25.0, 420.0);
@@ -207,14 +220,18 @@ class _ModelViewer3DState extends State<ModelViewer3D> with SingleTickerProvider
   double _yaw = -math.pi / 2 + 0.6, _pitch = 0.22;
   bool _dragging = false;
   int _frame = 0;
+  Duration _last = Duration.zero;
   late Mesh _ground;
 
   @override
   void initState() {
     super.initState();
     _ground = _groundFor(widget.mesh);
-    _ticker = createTicker((_) {
-      if (!_dragging) _yaw += 0.004;
+    _ticker = createTicker((elapsed) {
+      final dt = _last == Duration.zero ? 0.0 : (elapsed - _last).inMicroseconds / 1e6;
+      if (dt > 0 && dt < 1 / Render3DQuality.fps(active: true)) return;
+      _last = elapsed;
+      if (!_dragging) _yaw += 0.25 * math.min(dt, 0.2); // ~14°/s whatever the frame rate
       if (mounted) setState(() => _frame++);
     })..start();
   }

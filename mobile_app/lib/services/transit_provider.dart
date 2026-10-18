@@ -9,10 +9,12 @@ import '../models/transit_models.dart';
 import '../services/app_clock.dart';
 import '../services/eta_engine.dart';
 import '../services/network_repository.dart';
+import '../services/platform/web_caps.dart';
 import '../services/rail_engine.dart';
 import '../services/rail_schedule_service.dart';
 import '../services/schedule_engine.dart';
 import '../services/transit_api_service.dart';
+import '../three_d/engine3d.dart' show Render3DQuality;
 import '../three_d/station_scene.dart';
 
 class TransitProvider extends ChangeNotifier {
@@ -79,6 +81,15 @@ class TransitProvider extends ChangeNotifier {
   Map<String, String> _metroColors = {};
   Map<String, Color> _metroLineColors = {};
   Timer? _trainTicker;
+  Timer? _liveFerryTimer;
+
+  /// Bumped whenever vehicle positions are recomputed. Only the vehicle layers listen to it, so
+  /// moving trains and ferries never rebuild the rest of the screen.
+  final ValueNotifier<int> vehicleTick = ValueNotifier<int>(0);
+
+  /// No WebGL (software rendering in the browser): fewer updates, simpler markers.
+  bool liteMode = false;
+  DateTime _railStepAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   // Official timetables (Metro İstanbul / TCDD plan) for the 3D map, station view and AR screens
   Map<String, List<MetroStation>> _metroStations = {};
@@ -103,17 +114,19 @@ class TransitProvider extends ChangeNotifier {
   /// provider) so only the small text re-renders and numbers keep beating without any refetch.
   final ValueNotifier<int> clock = ValueNotifier<int>(0);
   Timer? _clockTimer;
-  int _trainNotifyTick = 0;
 
   // Auto-refresh timer
   Timer? _refreshTimer;
   DateTime? _lastUpdated;
 
   TransitProvider() {
+    liteMode = !gpuRenderingAvailable;
+    Render3DQuality.lite = liteMode;
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       clock.value++;
       if (clock.value % 20 == 0) _refreshTraffic();
       if (clock.value % 180 == 0) _refreshRailStatus();
+      if (clock.value % 300 == 0) _refreshHubData(full: clock.value % 21600 == 0);
     });
     _init();
   }
@@ -218,7 +231,11 @@ class TransitProvider extends ChangeNotifier {
 
   Map<String, String> get metroColors => _metroColors;
   Map<String, List<MetroStation>> get metroStations => _metroStations;
-  List<MetroTrainVehicle> get metroTrains => _metroTrains;
+  /// Official-timetable trains for the 3D map / station view / AR. Computed on demand only.
+  List<MetroTrainVehicle> get metroTrains {
+    if (DateTime.now().difference(_railStepAt).inMilliseconds > 450) _stepRailVehicles();
+    return _metroTrains;
+  }
   List<ScheduledTrain> get scheduledTrains => _trains;
   List<FerryVessel> get scheduledVessels => _vessels;
   List<LiveVessel> get liveVessels => _liveVessels;
@@ -468,11 +485,13 @@ class TransitProvider extends ChangeNotifier {
       _metroLineColors[k] = TransitApiService.parseColorString(v);
     });
 
+    if (_disposed) return;
     _engine = ScheduleEngine(network);
     _initRailSchedules();
     _startScheduleTicker();
     notifyListeners();
     refreshLiveFerries();
+    _refreshHubData(full: true);
 
     final boot = await bootstrapFuture;
     if (_apiService.cartoApiKey != null && _apiService.cartoApiKey != _cartoApiKey) {
@@ -977,11 +996,13 @@ class TransitProvider extends ChangeNotifier {
 
   void toggleMetroLines() {
     _showMetroLines = !_showMetroLines;
+    _stepVehicles();
     notifyListeners();
   }
 
   void toggleMetroTrains() {
     _showMetroTrains = !_showMetroTrains;
+    _stepVehicles();
     notifyListeners();
   }
 
@@ -992,6 +1013,7 @@ class TransitProvider extends ChangeNotifier {
 
   void toggleFerries() {
     _showFerries = !_showFerries;
+    _stepVehicles();
     if (_showFerries) refreshLiveFerries();
     notifyListeners();
   }
@@ -1006,6 +1028,38 @@ class TransitProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  FerryStatus? get ferryStatus => _engine?.ferryStatus;
+
+  /// Fresh data kept up to date by the Worker's TransitHub: ferry cancellations (every 5 min),
+  /// refreshed Şehir Hatları timetables and added / removed rail lines (every 6 h).
+  Future<void> _refreshHubData({bool full = false}) async {
+    if (_disposed) return;
+    var changed = false;
+    final status = await _apiService.fetchHubDoc('/ferries/status');
+    if (status != null && _engine != null) {
+      _engine!.ferryStatus = FerryStatus.fromJson(status);
+      changed = true;
+    }
+    if (full) {
+      final tt = await _apiService.fetchHubDoc('/ferries/timetables');
+      if (tt != null && network.applyFerryTimetables(tt)) changed = true;
+      final nc = await _apiService.fetchHubDoc('/network/changes');
+      if (nc != null && network.applyNetworkChanges(nc)) {
+        // new or closed lines: rebuild the timetable engine and re-apply what we know
+        final st = _engine?.ferryStatus;
+        _engine = ScheduleEngine(network)..ferryStatus = st;
+        for (final sched in _railSchedules.values) {
+          _engine!.applyOfficial(sched);
+        }
+        changed = true;
+      }
+    }
+    if (changed) {
+      _stepVehicles();
+      notifyListeners();
+    }
+  }
+
   /// Live ferry positions (AIS via the Worker). Empty unless the Worker has an AIS key.
   Future<void> refreshLiveFerries() async {
     final res = await _apiService.fetchLiveFerries();
@@ -1018,23 +1072,40 @@ class TransitProvider extends ChangeNotifier {
 
 
   // ─── SCHEDULE-DRIVEN TRAINS & FERRIES (positions along real geometry, 5 Hz) ───
+  /// How often vehicles move on the map: slower when zoomed out (a dot moving 30 m is invisible
+  /// at city scale) and in lite mode; faster when zoomed in or following a vehicle.
+  Duration get _tickInterval {
+    var ms = _currentZoom < 12 ? 2000 : (_currentZoom < 14 ? 1000 : 500);
+    if (_selectedTrainId != null || _selectedVesselId != null) ms = math.min(ms, 1000);
+    if (liteMode) ms = math.max(1000, ms * 2);
+    return Duration(milliseconds: ms);
+  }
+
+  void _stepVehicles() {
+    final e = _engine;
+    if (e == null || _disposed) return;
+    final now = AppClock.now();
+    _trains = (_showMetroLines && _showMetroTrains) ? e.trainsAt(now) : const [];
+    _vessels = _showFerries ? e.vesselsAt(now) : const [];
+    vehicleTick.value++;
+  }
+
   void _startScheduleTicker() {
     _trainTicker?.cancel();
-    void step() {
-      final e = _engine;
-      if (e == null) return;
-      final now = AppClock.now();
-      _trains = (_showMetroLines && _showMetroTrains) ? e.trainsAt(now) : const [];
-      _vessels = _showFerries ? e.vesselsAt(now) : const [];
+    _liveFerryTimer?.cancel();
+    _stepVehicles();
+    void schedule() {
+      _trainTicker = Timer(_tickInterval, () {
+        if (_disposed) return;
+        if ((_showMetroLines && _showMetroTrains) || _showFerries) _stepVehicles();
+        schedule();
+      });
     }
 
-    step();
-    _trainTicker = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (!(_showMetroLines && _showMetroTrains) && !_showFerries) return;
-      step();
-      if (_showMetroLines && _showMetroTrains) _stepRailVehicles();
-      if (++_trainNotifyTick % 150 == 0 && _showFerries) refreshLiveFerries(); // every 30 s
-      notifyListeners();
+    schedule();
+    _liveFerryTimer?.cancel();
+    _liveFerryTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (_showFerries) refreshLiveFerries();
     });
   }
 
@@ -1091,6 +1162,7 @@ class TransitProvider extends ChangeNotifier {
 
   /// Timetable trains on the old station lists, for the 3D map / station view / AR screens.
   void _stepRailVehicles() {
+    _railStepAt = DateTime.now();
     final now = DateTime.now();
     final day = railServiceDay(now);
     if (_railDay != null && day.dateKey != _railDay!.dateKey) {
@@ -1273,7 +1345,7 @@ class TransitProvider extends ChangeNotifier {
 
       if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
         final pos = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 15)),
         );
         _userLocation = LatLng(pos.latitude, pos.longitude);
         _cameraCenter = _userLocation!;
@@ -1287,7 +1359,7 @@ class TransitProvider extends ChangeNotifier {
         ).listen((Position position) {
           _userLocation = LatLng(position.latitude, position.longitude);
           notifyListeners();
-        });
+        }, onError: (_) {}); // Safari reports kCLErrorLocationUnknown as a stream error; keep the last fix
       }
     } catch (_) {}
   }
@@ -1300,7 +1372,7 @@ class TransitProvider extends ChangeNotifier {
       }
       if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
         final pos = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 15)),
         );
         _userLocation = LatLng(pos.latitude, pos.longitude);
         _cameraCenter = _userLocation!;
@@ -1322,12 +1394,22 @@ class TransitProvider extends ChangeNotifier {
     return R * c;
   }
 
+  bool _disposed = false;
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     _refreshTimer?.cancel();
     _clockTimer?.cancel();
     clock.dispose();
     _trainTicker?.cancel();
+    _liveFerryTimer?.cancel();
+    vehicleTick.dispose();
     _dragDebounceTimer?.cancel();
     _positionSubscription?.cancel();
     super.dispose();

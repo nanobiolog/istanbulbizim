@@ -47,6 +47,7 @@ class NetworkRepository {
     media = parsed.media;
     railAttribution = parsed.railAttribution;
     ferryAttribution = parsed.ferryAttribution;
+    ferryGenerated = parsed.ferryGenerated;
     loaded = true;
   }
 
@@ -76,6 +77,7 @@ class NetworkRepository {
     try {
       final fer = jsonDecode(raw[1]) as Map<String, dynamic>;
       p.ferryAttribution = fer['attribution']?.toString() ?? '';
+      p.ferryGenerated = fer['generated']?.toString() ?? '';
       final ops = fer['operators'] as Map<String, dynamic>? ?? const {};
       p.operators = {
         for (final e in ops.entries)
@@ -120,6 +122,57 @@ class NetworkRepository {
     return p;
   }
 
+  String ferryGenerated = '';
+  final Set<String> newLineCodes = {};
+
+  /// Replaces the bundled Şehir Hatları lines with the hub's fresher copy (scraped daily).
+  /// Returns true when something changed.
+  bool applyFerryTimetables(Map<String, dynamic> j) {
+    final version = j['version']?.toString() ?? '';
+    final lines = (j['lines'] as List? ?? const []).whereType<Map>().map((l) => FerryLine.fromJson(l.cast<String, dynamic>())).where((l) => l.trips.isNotEmpty).toList();
+    if (version.isEmpty || lines.length < 5 || version.compareTo(ferryGenerated) <= 0) return false;
+    final known = lines.where((l) => l.piers.every(piers.containsKey)).toList();
+    if (known.length < lines.length * 0.8) return false;
+    ferryLines = [...ferryLines.where((l) => l.operatorId != 'sh'), ...known];
+    ferryGenerated = version;
+    return true;
+  }
+
+  /// Adds lines that opened after the bundled data was built and hides ones that closed.
+  bool applyNetworkChanges(Map<String, dynamic> j) {
+    var changed = false;
+    final st = (j['stations'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final addedStations = <String, NetworkStation>{};
+    for (final e in st.entries) {
+      if (!stations.containsKey(e.key) && e.value is Map) addedStations[e.key] = NetworkStation.fromJson(e.key, (e.value as Map).cast<String, dynamic>());
+    }
+    final added = <RailLine>[];
+    for (final l in (j['added'] as List? ?? const [])) {
+      if (l is! Map) continue;
+      final line = RailLine.fromJson(l.cast<String, dynamic>());
+      if (line.variants.isEmpty || lineByCode.containsKey(line.code)) continue;
+      added.add(line);
+      newLineCodes.add(line.code);
+    }
+    final removed = ((j['removed'] as List?) ?? const []).map((e) => e.toString()).where(lineByCode.containsKey).toSet();
+    if (added.isEmpty && removed.isEmpty) return false;
+    if (added.isNotEmpty) {
+      stations = {...stations, ...addedStations};
+      lines = [...lines, ...added];
+      changed = true;
+    }
+    if (removed.isNotEmpty) {
+      lines = lines.where((l) => !removed.contains(l.code)).toList();
+      stations = {
+        for (final e in stations.entries)
+          if (e.value.lines.any((c) => !removed.contains(c))) e.key: e.value,
+      };
+      changed = true;
+    }
+    lineByCode = {for (final l in lines) l.code: l};
+    return changed;
+  }
+
   /// Sea path between two piers (falls back to a straight hop).
   List<LatLng> legPath(String a, String b) {
     final f = legs['$a|$b'];
@@ -162,4 +215,5 @@ class _Parsed {
   Map<String, List<VehiclePhoto>> media = const {};
   String railAttribution = '';
   String ferryAttribution = '';
+  String ferryGenerated = '';
 }

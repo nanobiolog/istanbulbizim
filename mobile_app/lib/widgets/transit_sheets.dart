@@ -117,6 +117,15 @@ Widget _chip(String text, Color bg, {Color fg = Colors.white, Color? dot}) => Co
       ]),
     );
 
+/// "14 dk" under an hour; the departure clock time beyond that (keeps the header compact).
+Widget _nextStat(Duration wait, DateTime at) {
+  final m = wait.inMinutes;
+  if (wait.inSeconds <= 0) return _bigStat('şimdi', 'sıradaki');
+  if (m < 1) return _bigStat('${wait.inSeconds}', 'sn sonra');
+  if (m < 60) return _bigStat('$m', 'dk sonra');
+  return _bigStat(hhmm(at), 'sıradaki');
+}
+
 Widget _bigStat(String value, String label) => Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
       const SizedBox(height: 4),
       Text(value, style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w800, height: 1.0)),
@@ -148,6 +157,12 @@ class _PierSheetState extends State<PierSheet> {
     final primary = ops.isNotEmpty ? ops.first : null;
     final lines = net.ferryLines.where((l) => l.piers.contains(pier.id)).toList();
     final look = VehicleLook.forFerry(primary, null);
+    final eng = p.engine;
+    final running = deps.where((d) => !d.cancelled).toList();
+    final cancelledHere = eng == null ? const <FerryLine>[] : lines.where((l) => eng.lineCancelledToday(l, now)).toList();
+    final specialHere = eng == null ? const <FerryLine>[] : lines.where((l) => eng.tripsFor(l, now).$3).toList();
+    final status = p.ferryStatus;
+    final showNotice = status != null && status.appliesTo(now) && (cancelledHere.isNotEmpty || specialHere.isNotEmpty);
     return _SheetFrame(children: [
       _headerCard(
         color: primary?.color ?? const Color(0xFF0B5CAD),
@@ -155,10 +170,14 @@ class _PierSheetState extends State<PierSheet> {
         icon: Icons.anchor_rounded,
         title: pier.name,
         chips: [for (final o in ops) _chip(o.name, Colors.white.withValues(alpha: 0.2), dot: o.color)],
-        trailing: deps.isEmpty ? null : _bigStat(formatCountdown(deps.first.at.difference(now)).replaceAll(' ', '\n'), 'sıradaki'),
+        trailing: running.isEmpty ? null : _nextStat(running.first.at.difference(now), running.first.at),
         onClose: widget.onClose,
       ),
       const SizedBox(height: 10),
+      if (showNotice) ...[
+        _serviceNotice(status, cancelledHere, specialHere),
+        const SizedBox(height: 10),
+      ],
       if (lines.isEmpty)
         _note('Bu iskele için yayımlanmış düzenli sefer tarifesi yok${ops.isNotEmpty && !ops.first.municipal ? ' (${ops.first.name})' : ''}.')
       else if (deps.isEmpty)
@@ -183,18 +202,39 @@ class _PierSheetState extends State<PierSheet> {
                       Text('→ ${net.piers[d.destination]?.name ?? ''}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
-                      Text('${net.operators[d.line.operatorId]?.short ?? ''} · ${d.line.name}',
+                          style: TextStyle(
+                              color: d.cancelled ? Colors.white38 : Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              decoration: d.cancelled ? TextDecoration.lineThrough : null,
+                              decorationColor: Colors.white38)),
+                      Text('${net.operators[d.line.operatorId]?.short ?? ''} · ${d.line.name}${d.special ? ' · bugüne özel tarife' : ''}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 11.5, fontWeight: FontWeight.w500)),
                     ]),
                   ),
-                  Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                    Text(formatCountdown(d.at.difference(now)),
-                        style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800)),
-                    Text(hhmm(d.at), style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 11.5, fontWeight: FontWeight.w600)),
-                  ]),
+                  if (d.cancelled)
+                    Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(color: const Color(0xFFDC2626).withValues(alpha: 0.22), borderRadius: BorderRadius.circular(6)),
+                        child: const Text('İptal', style: TextStyle(color: Color(0xFFFCA5A5), fontSize: 12, fontWeight: FontWeight.w800)),
+                      ),
+                      Text(hhmm(d.at),
+                          style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.4),
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              decoration: TextDecoration.lineThrough,
+                              decorationColor: Colors.white38)),
+                    ])
+                  else
+                    Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                      Text(formatCountdown(d.at.difference(now)),
+                          style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800)),
+                      Text(hhmm(d.at), style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 11.5, fontWeight: FontWeight.w600)),
+                    ]),
                 ]),
               ),
           ]),
@@ -226,6 +266,10 @@ class _PierSheetState extends State<PierSheet> {
                             style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 11, fontWeight: FontWeight.w500)),
                       ]),
                     ),
+                    if (cancelledHere.contains(l))
+                      _tag('Bugün iptal', const Color(0xFFFCA5A5), const Color(0xFFDC2626))
+                    else if (specialHere.contains(l))
+                      _tag('Özel tarife', const Color(0xFFFDE68A), const Color(0xFFD97706)),
                     Icon(_openLine == l.id ? Icons.expand_less_rounded : Icons.expand_more_rounded, color: Colors.white54),
                   ]),
                 ),
@@ -266,6 +310,46 @@ class _PierSheetState extends State<PierSheet> {
       ]),
     );
   }
+}
+
+Widget _tag(String text, Color fg, Color bg) => Container(
+      margin: const EdgeInsets.only(right: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(color: bg.withValues(alpha: 0.22), borderRadius: BorderRadius.circular(6)),
+      child: Text(text, style: TextStyle(color: fg, fontSize: 10.5, fontWeight: FontWeight.w800)),
+    );
+
+/// Operator notice for today (weather / strike cancellations, replacement timetables).
+Widget _serviceNotice(FerryStatus st, List<FerryLine> cancelled, List<FerryLine> special) {
+  final parts = <String>[
+    if (cancelled.isNotEmpty) '${cancelled.length == 1 ? cancelled.first.name : '${cancelled.length} hat'} bugün iptal',
+    if (special.isNotEmpty) '${special.length == 1 ? special.first.name : '${special.length} hat'} bugüne özel tarifeyle çalışıyor',
+  ];
+  final updated = st.updatedAt;
+  return Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: const Color(0xFF7C2D12).withValues(alpha: 0.55),
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.45)),
+    ),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Icon(Icons.warning_amber_rounded, color: Color(0xFFFBBF24), size: 20),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(parts.join(' · '), style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w800)),
+          if (st.message.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(st.message, maxLines: 4, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.3)),
+          ],
+          const SizedBox(height: 3),
+          Text('Şehir Hatları duyurusu${updated != null ? ' · ${hhmm(updated)} güncellendi' : ''}',
+              style: const TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.w600)),
+        ]),
+      ),
+    ]),
+  );
 }
 
 Widget _liveNote(TransitProvider p) {
@@ -547,7 +631,7 @@ class RailLineSheet extends StatelessWidget {
     return _SheetFrame(maxFraction: 0.6, children: [
       _headerCard(
         color: line.color,
-        kicker: '${line.mode.label} · ${line.operator.toUpperCase()}',
+        kicker: '${line.mode.label} · ${line.operator.toUpperCase()}${net.newLineCodes.contains(line.code) ? ' · YENİ HAT' : ''}',
         icon: line.mode.icon,
         title: line.code == 'B1' ? 'Marmaray' : '${line.code}  ${main.from} – ${main.to}',
         subtitle: '${line.code == 'B1' ? '${main.from} – ${main.to} · ' : ''}${(main.path.length / 1000).toStringAsFixed(1)} km · ${main.stops.length} istasyon',

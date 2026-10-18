@@ -50,6 +50,10 @@ def main():
     with open(os.path.join(SRC_DIR, "rail.js"), "r", encoding="utf-8") as f:
         rail_code = f.read()
 
+    # TransitHub Durable Object (live fleet, timetables, cancellations, network changes)
+    with open(os.path.join(SRC_DIR, "hub.js"), "r", encoding="utf-8") as f:
+        hub_code = f.read()
+
     # Optional historical speed profile built from the IBB hourly traffic-density dataset
     # (python3 tools/build_traffic_profile.py). Absent -> engine uses its seed hourly prior.
     traffic_profile = None
@@ -153,6 +157,10 @@ export default {
     }
 
     if (path === "/ferries/live") return handleFerriesLive(env);
+    if (path === "/ferries/status") return hubJson(env, "/ferries/status", 120);
+    if (path === "/ferries/timetables") return hubJson(env, "/ferries/timetables", 1800);
+    if (path === "/network/changes") return hubJson(env, "/network/changes", 3600);
+    if (path === "/hub/state") return hubJson(env, "/state", 5);
     if (path === "/buses") return handleBuses(request, env);
     if (path === "/line") return handleLine(env, url);
     if (path === "/line/route") return handleLineRoute(env, url);
@@ -255,8 +263,8 @@ export default {
 
     if (path === "/status") {
       const q = await quota(env);
-      const meta = inMemoryMeta || (await env.LIVE.get("meta", { type: "json", cacheTtl: 30 }).catch(() => null));
-      let map = await env.LIVE.get("bus_lines_map", "json").catch(() => null);
+      const meta = (await loadFleet(env)).meta;
+      const map = (await lineMaps(env)).lines;
       const mappedLinesCount = map ? Object.keys(map).length : Object.keys(BUS_LINES_MAP).length;
       const key = resolveCartoKey(env);
       const detectedEnvKeys = [];
@@ -281,15 +289,15 @@ export default {
       });
     }
 
-    return json({ error: "Not found", routes: ["/", "/classic", "/ferries/live", "/bootstrap", "/traffic", "/bus/eta?line=15B&id=A-100", "/stop/arrivals?code=100022", "/diag", "/manifest.json", "/sw.js", "/icon.svg", "/buses", "/line?code=15B", "/line/route?code=15B", "/lines", "/lines/map", "/stops", "/disruptions", "/metro/stations", "/metro/colors", "/rail/schedule?line=M2", "/rail/status", "/rail/departures?line=M2&station=TAKSIM", "/status", "/config/carto", "/tile/voyager/{z}/{x}/{y}"] }, 404);
+    return json({ error: "Not found", routes: ["/", "/classic", "/ferries/live", "/ferries/status", "/ferries/timetables", "/network/changes", "/hub/state", "/bootstrap", "/traffic", "/bus/eta?line=15B&id=A-100", "/stop/arrivals?code=100022", "/diag", "/manifest.json", "/sw.js", "/icon.svg", "/buses", "/line?code=15B", "/line/route?code=15B", "/lines", "/lines/map", "/stops", "/disruptions", "/metro/stations", "/metro/colors", "/rail/schedule?line=M2", "/rail/status", "/rail/departures?line=M2&station=TAKSIM", "/status", "/config/carto", "/tile/voyager/{z}/{x}/{y}"] }, 404);
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(refreshFleet(env).catch(e => console.error("Cron refresh failed:", String(e))));
-    ctx.waitUntil(prewarmRail(env).catch(e => console.error("Rail prewarm failed:", String(e))));
-    if (env.AISSTREAM_API_KEY) {
-      ctx.waitUntil(refreshFerries(env).catch(e => console.error("AIS refresh failed:", String(e))));
-    }
+    // The TransitHub runs on its own alarm (fleet ~37 s, timetables, cancellations, network);
+    // the cron only makes sure that clock is ticking. No KV writes here.
+    const hub = hubStub(env);
+    if (hub) ctx.waitUntil(hub.fetch("https://hub/kick").catch(e => console.error("Hub kick failed:", String(e))));
+    else ctx.waitUntil(loadFleet(env).catch(e => console.error("Fleet refresh failed:", String(e))));
   }
 };
 """
@@ -306,6 +314,8 @@ export default {
         engine_code.strip(),
         "\n\n",
         rail_code.strip(),
+        "\n\n",
+        hub_code.strip(),
         "\n\n",
         f"const TRAFFIC_PROFILE = {json.dumps(traffic_profile, ensure_ascii=False, separators=(',', ':'))};\n",
         f"const BUS_LINES_MAP = {json.dumps(bus_lines_map, ensure_ascii=False)};\n",

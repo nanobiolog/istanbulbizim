@@ -119,6 +119,71 @@ void main() {
     expect(engine.pierDepartures(busiest.id, morning).isNotEmpty, isTrue, reason: busiest.name);
   });
 
+  test('ferry cancellations and replacement timetables apply only on the notice day', () {
+    final eng = ScheduleEngine(repo);
+    final sh = repo.ferryLines.where((l) => l.operatorId == 'sh').toList();
+    final busy = sh.reduce((a, b) => a.trips.length >= b.trips.length ? a : b);
+    final pier = busy.piers.first;
+    int sailing(DateTime t) => eng.vesselsAt(t).where((v) => v.line.id == busy.id).length;
+    expect(sailing(morning), greaterThan(0), reason: busy.name);
+
+    // cancelled today: no vessels, departures flagged, next day unaffected
+    eng.ferryStatus = FerryStatus.fromJson({
+      'date': '2026-10-19',
+      'active': true,
+      'message': 'Olumsuz hava koşulları nedeniyle',
+      'cancelled_line_ids': [busy.id],
+      'updated_at': DateTime.utc(2026, 10, 19, 4, 15).millisecondsSinceEpoch,
+    });
+    expect(eng.ferryStatus!.updatedAt!.hour, 7); // Istanbul wall clock
+    expect(sailing(morning), 0);
+    final deps = eng.pierDepartures(pier, morning).where((d) => d.line.id == busy.id).toList();
+    expect(deps, isNotEmpty);
+    expect(deps.every((d) => d.cancelled), isTrue);
+    expect(sailing(morning.add(const Duration(days: 1))), greaterThan(0));
+
+    // replacement timetable: exactly the published trips run that day, whatever their day mask
+    final a = busy.trips.first.piers.first, b = busy.trips.first.piers.last;
+    eng.ferryStatus = FerryStatus.fromJson({
+      'date': '2026-10-19',
+      'active': true,
+      'overrides': {
+        busy.id: {
+          'patterns': [
+            {
+              'trips': [
+                {'d': 64, 's': [[a, 8 * 60 + 20], [b, 8 * 60 + 50]]},
+              ]
+            }
+          ]
+        }
+      },
+    });
+    final v = eng.vesselsAt(morning).where((v) => v.line.id == busy.id).toList();
+    expect(v.length, 1);
+    expect(eng.tripsFor(busy, morning).$3, isTrue);
+    expect(eng.lineTimetableAt(busy, a, morning).length, 1);
+    eng.ferryStatus = null;
+  });
+
+  test('network changes add new lines and hide closed ones', () {
+    final r = loadRepo();
+    final m2 = r.lineByCode['M2']!;
+    final json = jsonDecode(File('assets/data/rail_network.json').readAsStringSync()) as Map<String, dynamic>;
+    final raw = (json['lines'] as List).cast<Map<String, dynamic>>().firstWhere((l) => l['code'] == 'M2');
+    final fresh = {...raw, 'code': 'M99', 'name': 'Test hattı'};
+    final n = r.lines.length;
+    expect(r.applyNetworkChanges({'added': [fresh], 'removed': []}), isTrue);
+    expect(r.lines.length, n + 1);
+    expect(r.newLineCodes, contains('M99'));
+    expect(r.applyNetworkChanges({'added': [fresh]}), isFalse); // idempotent
+    expect(r.applyNetworkChanges({'removed': ['M99']}), isTrue);
+    expect(r.lineByCode.containsKey('M99'), isFalse);
+    expect(r.lineByCode['M2'], same(m2));
+    // the engine rebuilt on the changed network still runs trains
+    expect(ScheduleEngine(r).trainsAt(morning, onlyLine: 'M2'), isNotEmpty);
+  });
+
   test('Yenikapı station scene builds and renders quickly (reveal + walk)', () {
     final yk = repo.stations.values.firstWhere((s) => s.name == 'Yenikapı' && s.lines.contains('B1'));
     final plan = StationPlan(yk, repo.lineByCode['B1']!);

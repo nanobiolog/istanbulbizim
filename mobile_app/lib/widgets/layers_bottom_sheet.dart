@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/app_clock.dart';
 import '../services/transit_provider.dart';
 import '../theme/app_theme.dart';
 
@@ -16,13 +17,17 @@ class LayersBottomSheet extends StatelessWidget {
       animation: provider,
       builder: (context, _) {
         final p = provider;
+        final now = AppClock.now();
+        final st = p.ferryStatus;
+        final cancelledToday = st != null && st.appliesTo(now) ? st.cancelledLineIds.length : 0;
+        final newLines = p.network.newLineCodes.length;
         final tiles = <_LayerTile>[
           _LayerTile(Icons.directions_bus_rounded, 'Otobüsler', '${p.activeBusCount} canlı', p.showBuses, p.toggleBuses),
           _LayerTile(Icons.signpost_rounded, 'Duraklar', 'yakınlaşınca', p.showBusStops, p.toggleBusStops),
-          _LayerTile(Icons.subway_rounded, 'Raylı hatlar', '${p.network.lines.length} hat · ${p.network.stations.length} istasyon', p.showMetroLines,
+          _LayerTile(Icons.subway_rounded, 'Raylı hatlar', '${p.network.lines.length} hat${newLines > 0 ? ' ($newLines yeni)' : ''} · ${p.network.stations.length} istasyon', p.showMetroLines,
               p.toggleMetroLines),
           _LayerTile(Icons.train_rounded, 'Trenler', '${p.scheduledTrains.length} seyirde', p.showMetroTrains, p.toggleMetroTrains),
-          _LayerTile(Icons.directions_boat_filled_rounded, 'Vapurlar', p.hasLiveFerries ? '${p.liveVessels.length} canlı (AIS)' : '${p.scheduledVessels.length} tarifeye göre',
+          _LayerTile(Icons.directions_boat_filled_rounded, 'Vapurlar', '${p.hasLiveFerries ? '${p.liveVessels.length} canlı (AIS)' : '${p.scheduledVessels.length} tarifeye göre'}${cancelledToday > 0 ? ' · $cancelledToday hat iptal' : ''}',
               p.showFerries, p.toggleFerries),
           _LayerTile(Icons.door_front_door_rounded, 'İstasyon girişleri', 'yakınlaşınca', p.showEntrances, p.toggleEntrances),
           _LayerTile(Icons.construction_rounded, 'Projeler', '${p.network.projects.length} inşaat hattı', p.showProjects, p.toggleProjects),

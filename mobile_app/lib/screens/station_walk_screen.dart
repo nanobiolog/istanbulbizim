@@ -115,8 +115,15 @@ class _StationWalkScreenState extends State<StationWalkScreen> with SingleTicker
       _evSecond = now.second;
       _events = widget.engine.stationEvents(widget.plan.station, widget.plan.line, now);
     }
+    final t = ScheduleEngine.secondsOfDay(now);
+    final settling = (dy.abs() > 0.002) || (_lookYaw.abs() + _lookPitch.abs() > 0.002) || _target != null;
+    final active = _holding || _dragging || settling || _events.values.any((e) => e.trainOffset(widget.plan.line, t) != null);
+    if ((elapsed - _lastPaint).inMicroseconds < 1e6 / Render3DQuality.fps(active: active)) return;
+    _lastPaint = elapsed;
     if (mounted) setState(() => _frame++);
   }
+
+  Duration _lastPaint = Duration.zero;
 
   bool _dragging = false;
 

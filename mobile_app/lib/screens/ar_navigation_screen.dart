@@ -165,7 +165,7 @@ class _ArNavigationScreenState extends State<ArNavigationScreen> with WidgetsBin
         _accuracy = pos.accuracy;
         if (pos.heading >= 0 && pos.speed > 0) _heading.applyCourse(pos.heading, pos.speed);
         _maybeReroute();
-      });
+      }, onError: (_) {});
       if (_me != null) _maybeReroute();
     } catch (_) {}
   }

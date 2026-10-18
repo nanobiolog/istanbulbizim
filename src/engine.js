@@ -124,7 +124,7 @@ function angleDiff(a, b) { return Math.abs(((a - b + 540) % 360) - 180); }
 async function annotateFleet(list, prevRaw, env) {
   let prev = null;
   try {
-    const raw = prevRaw || (env && env.LIVE ? await env.LIVE.get("buses") : null);
+    const raw = prevRaw;
     if (raw) prev = new Map(JSON.parse(raw).map(b => [b.id, b]));
   } catch (e) { prev = null; }
   for (const b of list) {
@@ -142,37 +142,7 @@ async function annotateFleet(list, prevRaw, env) {
 let fleetParsed = { t: 0, list: [] };
 
 async function getFleet(env) {
-  let meta = inMemoryMeta;
-  let raw = inMemoryBusesRaw;
-  if (!meta || !raw || Date.now() - meta.t >= 30000) {
-    try {
-      const cachedMetaStr = await getEdgeCache(META_CACHE_URL);
-      if (cachedMetaStr) {
-        const cachedMeta = JSON.parse(cachedMetaStr);
-        if (!meta || cachedMeta.t > meta.t) {
-          const cachedRaw = await getEdgeCache(FLEET_CACHE_URL);
-          if (cachedRaw) {
-            meta = cachedMeta;
-            raw = cachedRaw;
-            inMemoryMeta = meta;
-            inMemoryBusesRaw = raw;
-          }
-        }
-      }
-    } catch (e) {}
-
-    if (!meta || !raw || Date.now() - meta.t >= 30000) {
-      try {
-        const kvMeta = await env.LIVE.get("meta", { type: "json", cacheTtl: 30 });
-        if (kvMeta && (!meta || kvMeta.t > meta.t)) {
-          raw = await env.LIVE.get("buses", { cacheTtl: 30 });
-          meta = kvMeta;
-          inMemoryMeta = meta;
-          inMemoryBusesRaw = raw;
-        }
-      } catch (e) { /* use memory */ }
-    }
-  }
+  const { meta, raw } = await loadFleet(env);
   if (!meta || !raw) return { t: 0, list: [] };
   if (fleetParsed.t !== meta.t) {
     try { fleetParsed = { t: meta.t, list: JSON.parse(raw) }; } catch (e) { return { t: 0, list: [] }; }
@@ -434,9 +404,9 @@ function enrichBusEta(b, indexes, field, t) {
 // Fast route (stops only, no OSRM) — cached 24 h; prefers the full road-snapped route if present.
 async function getRouteForEta(code, env) {
   try {
-    const full = await env.LIVE.get("route_v4:" + code, { type: "json", cacheTtl: 300 });
+    const full = await edgeGetJson("route_v4:" + code);
     if (full && full.directions) return full;
-    const fast = await env.LIVE.get("route_fast_v1:" + code, { type: "json", cacheTtl: 300 });
+    const fast = await edgeGetJson("route_fast_v1:" + code);
     if (fast && fast.directions) return fast;
   } catch (e) { /* fall through */ }
   return fetchLineRoute(code, env, { fast: true });
@@ -668,7 +638,7 @@ function extractTimeInfos(data) {
 async function getMetroLineMeta(lineCode, env) {
   const key = "metro_meta_v1:" + lineCode;
   try {
-    const c = await env.LIVE.get(key, { type: "json", cacheTtl: 3600 });
+    const c = await edgeGetJson(key);
     if (c && c.lineId !== undefined) return c;
   } catch (e) { /* refetch */ }
 
@@ -694,7 +664,7 @@ async function getMetroLineMeta(lineCode, env) {
   })).filter(d => d.id !== undefined);
 
   const meta = { lineId, stations, directions };
-  await env.LIVE.put(key, JSON.stringify(meta), { expirationTtl: 86400 }).catch(() => {});
+  await edgePutJson(key, meta, 86400);
   return meta;
 }
 
@@ -712,7 +682,7 @@ async function getMetroTimetable(lineCode, env) {
   const t = istanbulNow();
   const cacheKey = `metro_tt_v1:${lineCode}:${t.dateKey}`;
   try {
-    const c = await env.LIVE.get(cacheKey, { type: "json", cacheTtl: 600 });
+    const c = await edgeGetJson(cacheKey);
     if (c && c.entries && c.entries.length) return c;
   } catch (e) { /* refetch */ }
 
@@ -760,7 +730,7 @@ async function getMetroTimetable(lineCode, env) {
     note: missing.length ? "Resmî Metro İstanbul tarifesi (bugün). Diğer gün tipleri tahmini sıklıktır." : "Resmî Metro İstanbul tarifesi.",
     updated_at: Date.now()
   };
-  await env.LIVE.put(cacheKey, JSON.stringify(result), { expirationTtl: 21600 }).catch(() => {});
+  await edgePutJson(cacheKey, result, 21600);
   return result;
 }
 
@@ -784,7 +754,7 @@ async function handleDiag(env, url) {
 
   tests.push(timed("cached fleet (feeder push)", async () => {
     const f = await getFleet(env);
-    const meta = inMemoryMeta || (await env.LIVE.get("meta", { type: "json", cacheTtl: 30 }).catch(() => null));
+    const meta = inMemoryMeta;
     const ageS = meta ? Math.round((Date.now() - meta.t) / 1000) : null;
     const fresh = f.list.filter(b => (b.a || 0) <= 180).length;
     const inBounds = f.list.filter(b => b.lat > 40.5 && b.lat < 41.6 && b.lon > 27.8 && b.lon < 29.8).length;
@@ -867,7 +837,7 @@ async function handleDiag(env, url) {
 
   tests.push(timed("secrets / KV", async () => {
     const key = resolveCartoKey(env);
-    await env.LIVE.get("meta").catch(() => null);
+    // (no KV read here: diagnostics should not consume the KV quota)
     return { ok: !!key, detail: `CARTO key ${key ? "present" : "MISSING"}, IBB key ${(env.IBB_API_KEY || env.IBB_SECRET) ? "present" : "absent (optional)"}` };
   }));
 

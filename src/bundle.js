@@ -70,19 +70,54 @@ async function safeKvPut(env, key, value, options) {
   }
 }
 
+// Light per-isolate guard for occasional extra IETT calls (lines list, per-line fallback).
+// The fleet itself is refreshed only by the TransitHub Durable Object, so no global KV counter.
+const quotaMem = { hour: 0, n: 0 };
 async function quota(env) {
-  const key = "q:" + Math.floor(Date.now() / 3600000);
-  try {
-    const n = parseInt((await env.LIVE.get(key)) || "0", 10);
-    return { key, n };
-  } catch (e) {
-    return { key, n: 0 };
-  }
+  const hour = Math.floor(Date.now() / 3600000);
+  if (quotaMem.hour !== hour) { quotaMem.hour = hour; quotaMem.n = 0; }
+  return { key: "q:" + hour, n: quotaMem.n };
 }
 
 async function spend(env, q) {
-  q.n += 1;
-  await safeKvPut(env, q.key, String(q.n), { expirationTtl: 7200 });
+  quotaMem.n += 1;
+}
+
+// ── Tiered cache (isolate memory → Cloudflare edge Cache API). Free and unmetered, unlike KV,
+// which is kept for slow-changing shared data only (daily rail timetables, line maps).
+const EDGE_BASE = "https://cache.istanbulbizim.internal/v2/";
+const memCache = new Map();
+
+async function edgeGetJson(key) {
+  const hit = memCache.get(key);
+  if (hit && hit.exp > Date.now()) return hit.val;
+  try {
+    const res = await caches.default.match(new Request(EDGE_BASE + encodeURIComponent(key)));
+    if (res) {
+      const exp = Number(res.headers.get("x-exp")) || Date.now() + 60000;
+      if (exp > Date.now()) {
+        const val = await res.json();
+        memCache.set(key, { val, exp });
+        return val;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function edgePutJson(key, val, ttlSec) {
+  const exp = Date.now() + ttlSec * 1000;
+  memCache.set(key, { val, exp });
+  if (memCache.size > 400) memCache.delete(memCache.keys().next().value);
+  try {
+    await caches.default.put(new Request(EDGE_BASE + encodeURIComponent(key)), new Response(JSON.stringify(val), {
+      headers: { "content-type": "application/json", "cache-control": `public, max-age=${ttlSec}`, "x-exp": String(exp) }
+    }));
+  } catch (e) {}
+}
+
+function hubStub(env) {
+  return env && env.HUB ? env.HUB.get(env.HUB.idFromName("hub")) : null;
 }
 
 // SOAP caller with rate-limit retry & auth headers
@@ -145,14 +180,14 @@ const MIN_REFRESH_INTERVAL_MS = 36364; // 3600s / 99 = ~36.36s
 const FLEET_CACHE_URL = "https://cache.istanbulbizim.internal/fleet/buses";
 const META_CACHE_URL = "https://cache.istanbulbizim.internal/fleet/meta";
 
-async function putEdgeCache(urlStr, data) {
+async function putEdgeCache(urlStr, data, ttlSec = 600) {
   try {
     const cache = caches.default;
     const req = new Request(urlStr, { method: "GET" });
     const res = new Response(data, {
       headers: {
         "content-type": "application/json",
-        "cache-control": "public, max-age=600"
+        "cache-control": `public, max-age=${ttlSec}`
       }
     });
     await cache.put(req, res);
@@ -169,119 +204,96 @@ async function getEdgeCache(urlStr) {
   return null;
 }
 
-async function refreshFleet(env) {
-  const meta = inMemoryMeta || (await env.LIVE.get("meta", { type: "json", cacheTtl: 30 }).catch(() => null));
-  if (meta && (Date.now() - meta.t < MIN_REFRESH_INTERVAL_MS)) {
-    return meta;
+// One İETT fleet download, annotated against the previous snapshot. No storage side effects:
+// the TransitHub Durable Object calls this on its own timer and keeps the result.
+async function fetchIettFleet(env, prevRaw) {
+  const rows = await soapWithRetry(IETT, "GetFiloAracKonum_json", null, env);
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const out = [];
+  for (const r of rows) {
+    const lon = num(r.Boylam);
+    const lat = num(r.Enlem);
+    if (lon === null || lat === null || lat < 40.5 || lat > 41.6 || lon < 27.8 || lon > 29.8) continue;
+    out.push({
+      id: r.KapiNo,
+      lat: Math.round(lat * 1e5) / 1e5,
+      lon: Math.round(lon * 1e5) / 1e5,
+      s: Math.round(num(r.Hiz) || 0),
+      t: r.Saat,
+      a: ageSec(r.Saat),
+      op: r.Operator || "",
+      p: r.Plaka || ""
+    });
   }
+  await annotateFleet(out, prevRaw, env);
+  return { raw: JSON.stringify(out), meta: { t: Date.now(), count: out.length } };
+}
 
-  // Prevent concurrent duplicate fetches
-  const lockTime = parseInt((await env.LIVE.get("lock").catch(() => null)) || "0", 10);
-  if (lockTime && (Date.now() - lockTime < 30000)) {
-    return meta;
+let fleetFetchedAt = 0;
+
+// Latest fleet snapshot: isolate memory (12 s) → edge cache (12 s) → TransitHub.
+async function loadFleet(env) {
+  if (inMemoryMeta && inMemoryBusesRaw && Date.now() - fleetFetchedAt < 12000) {
+    return { meta: inMemoryMeta, raw: inMemoryBusesRaw };
   }
-
-  const q = await quota(env);
-  if (q.n >= 99) {
-    console.warn(`Hourly IETT quota reached (${q.n}/100), serving cached fleet.`);
-    return meta;
-  }
-
-  await safeKvPut(env, "lock", String(Date.now()), { expirationTtl: 60 });
-
   try {
-    const rows = await soapWithRetry(IETT, "GetFiloAracKonum_json", null, env);
-    if (!Array.isArray(rows) || rows.length === 0) {
-      return meta;
+    const metaStr = await getEdgeCache(META_CACHE_URL);
+    if (metaStr) {
+      const m = JSON.parse(metaStr);
+      if (m.fetched && Date.now() - m.fetched < 12000 && (!inMemoryMeta || m.t >= inMemoryMeta.t)) {
+        const raw = await getEdgeCache(FLEET_CACHE_URL);
+        if (raw) {
+          inMemoryMeta = { t: m.t, count: m.count };
+          inMemoryBusesRaw = raw;
+          fleetFetchedAt = m.fetched;
+          return { meta: inMemoryMeta, raw };
+        }
+      }
     }
-
-    const out = [];
-    for (const r of rows) {
-      const lon = num(r.Boylam);
-      const lat = num(r.Enlem);
-      if (lon === null || lat === null || lat < 40.5 || lat > 41.6 || lon < 27.8 || lon > 29.8) continue;
-      out.push({
-        id: r.KapiNo,
-        lat: Math.round(lat * 1e5) / 1e5,
-        lon: Math.round(lon * 1e5) / 1e5,
-        s: Math.round(num(r.Hiz) || 0),
-        t: r.Saat,
-        a: ageSec(r.Saat),
-        op: r.Operator || "",
-        p: r.Plaka || ""
-      });
+  } catch (e) {}
+  const hub = hubStub(env);
+  if (hub) {
+    try {
+      const res = await hub.fetch("https://hub/fleet");
+      if (res.ok) {
+        const raw = await res.text();
+        const meta = JSON.parse(res.headers.get("x-meta") || "null");
+        if (raw && meta) {
+          inMemoryMeta = meta;
+          inMemoryBusesRaw = raw;
+          fleetFetchedAt = Date.now();
+          await putEdgeCache(META_CACHE_URL, JSON.stringify(Object.assign({ fetched: fleetFetchedAt }, meta)), 12);
+          await putEdgeCache(FLEET_CACHE_URL, raw, 12);
+        }
+      }
+    } catch (e) {
+      console.warn("hub fleet fetch failed:", String(e));
     }
-
-    await annotateFleet(out, inMemoryBusesRaw, env);
-    const m = { t: Date.now(), count: out.length };
-    const raw = JSON.stringify(out);
-    inMemoryBusesRaw = raw;
-    inMemoryMeta = m;
-
-    await putEdgeCache(META_CACHE_URL, JSON.stringify(m));
-    await putEdgeCache(FLEET_CACHE_URL, raw);
-
-    await safeKvPut(env, "buses", raw);
-    await safeKvPut(env, "meta", JSON.stringify(m));
-    // Increment quota counter ONLY upon successful IETT fetch
-    await spend(env, q);
-    return m;
-  } catch (err) {
-    console.error("refreshFleet error:", String(err));
-    return meta;
-  } finally {
-    try { await env.LIVE.delete("lock"); } catch (e) {}
+  } else if (!inMemoryMeta || Date.now() - inMemoryMeta.t > 40000) {
+    // No Durable Object binding (e.g. a minimal local dev setup): refresh in this isolate.
+    try {
+      const f = await fetchIettFleet(env, inMemoryBusesRaw);
+      if (f) {
+        inMemoryMeta = f.meta;
+        inMemoryBusesRaw = f.raw;
+        fleetFetchedAt = Date.now();
+      }
+    } catch (e) {}
   }
+  return { meta: inMemoryMeta, raw: inMemoryBusesRaw };
+}
+
+// Kept for older call sites: the hub decides whether İETT is due.
+async function refreshFleet(env) {
+  const hub = hubStub(env);
+  if (hub) {
+    try { await hub.fetch("https://hub/kick"); } catch (e) {}
+  }
+  return (await loadFleet(env)).meta;
 }
 
 async function handleBuses(request, env) {
-  let meta = inMemoryMeta;
-  let raw = inMemoryBusesRaw;
-
-  // 1. If memory empty or older than 30s, check edge Cache API first, then KV
-  if (!meta || !raw || (Date.now() - meta.t >= 30000)) {
-    try {
-      const cachedMetaStr = await getEdgeCache(META_CACHE_URL);
-      if (cachedMetaStr) {
-        const cachedMeta = JSON.parse(cachedMetaStr);
-        if (!meta || cachedMeta.t > meta.t) {
-          const cachedRaw = await getEdgeCache(FLEET_CACHE_URL);
-          if (cachedRaw) {
-            meta = cachedMeta;
-            raw = cachedRaw;
-            inMemoryMeta = meta;
-            inMemoryBusesRaw = raw;
-          }
-        }
-      }
-    } catch (e) {}
-
-    if (!meta || !raw || (Date.now() - meta.t >= 30000)) {
-      try {
-        const kvMeta = await env.LIVE.get("meta", { type: "json", cacheTtl: 30 });
-        if (kvMeta && (!meta || kvMeta.t > meta.t)) {
-          meta = kvMeta;
-          raw = await env.LIVE.get("buses", { cacheTtl: 30 });
-          inMemoryMeta = meta;
-          inMemoryBusesRaw = raw;
-        }
-      } catch (e) {
-        console.warn("KV read error:", String(e));
-      }
-    }
-  }
-
-  // 2. Direct IETT fetch ONLY if no feeder pushed data for 75+ seconds
-  if (!meta || (Date.now() - meta.t >= 75000)) {
-    try {
-      meta = (await refreshFleet(env)) || meta;
-      if (meta) {
-        raw = inMemoryBusesRaw || (await env.LIVE.get("buses", { cacheTtl: 30 }).catch(() => null));
-      }
-    } catch (e) {
-      console.error("Fleet refresh error:", String(e));
-    }
-  }
+  const { meta, raw } = await loadFleet(env);
 
   if (!raw || !meta) {
     return json({ error: "İETT verisi henüz yükleniyor, lütfen birkaç saniye sonra tekrar deneyin." }, 503);
@@ -487,7 +499,7 @@ async function fetchLineRoute(code, env, opts = {}) {
   }
 
   const key = (opts.fast ? "route_fast_v1:" : "route_v4:") + code;
-  let cached = await env.LIVE.get(key, "json");
+  let cached = await edgeGetJson(key);
   if (cached && cached.directions) return cached;
 
   const url = "https://api.ibb.gov.tr/iett/ibb/ibb.asmx";
@@ -591,7 +603,7 @@ async function fetchLineRoute(code, env, opts = {}) {
   };
 
   if (Object.keys(directions).length > 0) {
-    await env.LIVE.put(key, JSON.stringify(routeData), { expirationTtl: 86400 }).catch(() => {});
+    await edgePutJson(key, routeData, 86400);
   }
   return routeData;
 }
@@ -677,6 +689,24 @@ function matchBusDirection(bus, directions, lineCode = "") {
   }
 }
 
+let lineMapsMem = { at: 0, lines: null, doors: null };
+async function lineMaps(env) {
+  if (Date.now() - lineMapsMem.at < 600000 && lineMapsMem.lines) return lineMapsMem;
+  let lines = null, doors = null;
+  try {
+    [lines, doors] = await Promise.all([
+      env.LIVE.get("bus_lines_map", { type: "json", cacheTtl: 3600 }),
+      env.LIVE.get("door_lines_map", { type: "json", cacheTtl: 3600 })
+    ]);
+  } catch (e) {}
+  lineMapsMem = {
+    at: Date.now(),
+    lines: lines || (typeof BUS_LINES_MAP !== "undefined" ? BUS_LINES_MAP : {}),
+    doors: doors || (typeof DOOR_LINES_MAP !== "undefined" ? DOOR_LINES_MAP : {})
+  };
+  return lineMapsMem;
+}
+
 async function handleLine(env, url) {
   const code = norm(url.searchParams.get("code"));
   if (!code || code.length > 12) return json({ error: "Lütfen bir hat kodu girin (örn. 15B, 500T, 14BK)" }, 400);
@@ -685,23 +715,15 @@ async function handleLine(env, url) {
   const routeData = await fetchLineRoute(code, env);
 
   // 2. Load door number mapping
-  let map = await env.LIVE.get("bus_lines_map", "json");
-  if (!map && typeof BUS_LINES_MAP !== "undefined") {
-    map = BUS_LINES_MAP;
-  }
+  const map = (await lineMaps(env)).lines;
   const assignedDoors = (map && map[code]) || [];
   const doorSet = new Set(assignedDoors);
 
-  // 3. Load fleet directly from fast in-memory or KV cache
+  // 3. Latest fleet snapshot (memory → edge → TransitHub)
   let fleet = null;
-  if (inMemoryBusesRaw) {
-    try { fleet = JSON.parse(inMemoryBusesRaw); } catch (e) {}
-  }
-  if (!fleet) {
-    const raw = await env.LIVE.get("buses", { cacheTtl: 30 });
-    if (raw) {
-      try { fleet = JSON.parse(raw); } catch (e) {}
-    }
+  const snap = await loadFleet(env);
+  if (snap.raw) {
+    try { fleet = JSON.parse(snap.raw); } catch (e) {}
   }
   fleet = fleet || [];
 
@@ -710,7 +732,7 @@ async function handleLine(env, url) {
   // 4. Fallback: ONLY query slow SOAP GetHatOtoKonum if line has NO mapped doors in bus_lines_map
   if (assignedDoors.length === 0) {
     const otoKey = "line_oto:" + code;
-    let otoData = await env.LIVE.get(otoKey, "json");
+    let otoData = await edgeGetJson(otoKey);
 
     if (!otoData) {
       const q = await quota(env);
@@ -722,7 +744,7 @@ async function handleLine(env, url) {
           const rows = await Promise.race([soap(IETT, "GetHatOtoKonum_json", { HatKodu: code }, env), timeoutPromise]);
           if (Array.isArray(rows)) {
             otoData = rows;
-            await env.LIVE.put(otoKey, JSON.stringify(otoData), { expirationTtl: 25 }).catch(() => {});
+            await edgePutJson(otoKey, otoData, 30);
           }
         } catch (e) {
           // Graceful fallback to fleet
@@ -853,7 +875,7 @@ async function handleLine(env, url) {
     }
   }
   for (const b of buses) { if (typeof b.h === "number") b.bearing = b.h; }
-  const meta = inMemoryMeta || (await env.LIVE.get("meta", { type: "json", cacheTtl: 30 })) || { t: Date.now() };
+  const meta = inMemoryMeta || { t: Date.now() };
 
   return json({
     code,
@@ -877,23 +899,15 @@ async function handleLineRoute(env, url) {
 }
 
 async function handleLinesMap(env) {
-  let map = await env.LIVE.get("bus_lines_map", "json");
-  if (!map && typeof BUS_LINES_MAP !== "undefined") {
-    map = BUS_LINES_MAP;
-  }
-  return json(map || {}, 200, { "cache-control": "public, max-age=3600" });
+  return json((await lineMaps(env)).lines || {}, 200, { "cache-control": "public, max-age=3600" });
 }
 
 async function handleDoorsMap(env) {
-  let map = await env.LIVE.get("door_lines_map", "json");
-  if (!map && typeof DOOR_LINES_MAP !== "undefined") {
-    map = DOOR_LINES_MAP;
-  }
-  return json(map || {}, 200, { "cache-control": "public, max-age=3600" });
+  return json((await lineMaps(env)).doors || {}, 200, { "cache-control": "public, max-age=3600" });
 }
 
 async function handleLines(env) {
-  let c = await env.LIVE.get("lines", "json");
+  let c = await edgeGetJson("lines");
   if (!c) {
     c = [];
     try {
@@ -909,7 +923,7 @@ async function handleLines(env) {
     } catch (e) {
       console.error("Lines list error:", String(e));
     }
-    await env.LIVE.put("lines", JSON.stringify(c), { expirationTtl: c.length ? 86400 : 1800 });
+    await edgePutJson("lines", c, c.length ? 86400 : 1800);
   }
   return json({ lines: c }, 200, { "cache-control": "public, max-age=3600" });
 }
@@ -1044,7 +1058,7 @@ async function handleTimetable(env, url) {
   // 2. Check KV cache for bus line timetable (TTL: 12 hours)
   const cacheKey = "timetable_v1:" + lineCode;
   try {
-    const cached = await env.LIVE.get(cacheKey, { type: "json", cacheTtl: 3600 });
+    const cached = await edgeGetJson(cacheKey);
     if (cached && Array.isArray(cached.entries) && cached.entries.length > 0) {
       return json(cached, 200, { "cache-control": "public, max-age=43200, stale-while-revalidate=86400" });
     }
@@ -1095,7 +1109,7 @@ async function handleTimetable(env, url) {
             updated_at: Date.now()
           };
 
-          await env.LIVE.put(cacheKey, JSON.stringify(result), { expirationTtl: 43200 }).catch(() => {});
+          await edgePutJson(cacheKey, result, 43200);
           return json(result, 200, { "cache-control": "public, max-age=43200, stale-while-revalidate=86400" });
         }
       }
@@ -1120,18 +1134,17 @@ async function handleFeed(request, env) {
     const data = await request.json();
     if (!Array.isArray(data.buses)) return json({ error: "Invalid payload: buses array required" }, 400);
 
-    await annotateFleet(data.buses, inMemoryBusesRaw, env);
+    const hub = hubStub(env);
     const now = (typeof data.pushed_at === "number" && data.pushed_at > 0) ? data.pushed_at : Date.now();
     const m = { t: now, count: data.buses.length };
-    const raw = JSON.stringify(data.buses);
-    inMemoryBusesRaw = raw;
-    inMemoryMeta = m;
-
-    await putEdgeCache(META_CACHE_URL, JSON.stringify(m));
-    await putEdgeCache(FLEET_CACHE_URL, raw);
-
-    await safeKvPut(env, "buses", raw);
-    await safeKvPut(env, "meta", JSON.stringify(m));
+    if (hub) {
+      const res = await hub.fetch("https://hub/push", { method: "POST", body: JSON.stringify({ buses: data.buses, t: now }) });
+      if (!res.ok) return json({ error: "hub push failed" }, 502);
+    } else {
+      await annotateFleet(data.buses, inMemoryBusesRaw, env);
+      inMemoryBusesRaw = JSON.stringify(data.buses);
+      inMemoryMeta = m;
+    }
     return json({ success: true, count: m.count, updated_at: m.t });
   } catch (err) {
     return json({ error: String(err) }, 400);
@@ -1171,7 +1184,7 @@ async function fetchDisruptions(env) {
 
   // Check KV cache
   try {
-    const cached = await env.LIVE.get("disruptions", { type: "json", cacheTtl: 60 });
+    const cached = await edgeGetJson("disruptions");
     if (cached && (now - cached.updated_at < 90000)) {
       inMemoryDisruptions = cached;
       inMemoryDisruptionsTime = cached.updated_at;
@@ -1221,7 +1234,7 @@ async function fetchDisruptions(env) {
 
       inMemoryDisruptions = result;
       inMemoryDisruptionsTime = now;
-      await env.LIVE.put("disruptions", JSON.stringify(result), { expirationTtl: 300 }).catch(() => {});
+      await edgePutJson("disruptions", result, 300);
       return result;
     }
   } catch (e) {
@@ -1236,6 +1249,7 @@ async function handleFeedMapping(request, env) {
   try {
     const data = await request.json();
     if (!data || typeof data !== "object") return json({ error: "Invalid payload: mapping object required" }, 400);
+    lineMapsMem = { at: 0, lines: null, doors: null };
     if (data.lines && data.doors) {
       await safeKvPut(env, "bus_lines_map", JSON.stringify(data.lines));
       await safeKvPut(env, "door_lines_map", JSON.stringify(data.doors));
@@ -1273,10 +1287,6 @@ async function handleDisruptions(env, url) {
 // Without a key /ferries/live answers { configured: false } and the app sails ferries by timetable.
 
 const AIS_BBOX = [[40.80, 28.55], [41.26, 29.42]]; // [[lat, lon], [lat, lon]]
-const FERRY_CACHE_URL = "https://cache.istanbulbizim.internal/ferries/live";
-const FERRY_KV_EVERY_MS = 180000; // KV write at most every 3 min (free-tier write quota)
-let inMemoryFerries = null;
-let lastFerryKvWrite = 0;
 
 function ferryOperatorOf(name) {
   const n = String(name || "").toUpperCase();
@@ -1287,21 +1297,10 @@ function ferryOperatorOf(name) {
   return "";
 }
 
-async function loadFerries(env) {
-  if (inMemoryFerries && Date.now() - inMemoryFerries.updated_at < 90000) return inMemoryFerries;
-  const edge = await getEdgeCache(FERRY_CACHE_URL);
-  if (edge) {
-    try { inMemoryFerries = JSON.parse(edge); return inMemoryFerries; } catch (e) {}
-  }
-  const kv = env.LIVE ? await env.LIVE.get("ferries_live", { type: "json", cacheTtl: 60 }).catch(() => null) : null;
-  if (kv) inMemoryFerries = kv;
-  return kv;
-}
-
-async function refreshFerries(env, listenMs = 12000) {
+async function refreshFerries(env, listenMs = 12000, prevData = null) {
   const key = env.AISSTREAM_API_KEY;
   if (!key) return null;
-  const prev = (await loadFerries(env)) || { vessels: [] };
+  const prev = prevData || { vessels: [] };
   const byMmsi = new Map(prev.vessels.map((v) => [v.mmsi, v]));
   const res = await fetch("https://stream.aisstream.io/v0/stream", { headers: { Upgrade: "websocket" } });
   const ws = res.webSocket;
@@ -1352,28 +1351,31 @@ async function refreshFerries(env, listenMs = 12000) {
     if (v.sog > 40) continue;
     vessels.push({ mmsi: v.mmsi, name: v.name, type: v.type, lat: +(+v.lat).toFixed(5), lon: +(+v.lon).toFixed(5), sog: v.sog || 0, cog: v.cog || 0, op, t: v.t });
   }
-  const out = { configured: true, updated_at: now, vessels };
-  inMemoryFerries = out;
-  const body = JSON.stringify(out);
-  await putEdgeCache(FERRY_CACHE_URL, body);
-  if (now - lastFerryKvWrite > FERRY_KV_EVERY_MS) {
-    lastFerryKvWrite = now;
-    await safeKvPut(env, "ferries_live", body, { expirationTtl: 1800 });
-  }
-  return out;
+  return { configured: true, updated_at: now, vessels };
 }
 
 async function handleFerriesLive(env) {
   if (!env.AISSTREAM_API_KEY) {
     return json({ configured: false, vessels: [], note: "Set the AISSTREAM_API_KEY secret to enable live AIS ferry positions." }, 200, { "cache-control": "public, max-age=300" });
   }
-  let data = await loadFerries(env);
-  if (!data || Date.now() - data.updated_at > 5 * 60000) {
-    data = await refreshFerries(env, 6000).catch((e) => ({ configured: true, error: String(e), vessels: [] }));
+  return hubJson(env, "/ferries/live", 15);
+}
+
+// JSON from the TransitHub, edge-cached for [ttl] seconds.
+async function hubJson(env, path, ttl) {
+  const key = "hub:" + path;
+  const cached = await edgeGetJson(key);
+  if (cached) return json(cached, 200, { "cache-control": `public, max-age=${ttl}` });
+  const hub = hubStub(env);
+  if (!hub) return json({ error: "hub unavailable" }, 503);
+  try {
+    const res = await hub.fetch("https://hub" + path);
+    const body = await res.json();
+    if (res.ok) await edgePutJson(key, body, ttl);
+    return json(body, res.status, { "cache-control": `public, max-age=${ttl}` });
+  } catch (e) {
+    return json({ error: String(e) }, 502);
   }
-  const now = Date.now();
-  const vessels = (data.vessels || []).map((v) => Object.assign({}, v, { age: Math.round((now - v.t) / 1000) }));
-  return json({ configured: true, updated_at: data.updated_at, vessels }, 200, { "cache-control": "public, max-age=15" });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1502,7 +1504,7 @@ function angleDiff(a, b) { return Math.abs(((a - b + 540) % 360) - 180); }
 async function annotateFleet(list, prevRaw, env) {
   let prev = null;
   try {
-    const raw = prevRaw || (env && env.LIVE ? await env.LIVE.get("buses") : null);
+    const raw = prevRaw;
     if (raw) prev = new Map(JSON.parse(raw).map(b => [b.id, b]));
   } catch (e) { prev = null; }
   for (const b of list) {
@@ -1520,37 +1522,7 @@ async function annotateFleet(list, prevRaw, env) {
 let fleetParsed = { t: 0, list: [] };
 
 async function getFleet(env) {
-  let meta = inMemoryMeta;
-  let raw = inMemoryBusesRaw;
-  if (!meta || !raw || Date.now() - meta.t >= 30000) {
-    try {
-      const cachedMetaStr = await getEdgeCache(META_CACHE_URL);
-      if (cachedMetaStr) {
-        const cachedMeta = JSON.parse(cachedMetaStr);
-        if (!meta || cachedMeta.t > meta.t) {
-          const cachedRaw = await getEdgeCache(FLEET_CACHE_URL);
-          if (cachedRaw) {
-            meta = cachedMeta;
-            raw = cachedRaw;
-            inMemoryMeta = meta;
-            inMemoryBusesRaw = raw;
-          }
-        }
-      }
-    } catch (e) {}
-
-    if (!meta || !raw || Date.now() - meta.t >= 30000) {
-      try {
-        const kvMeta = await env.LIVE.get("meta", { type: "json", cacheTtl: 30 });
-        if (kvMeta && (!meta || kvMeta.t > meta.t)) {
-          raw = await env.LIVE.get("buses", { cacheTtl: 30 });
-          meta = kvMeta;
-          inMemoryMeta = meta;
-          inMemoryBusesRaw = raw;
-        }
-      } catch (e) { /* use memory */ }
-    }
-  }
+  const { meta, raw } = await loadFleet(env);
   if (!meta || !raw) return { t: 0, list: [] };
   if (fleetParsed.t !== meta.t) {
     try { fleetParsed = { t: meta.t, list: JSON.parse(raw) }; } catch (e) { return { t: 0, list: [] }; }
@@ -1812,9 +1784,9 @@ function enrichBusEta(b, indexes, field, t) {
 // Fast route (stops only, no OSRM) — cached 24 h; prefers the full road-snapped route if present.
 async function getRouteForEta(code, env) {
   try {
-    const full = await env.LIVE.get("route_v4:" + code, { type: "json", cacheTtl: 300 });
+    const full = await edgeGetJson("route_v4:" + code);
     if (full && full.directions) return full;
-    const fast = await env.LIVE.get("route_fast_v1:" + code, { type: "json", cacheTtl: 300 });
+    const fast = await edgeGetJson("route_fast_v1:" + code);
     if (fast && fast.directions) return fast;
   } catch (e) { /* fall through */ }
   return fetchLineRoute(code, env, { fast: true });
@@ -2046,7 +2018,7 @@ function extractTimeInfos(data) {
 async function getMetroLineMeta(lineCode, env) {
   const key = "metro_meta_v1:" + lineCode;
   try {
-    const c = await env.LIVE.get(key, { type: "json", cacheTtl: 3600 });
+    const c = await edgeGetJson(key);
     if (c && c.lineId !== undefined) return c;
   } catch (e) { /* refetch */ }
 
@@ -2072,7 +2044,7 @@ async function getMetroLineMeta(lineCode, env) {
   })).filter(d => d.id !== undefined);
 
   const meta = { lineId, stations, directions };
-  await env.LIVE.put(key, JSON.stringify(meta), { expirationTtl: 86400 }).catch(() => {});
+  await edgePutJson(key, meta, 86400);
   return meta;
 }
 
@@ -2090,7 +2062,7 @@ async function getMetroTimetable(lineCode, env) {
   const t = istanbulNow();
   const cacheKey = `metro_tt_v1:${lineCode}:${t.dateKey}`;
   try {
-    const c = await env.LIVE.get(cacheKey, { type: "json", cacheTtl: 600 });
+    const c = await edgeGetJson(cacheKey);
     if (c && c.entries && c.entries.length) return c;
   } catch (e) { /* refetch */ }
 
@@ -2138,7 +2110,7 @@ async function getMetroTimetable(lineCode, env) {
     note: missing.length ? "Resmî Metro İstanbul tarifesi (bugün). Diğer gün tipleri tahmini sıklıktır." : "Resmî Metro İstanbul tarifesi.",
     updated_at: Date.now()
   };
-  await env.LIVE.put(cacheKey, JSON.stringify(result), { expirationTtl: 21600 }).catch(() => {});
+  await edgePutJson(cacheKey, result, 21600);
   return result;
 }
 
@@ -2162,7 +2134,7 @@ async function handleDiag(env, url) {
 
   tests.push(timed("cached fleet (feeder push)", async () => {
     const f = await getFleet(env);
-    const meta = inMemoryMeta || (await env.LIVE.get("meta", { type: "json", cacheTtl: 30 }).catch(() => null));
+    const meta = inMemoryMeta;
     const ageS = meta ? Math.round((Date.now() - meta.t) / 1000) : null;
     const fresh = f.list.filter(b => (b.a || 0) <= 180).length;
     const inBounds = f.list.filter(b => b.lat > 40.5 && b.lat < 41.6 && b.lon > 27.8 && b.lon < 29.8).length;
@@ -2245,7 +2217,7 @@ async function handleDiag(env, url) {
 
   tests.push(timed("secrets / KV", async () => {
     const key = resolveCartoKey(env);
-    await env.LIVE.get("meta").catch(() => null);
+    // (no KV read here: diagnostics should not consume the KV quota)
     return { ok: !!key, detail: `CARTO key ${key ? "present" : "MISSING"}, IBB key ${(env.IBB_API_KEY || env.IBB_SECRET) ? "present" : "absent (optional)"}` };
   }));
 
@@ -2693,9 +2665,16 @@ async function getRailSchedule(code, env, opts = {}) {
     return s;
   }
   const kvKey = `rail_v${RAIL_SCHEMA}:${key}`;
+  // memory → edge cache → KV (one read per colo per day) → build (one KV write per line per day)
+  const edge = await edgeGetJson(kvKey);
+  if (edge && edge.directions && edge.directions.length) { railMemo.set(key, edge); return edge; }
   try {
-    const c = await env.LIVE.get(kvKey, { type: "json", cacheTtl: 600 });
-    if (c && c.directions && c.directions.length) { railMemo.set(key, c); return c; }
+    const c = await env.LIVE.get(kvKey, { type: "json", cacheTtl: 3600 });
+    if (c && c.directions && c.directions.length) {
+      railMemo.set(key, c);
+      await edgePutJson(kvKey, c, 3 * 3600);
+      return c;
+    }
   } catch (e) { /* rebuild */ }
   if (opts.cacheOnly) return null;
   if (railInflight.has(key)) return railInflight.get(key);
@@ -2705,6 +2684,7 @@ async function getRailSchedule(code, env, opts = {}) {
       railMemo.set(key, s);
       if (railMemo.size > 60) railMemo.delete(railMemo.keys().next().value);
       await safeKvPut(env, kvKey, JSON.stringify(s), { expirationTtl: 30 * 3600 });
+      await edgePutJson(kvKey, s, 3 * 3600);
       return s;
     } finally {
       railInflight.delete(key);
@@ -2856,6 +2836,707 @@ async function prewarmRail(env) {
   return null;
 }
 
+// ───────────────────────── TransitHub (Durable Object) ─────────────────────────
+// One instance ("hub") owns everything that changes over time, so the Worker never writes to KV
+// on its hot path:
+//   • İETT fleet — refreshed on the hub's own alarm every ~37 s (≤ 98 calls/hour), kept in memory
+//     and in the object's SQLite storage; Workers read it through /fleet (+ edge cache).
+//   • Metro İstanbul official timetables — prewarmed once per service day (rail.js → KV, ~20 writes/day).
+//   • Şehir Hatları — cancellations / replacement timetables every 10 min, full timetables daily.
+//   • Rail network changes — new or removed lines detected weekly from OpenStreetMap.
+//   • Live AIS ferries (only with AISSTREAM_API_KEY).
+// Free plan: SQLite-backed Durable Objects, 100k requests/day, 100k rows written/day.
+
+const HUB_ALARM_MS = 37000;
+const HUB_CHUNK = 60000; // characters per stored row (≤ 120 KB even for 2-byte UTF-8)
+const HUB_SH = "https://sehirhatlari.istanbul";
+const HUB_OVERPASS = ["https://maps.mail.ru/osm/tools/overpass/api/interpreter", "https://overpass-api.de/api/interpreter"];
+const HUB_UA = "IstanbulBizim/2.0 (+https://github.com/nanobiolog/istanbulbizim)";
+
+export class TransitHub {
+  constructor(ctx, env) {
+    this.ctx = ctx;
+    this.env = env;
+    this.fleet = null; // { raw, meta }
+    this.state = {};
+    this.mem = {}; // big documents (ferry status, timetables, network changes, ais)
+    this.ref = {}; // bundled network files read from the static assets
+    this.fleetWrites = 0;
+    ctx.blockConcurrencyWhile(async () => {
+      this.state = (await ctx.storage.get("state")) || {};
+      this.fleet = await this.getBig("fleet");
+    });
+  }
+
+  // ── storage helpers (large JSON split across rows) ──
+  async putBig(key, value) {
+    const str = typeof value === "string" ? value : JSON.stringify(value);
+    const n = Math.max(1, Math.ceil(str.length / HUB_CHUNK));
+    const entries = { [`${key}#n`]: n };
+    for (let i = 0; i < n; i++) entries[`${key}#${i}`] = str.slice(i * HUB_CHUNK, (i + 1) * HUB_CHUNK);
+    await this.ctx.storage.put(entries);
+  }
+
+  async getBig(key) {
+    const n = await this.ctx.storage.get(`${key}#n`);
+    if (!n) return null;
+    const keys = Array.from({ length: n }, (_, i) => `${key}#${i}`);
+    const m = await this.ctx.storage.get(keys);
+    const str = keys.map((k) => m.get(k) || "").join("");
+    try { return JSON.parse(str); } catch (e) { return null; }
+  }
+
+  async doc(key) {
+    if (!(key in this.mem)) this.mem[key] = await this.getBig(key);
+    return this.mem[key];
+  }
+
+  async setDoc(key, value) {
+    this.mem[key] = value;
+    await this.putBig(key, value);
+  }
+
+  async saveState() {
+    await this.ctx.storage.put("state", this.state);
+  }
+
+  async ensureAlarm() {
+    const a = await this.ctx.storage.getAlarm();
+    if (!a) await this.ctx.storage.setAlarm(Date.now() + 500);
+  }
+
+  // ── requests from the Worker ──
+  async fetch(request) {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    try {
+      if (path === "/fleet") {
+        await this.ensureAlarm();
+        if (!this.fleet || Date.now() - this.fleet.meta.t > 150000) await this.refreshFleet(true);
+        if (!this.fleet) return new Response("fleet unavailable", { status: 503 });
+        return new Response(this.fleet.raw, { headers: { "x-meta": JSON.stringify(this.fleet.meta), "content-type": "application/json" } });
+      }
+      if (path === "/kick") {
+        await this.ensureAlarm();
+        return hubJsonResponse({ ok: true, fleet_t: this.fleet ? this.fleet.meta.t : 0 });
+      }
+      if (path === "/push" && request.method === "POST") {
+        const data = await request.json();
+        await annotateFleet(data.buses, this.fleet ? this.fleet.raw : null, this.env);
+        this.fleet = { raw: JSON.stringify(data.buses), meta: { t: data.t || Date.now(), count: data.buses.length } };
+        await this.putBig("fleet", this.fleet);
+        return hubJsonResponse({ ok: true });
+      }
+      if (path === "/ferries/status") {
+        await this.ensureAlarm();
+        return hubJsonResponse((await this.doc("ferry_status")) || { updated_at: 0, notices: [], cancelled_line_ids: [], overrides: {} });
+      }
+      if (path === "/ferries/timetables") {
+        await this.ensureAlarm();
+        return hubJsonResponse((await this.doc("sh_timetables")) || { version: "", lines: [] });
+      }
+      if (path === "/network/changes") {
+        await this.ensureAlarm();
+        return hubJsonResponse((await this.doc("network_changes")) || { checked_at: 0, added: [], removed: [], stations: {} });
+      }
+      if (path === "/ferries/live") {
+        await this.ensureAlarm();
+        const d = (await this.doc("ferries_live")) || { configured: true, updated_at: 0, vessels: [] };
+        const now = Date.now();
+        return hubJsonResponse(Object.assign({}, d, { vessels: (d.vessels || []).map((v) => Object.assign({}, v, { age: Math.round((now - v.t) / 1000) })) }));
+      }
+      if (path === "/state") {
+        return hubJsonResponse({ state: this.state, fleet: this.fleet ? this.fleet.meta : null, alarm: await this.ctx.storage.getAlarm() });
+      }
+      return hubJsonResponse({ error: "not found" }, 404);
+    } catch (e) {
+      return hubJsonResponse({ error: String(e) }, 500);
+    }
+  }
+
+  // ── the clock ──
+  async alarm() {
+    const started = Date.now();
+    try {
+      if (!this.fleet || started - this.fleet.meta.t >= 36000) await this.refreshFleet(false);
+    } catch (e) {
+      console.warn("hub fleet:", String(e));
+    }
+    try {
+      await this.housekeeping();
+    } catch (e) {
+      console.warn("hub housekeeping:", String(e));
+    }
+    await this.ctx.storage.setAlarm(Date.now() + HUB_ALARM_MS);
+  }
+
+  async refreshFleet(force) {
+    const hour = Math.floor(Date.now() / 3600000);
+    if (this.state.qHour !== hour) { this.state.qHour = hour; this.state.qN = 0; }
+    if (this.state.qN >= 98 && !force) return;
+    const f = await fetchIettFleet(this.env, this.fleet ? this.fleet.raw : null);
+    this.state.qN = (this.state.qN || 0) + 1;
+    if (!f) return;
+    this.fleet = f;
+    // Persist every 3rd snapshot: memory serves reads; storage only matters after an eviction.
+    if (++this.fleetWrites % 3 === 1) await this.putBig("fleet", f);
+  }
+
+  async housekeeping() {
+    const now = Date.now();
+    const s = this.state;
+    let dirty = false;
+    // Şehir Hatları cancellations and replacement timetables
+    if (now - (s.ferryStatusAt || 0) > 10 * 60000) {
+      s.ferryStatusAt = now;
+      dirty = true;
+      await this.refreshFerryStatus().catch((e) => console.warn("ferry status:", String(e)));
+    } else if (this.env.AISSTREAM_API_KEY && now - (s.aisAt || 0) > 2 * 60000) {
+      s.aisAt = now;
+      dirty = true;
+      const prev = await this.doc("ferries_live");
+      const d = await refreshFerries(this.env, 8000, prev).catch(() => null);
+      if (d) await this.setDoc("ferries_live", d);
+    } else if (await this.prewarmRailStep()) {
+      dirty = true;
+    } else if (await this.timetableStep()) {
+      dirty = true;
+    } else if (await this.networkStep()) {
+      dirty = true;
+    }
+    if (dirty || now - (s.savedAt || 0) > 10 * 60000) {
+      s.savedAt = now;
+      await this.saveState();
+    }
+  }
+
+  // ── reference data bundled with the website ──
+  async asset(name) {
+    if (this.ref[name]) return this.ref[name];
+    const path = `/assets/assets/data/${name}`;
+    let res = null;
+    try {
+      if (this.env.ASSETS) res = await this.env.ASSETS.fetch(new Request("https://assets.local" + path));
+    } catch (e) { res = null; }
+    if (!res || !res.ok) res = await fetch((this.env.PUBLIC_ORIGIN || "https://istanbulbizim.nano-carbay.workers.dev") + path);
+    if (!res.ok) throw new Error(`asset ${name}: HTTP ${res.status}`);
+    this.ref[name] = await res.json();
+    return this.ref[name];
+  }
+
+  // ── Metro İstanbul official timetables, once per service day (one line per tick) ──
+  async prewarmRailStep() {
+    const day = railServiceDay();
+    if (this.state.railDay !== day.dateKey) { this.state.railDay = day.dateKey; this.state.railDone = []; }
+    const lines = Object.keys(typeof METRO_STATIONS !== "undefined" ? METRO_STATIONS : {}).filter((c) => c !== "B1");
+    const next = lines.find((c) => !(this.state.railDone || []).includes(c));
+    if (!next) return false;
+    this.state.railDone.push(next);
+    await getRailSchedule(next, this.env).catch((e) => console.warn(`rail ${next}:`, String(e)));
+    return true;
+  }
+
+  // ── Şehir Hatları: today's cancellations + replacement timetables ──
+  async refreshFerryStatus() {
+    const html = await (await fetch(HUB_SH + "/tr/iptal-seferler", { headers: { "user-agent": HUB_UA } })).text();
+    const net = await this.asset("ferry_network.json");
+    const main = shMainContent(html);
+    const text = shText(main);
+    const dm = text.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+    const date = dm ? `${dm[3]}-${dm[2]}-${dm[1]}` : "";
+    const today = railServiceDay().dateKey;
+    const label = main.search(/İptal Seferler\s*:/i);
+    const listPart = label >= 0 ? main.slice(label).replace(/^İptal Seferler\s*:/i, "") : "";
+    const beforeTables = listPart.split(/<table/i)[0] || "";
+    const names = [];
+    for (const raw of shText(beforeTables).split(/\s*[|\n]\s*/)) {
+      const x = raw.trim();
+      if (!x) continue;
+      if (/HATTI\b|Tarihi Yap|\d{2}\.\d{2}\.\d{4}/.test(x)) break; // replacement timetables start here
+      if (x.length < 80 && /[a-zçğıöşü]/i.test(x) && !/yolcu|bilgi|sunarız|duyuru/i.test(x)) names.push(x);
+    }
+    const headText = shText(label >= 0 ? main.slice(0, label) : main);
+    const message = headText.replace(/^[\s\S]*?\d{2}\.\d{2}\.\d{4}/, "").replace(/\s+/g, " ").trim().slice(0, 600);
+    const shLines = net.lines.filter((l) => l.op === "sh");
+    const cancelled = new Set();
+    const matchedNames = [];
+    for (const n of names) {
+      const ids = shMatchLines(n, shLines, net.piers);
+      if (ids.length) { ids.forEach((i) => cancelled.add(i)); matchedNames.push(n); }
+    }
+    // replacement timetables published on the same page ("… HATTI · dd.mm.yyyy Tarihi Yapılır")
+    const overrides = {};
+    const re = /<table[\s\S]*?<\/table>/gi;
+    let m;
+    while ((m = re.exec(main))) {
+      const tables = shParseTables(m[0]);
+      if (!tables.length) continue;
+      let title = tables[0].title;
+      if (!title) {
+        const before = shText(main.slice(Math.max(0, m.index - 600), m.index));
+        const hm = before.match(/([A-ZÇĞİÖŞÜ][A-ZÇĞİÖŞÜa-zçğıöşü\s\-]+?)\s+HATTI/);
+        title = hm ? hm[1] : "";
+      }
+      if (!title) continue;
+      const ids = shMatchLines(title.replace(/\s*HATTI\s*$/i, ""), shLines, net.piers);
+      if (!ids.length) continue;
+      const patterns = shTablesToPatterns(tables, title, net, true);
+      if (patterns.length) for (const id of ids) overrides[id] = { date: date || today, patterns };
+    }
+    const active = !date || date >= today;
+    await this.setDoc("ferry_status", {
+      updated_at: Date.now(),
+      date: date || today,
+      active,
+      operator: "sh",
+      source: HUB_SH + "/tr/iptal-seferler",
+      message: active ? message : "",
+      cancelled_names: active ? names : [],
+      cancelled_line_ids: active ? Array.from(cancelled) : [],
+      overrides: active ? overrides : {},
+      unmatched: names.filter((n) => !matchedNames.includes(n))
+    });
+  }
+
+  // ── Şehir Hatları: full timetables, re-read once a day (one page per tick) ──
+  async timetableStep() {
+    const day = railServiceDay().dateKey;
+    const st = this.state.sh || {};
+    if (st.done === day) return false;
+    const net = await this.asset("ferry_network.json");
+    if (st.day !== day || !st.pages) {
+      const idx = await (await fetch(HUB_SH + "/tr/seferler/ic-hatlar", { headers: { "user-agent": HUB_UA } })).text();
+      const pages = Array.from(new Set((idx.match(/href="(\/tr\/seferler\/ic-hatlar\/[a-z-]+\/[a-z0-9-]+-\d+)"/g) || []).map((h) => h.slice(6, -1))));
+      this.state.sh = { day, pages, i: 0, lines: [] };
+      this.mem.sh_partial = [];
+      return true;
+    }
+    if (!this.mem.sh_partial) this.mem.sh_partial = (await this.getBig("sh_partial")) || [];
+    if (st.i < st.pages.length) {
+      const href = st.pages[st.i++];
+      try {
+        const html = await (await fetch(HUB_SH + href, { headers: { "user-agent": HUB_UA } })).text();
+        const tm = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/) || html.match(/<title>([\s\S]*?)<\/title>/);
+        const title = tm ? shText(tm[1]).replace(/\s*[-|]\s*Şehir Hatları.*$/, "").trim() : href;
+        const tables = shParseTables(html);
+        const patterns = shTablesToPatterns(tables, title, net, false);
+        if (patterns.length) {
+          const slug = href.split("/").pop();
+          const piers = [];
+          for (const p of patterns) for (const t of p.trips) for (const [pid] of t.s) if (!piers.includes(pid)) piers.push(pid);
+          this.mem.sh_partial.push({ id: "sh-" + slug, op: "sh", name: shTitle(title), src: "Şehir Hatları güncel tarife", official: true, url: HUB_SH + href, patterns, piers });
+        }
+      } catch (e) {
+        console.warn("sh page", href, String(e));
+      }
+      await this.putBig("sh_partial", this.mem.sh_partial);
+      return true;
+    }
+    const lines = this.mem.sh_partial || [];
+    if (lines.length >= Math.max(5, (net.lines.filter((l) => l.op === "sh").length) * 0.6)) {
+      await this.setDoc("sh_timetables", { version: day, generated_at: Date.now(), lines });
+    }
+    this.state.sh = { done: day };
+    this.mem.sh_partial = [];
+    await this.putBig("sh_partial", []);
+    return true;
+  }
+
+  // ── Rail network: new / removed lines from OpenStreetMap, weekly ──
+  async networkStep() {
+    const now = Date.now();
+    const st = this.state.net || {};
+    if (st.queue && st.queue.length) {
+      const rid = st.queue.shift();
+      this.state.net = st;
+      try {
+        const line = await osmBuildVariant(rid);
+        if (line) {
+          const doc = (await this.doc("network_changes_partial")) || { variants: [] };
+          doc.variants.push(line);
+          await this.setDoc("network_changes_partial", doc);
+        }
+      } catch (e) {
+        console.warn("osm relation", rid, String(e));
+      }
+      if (!st.queue.length) await this.finishNetwork();
+      return true;
+    }
+    if (now - (st.checkedAt || 0) < 7 * 86400000) return false;
+    if (st.failedAt && now - st.failedAt < 6 * 3600000) return false;
+    const q = '[out:json][timeout:60];relation["type"="route"]["route"~"^(subway|light_rail|tram|train|funicular|monorail|aerialway)$"](40.75,28.40,41.30,29.50);out tags;';
+    let rels = null;
+    for (const ep of HUB_OVERPASS) {
+      try {
+        const res = await fetch(ep, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": HUB_UA } });
+        if (res.ok) { const j = await res.json(); if (j.elements) { rels = j.elements; break; } }
+      } catch (e) {}
+    }
+    if (!rels) { this.state.net = Object.assign(st, { failedAt: now }); return true; }
+    const rail = await this.asset("rail_network.json");
+    const bundled = new Map(); // relation id -> line code
+    for (const l of rail.lines) for (const v of l.variants) bundled.set(v.id, l.code);
+    const lineRef = /^(M\d{1,2}[A-Z]?|T\d|F\d|B\d|TF\d)$/;
+    const current = rels.filter((r) => {
+      const t = r.tags || {};
+      if (t.state === "proposed" || t.state === "construction" || /Ulaşım Park/i.test(t.operator || "")) return false;
+      const ref = (t.ref || "").trim();
+      return lineRef.test(ref) || /marmaray/i.test(t.network || t.name || "");
+    });
+    const currentIds = new Set(current.map((r) => r.id));
+    const added = current.filter((r) => !bundled.has(r.id) && !rail.lines.some((l) => l.code === (r.tags.ref || "").trim()));
+    let removedCodes = [];
+    for (const l of rail.lines) {
+      if (l.variants.every((v) => !currentIds.has(v.id))) removedCodes.push(l.code);
+    }
+    // A truncated Overpass answer must not hide half the network: only trust small, plausible diffs.
+    if (removedCodes.length > 3 || current.length < bundled.size * 0.7) removedCodes = [];
+    this.state.net = { checkedAt: now, queue: added.slice(0, 12).map((r) => r.id), removed: removedCodes, meta: added.slice(0, 12).map((r) => ({ id: r.id, ref: r.tags.ref || "", name: r.tags.name || "", colour: r.tags.colour || "", route: r.tags.route })) };
+    await this.setDoc("network_changes_partial", { variants: [] });
+    if (!added.length) await this.finishNetwork();
+    return true;
+  }
+
+  async finishNetwork() {
+    const st = this.state.net || {};
+    const partial = (await this.doc("network_changes_partial")) || { variants: [] };
+    const byCode = {};
+    const stations = {};
+    for (const v of partial.variants) {
+      const meta = (st.meta || []).find((m) => m.id === v.id) || {};
+      const code = (meta.ref || v.ref || "").trim() || `R${v.id}`;
+      const mode = { subway: "metro", light_rail: "metro", tram: "tram", train: "suburban", funicular: "funicular", aerialway: "cable", monorail: "metro" }[meta.route] || "metro";
+      const line = byCode[code] || (byCode[code] = {
+        code, name: code, long: meta.name || code, mode, color: /^#[0-9a-f]{6}$/i.test(meta.colour) ? meta.colour : "#64748B",
+        operator: "", speed_kmh: mode === "tram" ? 30 : 70, dwell_s: 30, headways: [[360, 1440, 420]], headway_src: "tahmini", variants: [], is_new: true
+      });
+      line.variants.push({ id: v.id, from: v.from, to: v.to, length_m: v.length_m, path: v.path, stops: v.stops.map((s) => [s.sid, s.d, s.lat, s.lon]) });
+      for (const s of v.stops) {
+        const cur = stations[s.sid] || (stations[s.sid] = { name: s.name, lat: s.lat, lon: s.lon, lines: [], kind: "underground", depth: 20, depth_src: "tahmini", entrances: [], elevators: 0, escalators: 0, platforms: 0, platform: "island", kinds: {}, depths: {}, depth_srcs: {} });
+        if (!cur.lines.includes(code)) cur.lines.push(code);
+        cur.kinds[code] = mode === "metro" ? "u" : "s";
+        cur.depths[code] = mode === "metro" ? 20 : 0;
+        cur.depth_srcs[code] = "tahmini";
+      }
+    }
+    await this.setDoc("network_changes", { checked_at: st.checkedAt || Date.now(), added: Object.values(byCode), removed: st.removed || [], stations });
+    this.state.net = { checkedAt: st.checkedAt || Date.now() };
+  }
+}
+
+function hubJsonResponse(obj, status = 200) {
+  return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json; charset=utf-8" } });
+}
+
+// ───────────────── Şehir Hatları parsing (mirrors tools/build_transit_data.py) ─────────────────
+
+function shFold(s) {
+  return String(s || "").replace(/İ/g, "i").replace(/I/g, "ı").toLowerCase()
+    .replace(/ı/g, "i").replace(/ğ/g, "g").replace(/ü/g, "u").replace(/ş/g, "s").replace(/ö/g, "o").replace(/ç/g, "c")
+    .normalize("NFKD").replace(/[̀-ͯ]/g, "")
+    .replace(/\(.*?\)/g, " ")
+    .replace(/\b(sh|ido|turyol|dentur|iskelesi|iskele|hatti|hatt|ring)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function shText(html) {
+  return String(html || "").replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|li|tr|h\d)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&([a-z]+);/gi, (m, n) => ({ Uuml: "Ü", uuml: "ü", Ouml: "Ö", ouml: "ö", Ccedil: "Ç", ccedil: "ç" }[n] || m))
+    .replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
+}
+
+function shMainContent(html) {
+  const i = html.search(/İptal Seferler<\/h/i);
+  const start = i >= 0 ? i : Math.max(0, html.search(/İptal Seferler/i));
+  const end = html.search(/<footer/i);
+  return html.slice(start, end > start ? end : undefined);
+}
+
+function shTitle(s) {
+  const low = (w) => w.replace(/I/g, "ı").replace(/İ/g, "i").toLowerCase();
+  const up = (c) => ({ i: "İ", ı: "I" }[c] || c.toUpperCase());
+  return String(s).trim().split(/(\s+|-|\/|\()/).map((w) => (/^[A-Za-zÇĞİÖŞÜçğıöşü]/.test(w) ? up(low(w)[0]) + low(w).slice(1) : w)).join("").replace(/\s*-\s*/g, " – ");
+}
+
+function shParseTables(html) {
+  const out = [];
+  const tables = html.match(/<table[\s\S]*?<\/table>/gi) || [];
+  for (const t of tables) {
+    const rows = (t.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) || []).map((r) => (r.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/gi) || []).map((c) => shText(c).replace(/\s+/g, " ").trim()));
+    if (rows.length < 3) continue;
+    let title = "";
+    let r0 = 0;
+    // replacement timetables: "LINE HATTI" / "dd.mm.yyyy Tarihi Yapılır" / "PIER KALKIŞ" columns
+    if (rows[0].length === 1 && /HATTI/i.test(rows[0][0]) && rows[1] && rows[1].length === 1) { title = rows[0][0]; r0 = 1; }
+    const head = rows[r0].join(" ");
+    const notes = {};
+    const nre = /(\*+)\s*([^*]+)/g;
+    let nm;
+    while ((nm = nre.exec(head))) notes[nm[1]] = nm[2].trim();
+    const days = head.replace(/\*.*/, "").trim();
+    const pierRow = rows[r0 + 1] || [];
+    const allDepartures = pierRow.length > 0 && pierRow.every((c) => /KALKI[ŞS]/i.test(c));
+    let piers = pierRow.map((c) => c.replace(/\s*(KALKI[ŞS]|VARI[ŞS])\s*$/i, "").trim());
+    let body = rows.slice(r0 + 2);
+    if (rows[r0 + 2] && /Kalkış|Varış/i.test(rows[r0 + 2].join(" "))) body = rows.slice(r0 + 3);
+    if (!piers.length) continue;
+    const outRows = [];
+    for (const r of body) {
+      if (r.length !== piers.length) continue;
+      const vals = r.map((c) => { const m = c.match(/(\d{1,2})[:.](\d{2})\s*(\**)/); return m ? [Number(m[1]) * 60 + Number(m[2]), m[3]] : null; });
+      if (vals.some(Boolean)) outRows.push(vals);
+    }
+    if (outRows.length) out.push({ piers, rows: outRows, notes, days, title, allDepartures });
+  }
+  return out;
+}
+
+function shDaysMask(dayLabel, note) {
+  const lab = shFold(dayLabel);
+  const WEEK = 0b0011111, SAT = 0b0100000, SUN = 0b1000000, ALL = 0b1111111;
+  const mentioned = (t) => {
+    let m = 0;
+    if (t.includes("hafta ici") || t.includes("haftaici")) m |= WEEK;
+    if (t.includes("cumartesi") || t.includes("c tesi") || t.includes("ctesi")) m |= SAT;
+    if (t.includes("pazar")) m |= SUN;
+    if (t.includes("hafta sonu")) m |= SAT | SUN;
+    return m;
+  };
+  let mask;
+  if (lab.includes("baglayan")) mask = 0b0110000;
+  else if (lab.includes("her gun") || lab.includes("hergun") || lab.includes("tarihi yapilir")) mask = ALL;
+  else if (lab.includes("yapilmaz")) {
+    const head = lab.split("yapilmaz")[0];
+    const base = lab.includes("hafta ici") || lab.includes("haftaici") ? WEEK : ALL;
+    mask = base === ALL ? base & ~mentioned(head.replace("hafta ici", "").replace("haftaici", "")) : base;
+  } else mask = mentioned(lab) || ALL;
+  if (note) {
+    const nf = shFold(note);
+    if (nf.includes("yapilmaz")) mask &= ~mentioned(nf.split("yapilmaz")[0]);
+    else if (nf.includes("sadece") || nf.includes("yapilir")) { const m2 = mentioned(nf); if (m2) mask &= m2; }
+  }
+  return mask || ALL;
+}
+
+const SH_ALIAS = { "yeni kadikoy": "kadikoy", "eminonu camli": "eminonu", eyupsultan: "eyup", besiktas: "besiktas tarihi" };
+
+function shFindPier(name, piers) {
+  let key = shFold(name);
+  key = SH_ALIAS[key] || key;
+  const entries = Object.entries(piers);
+  const exact = entries.filter(([, p]) => shFold(p.name) === key);
+  const pool = exact.length ? exact : entries.filter(([, p]) => { const f = shFold(p.name); return f.startsWith(key + " ") || key.startsWith(f + " ") || f.split(" ")[0] === key; });
+  const sh = pool.filter(([, p]) => (p.ops || []).includes("sh"));
+  const pick = (sh.length ? sh : pool)[0];
+  return pick ? pick[0] : null;
+}
+
+function shOrderByTime(stops) {
+  const st = stops.map((x) => [x[0], x[1]]);
+  const mins = st.map((x) => x[1]);
+  if (Math.max(...mins) - Math.min(...mins) > 720) for (const x of st) if (x[1] < 360) x[1] += 1440;
+  st.sort((a, b) => a[1] - b[1]);
+  return st;
+}
+
+function shTablesToPatterns(tables, title, net, today) {
+  const terminals = String(title).replace(/hatt?ı?\s*$/i, "").split(/\s+-\s*|\s*-\s+|\s*–\s*/).map((x) => x.trim()).filter(Boolean);
+  const patterns = [];
+  const seen = new Map();
+  for (const tb of tables) {
+    let pids = tb.piers.map((p) => shFindPier(p, net.piers));
+    let rows = tb.rows;
+    if (pids.length === 1 && pids[0] && terminals.length >= 2) {
+      const f0 = shFold(tb.piers[0]);
+      const other = terminals.filter((t) => !f0.includes(shFold(t)) && !shFold(t).includes(f0));
+      const dest = shFindPier(other.length ? other[other.length - 1] : terminals[terminals.length - 1], net.piers);
+      if (dest && dest !== pids[0]) {
+        const a = net.piers[pids[0]], b = net.piers[dest];
+        const km = haversineMeters(a.lat, a.lon, b.lat, b.lon) / 1000 * 1.25;
+        const mins = Math.round(km / 20 * 60 + 1);
+        rows = rows.map((r) => [r[0], r[0] ? [r[0][0] + mins, ""] : null]);
+        pids = [pids[0], dest];
+      }
+    }
+    if (pids.filter(Boolean).length < 2) continue;
+    const trips = [];
+    if (tb.allDepartures) {
+      // every column is a departure from that pier: sail to the next pier (the last one returns to the first)
+      const legMin = (a, b) => {
+        const A = net.piers[a], B = net.piers[b];
+        return Math.round(haversineMeters(A.lat, A.lon, B.lat, B.lon) / 1000 * 1.25 / 20 * 60 + 1);
+      };
+      const late = (m) => (m < 240 ? m + 1440 : m); // 00:30 at the end of a day list is after midnight
+      for (const row of rows) {
+        pids.forEach((pid, j) => {
+          const cell = row[j];
+          if (!pid || !cell) return;
+          const nj = (j + 1) % pids.length, next = pids[nj];
+          if (!next || next === pid) return;
+          const dep = late(cell[0]);
+          let arr = row[nj] && nj > j ? late(row[nj][0]) : dep + legMin(pid, next);
+          if (arr <= dep) arr = dep + legMin(pid, next);
+          trips.push({ d: 0b1111111, s: [[pid, dep], [next, arr]] });
+        });
+      }
+      if (trips.length) patterns.push({ label: pids.filter(Boolean).map((p) => net.piers[p].name).join(" ⇄ "), days: tb.days, trips: trips.sort((a, b) => a.s[0][1] - b.s[0][1]) });
+      continue;
+    }
+    for (const row of rows) {
+      const stops = [];
+      let marker = "";
+      pids.forEach((pid, i) => {
+        const cell = row[i];
+        if (pid && cell) { stops.push([pid, cell[0]]); if (cell[1] && cell[1].length > marker.length) marker = cell[1]; }
+      });
+      if (stops.length < 2) continue;
+      const s = shOrderByTime(stops);
+      const key = JSON.stringify(s);
+      const d = today ? 0b1111111 : shDaysMask(tb.days, tb.notes[marker]);
+      if (seen.has(key)) { seen.get(key).d |= d; continue; }
+      const trip = Object.assign({ d, s }, tb.notes[marker] ? { n: tb.notes[marker] } : {});
+      seen.set(key, trip);
+      trips.push(trip);
+    }
+    if (trips.length) patterns.push({ label: pids.filter(Boolean).map((p) => net.piers[p].name).join(" → "), days: tb.days, trips: trips.sort((a, b) => a.s[0][1] - b.s[0][1]) });
+  }
+  return patterns;
+}
+
+/// Lines a published name refers to ("Kadıköy-Haliç", "Boğaz Gidiş-Geliş"): every word of the
+/// name must occur in the line's name; pier names are only used when no line name matches.
+function shMatchLines(name, lines, piers) {
+  const words = shFold(name).split(" ").filter((w) => w.length > 1 && !["ve", "hatti", "turu"].includes(w));
+  if (!words.length) return [];
+  const flat = (s) => shFold(s).replace(/\s+/g, "");
+  const byName = lines.filter((l) => words.every((w) => flat(l.name).includes(w)));
+  if (byName.length) {
+    // closest name wins ("Kadıköy-Beşiktaş" is not "Kadıköy-Karaköy-Beşiktaş")
+    const extra = (l) => shFold(l.name).split(" ").filter((w) => w.length > 1 && !words.some((x) => w.includes(x) || x.includes(w))).length;
+    const best = Math.min(...byName.map(extra));
+    return byName.filter((l) => extra(l) === best).map((l) => l.id);
+  }
+  const byPiers = lines.filter((l) => {
+    const all = flat(l.name + " " + (l.piers || []).map((p) => (piers[p] || {}).name || "").join(" "));
+    return words.every((w) => all.includes(w));
+  });
+  return byPiers.length <= 2 ? byPiers.map((l) => l.id) : [];
+}
+
+// ───────────────── OpenStreetMap: build one route variant (mirrors the Python tool) ─────────────────
+
+async function osmBuildVariant(rid) {
+  const res = await fetch(`https://api.openstreetmap.org/api/0.6/relation/${rid}/full.json`, { headers: { "user-agent": HUB_UA } });
+  if (!res.ok) throw new Error("OSM HTTP " + res.status);
+  const data = await res.json();
+  const nodes = new Map(), ways = new Map();
+  let rel = null;
+  for (const e of data.elements) {
+    if (e.type === "node") nodes.set(e.id, e);
+    else if (e.type === "way") ways.set(e.id, e);
+    else if (e.type === "relation" && e.id === rid) rel = e;
+  }
+  if (!rel) return null;
+  const member = [], stops = [];
+  for (const m of rel.members) {
+    if (m.type === "way" && ["", "forward", "backward"].includes(m.role) && ways.has(m.ref)) {
+      let pts = ways.get(m.ref).nodes.filter((n) => nodes.has(n)).map((n) => [nodes.get(n).lat, nodes.get(n).lon]);
+      if (m.role === "backward") pts = pts.reverse();
+      member.push(pts);
+    } else if (m.type === "node" && m.role.startsWith("stop") && nodes.has(m.ref)) {
+      const n = nodes.get(m.ref);
+      const nm = (n.tags || {}).name;
+      if (nm) stops.push({ name: nm, lat: n.lat, lon: n.lon, id: n.id });
+    }
+  }
+  let path = osmChain(member);
+  if (path.length < 2 || stops.length < 2) return null;
+  if (haversineMeters(path[0][0], path[0][1], stops[0].lat, stops[0].lon) > haversineMeters(path[path.length - 1][0], path[path.length - 1][1], stops[0].lat, stops[0].lon)) path.reverse();
+  path = osmSimplify(path, 3);
+  const cum = [0];
+  for (let i = 1; i < path.length; i++) cum.push(cum[i - 1] + haversineMeters(path[i - 1][0], path[i - 1][1], path[i][0], path[i][1]));
+  const placed = stops.map((s) => ({ s, d: osmProject(path, cum, s) })).sort((a, b) => a.d - b.d);
+  const out = [];
+  for (const { s, d } of placed) {
+    if (out.length && out[out.length - 1].name === s.name) continue;
+    out.push({ sid: `n${s.id}`, name: s.name, d: Math.round(d * 10) / 10, lat: +s.lat.toFixed(6), lon: +s.lon.toFixed(6) });
+  }
+  return { id: rid, ref: (rel.tags || {}).ref || "", from: out[0].name, to: out[out.length - 1].name, length_m: Math.round(cum[cum.length - 1]), path: osmEncode(path), stops: out };
+}
+
+function osmChain(ways) {
+  let path = [];
+  for (const w of ways) {
+    if (!w.length) continue;
+    if (!path.length) { path = w.slice(); continue; }
+    const end = path[path.length - 1];
+    const dF = haversineMeters(end[0], end[1], w[0][0], w[0][1]);
+    const dR = haversineMeters(end[0], end[1], w[w.length - 1][0], w[w.length - 1][1]);
+    if (path.length === ways[0].length) {
+      const dFirst = Math.min(haversineMeters(path[0][0], path[0][1], w[0][0], w[0][1]), haversineMeters(path[0][0], path[0][1], w[w.length - 1][0], w[w.length - 1][1]));
+      if (dFirst < Math.min(dF, dR)) path.reverse();
+    }
+    const e2 = path[path.length - 1];
+    let seg = haversineMeters(e2[0], e2[1], w[0][0], w[0][1]) <= haversineMeters(e2[0], e2[1], w[w.length - 1][0], w[w.length - 1][1]) ? w : w.slice().reverse();
+    if (haversineMeters(e2[0], e2[1], seg[0][0], seg[0][1]) < 1) seg = seg.slice(1);
+    path.push(...seg);
+  }
+  return path;
+}
+
+function osmSimplify(pts, tol) {
+  if (pts.length < 3) return pts;
+  const lat0 = pts[0][0] * Math.PI / 180;
+  const xy = pts.map((p) => [p[1] * Math.PI / 180 * 6371000 * Math.cos(lat0), p[0] * Math.PI / 180 * 6371000]);
+  const keep = new Array(pts.length).fill(false);
+  keep[0] = keep[pts.length - 1] = true;
+  const stack = [[0, pts.length - 1]];
+  while (stack.length) {
+    const [i, j] = stack.pop();
+    const [ax, ay] = xy[i], [bx, by] = xy[j];
+    const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+    let best = -1, bi = -1;
+    for (let k = i + 1; k < j; k++) {
+      const [px, py] = xy[k];
+      const t = L2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L2)) : 0;
+      const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+      if (d > best) { best = d; bi = k; }
+    }
+    if (best > tol) { keep[bi] = true; stack.push([i, bi], [bi, j]); }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+
+function osmProject(path, cum, s) {
+  let best = Infinity, bestD = 0;
+  const lat0 = s.lat * Math.PI / 180;
+  const X = (p) => [p[1] * Math.PI / 180 * 6371000 * Math.cos(lat0), p[0] * Math.PI / 180 * 6371000];
+  const [px, py] = X([s.lat, s.lon]);
+  for (let i = 0; i < path.length - 1; i++) {
+    const [ax, ay] = X(path[i]), [bx, by] = X(path[i + 1]);
+    const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+    const t = L2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L2)) : 0;
+    const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+    if (d < best) { best = d; bestD = cum[i] + t * (cum[i + 1] - cum[i]); }
+  }
+  return bestD;
+}
+
+function osmEncode(points) {
+  let out = "", plat = 0, plon = 0;
+  for (const [lat, lon] of points) {
+    const ilat = Math.round(lat * 1e5), ilon = Math.round(lon * 1e5);
+    for (let v of [ilat - plat, ilon - plon]) {
+      v = v < 0 ? ~(v << 1) : v << 1;
+      while (v >= 0x20) { out += String.fromCharCode((0x20 | (v & 0x1f)) + 63); v >>= 5; }
+      out += String.fromCharCode(v + 63);
+    }
+    plat = ilat; plon = ilon;
+  }
+  return out;
+}
+
 const TRAFFIC_PROFILE = null;
 const BUS_LINES_MAP = {"12A": ["C-204", "C-215", "C-221", "C-223", "C-480", "C-481", "C-482", "C-483", "C-484", "C-486", "C-487", "C-488", "C-489"], "320": ["C-177", "C-178", "C-179", "C-180", "C-181", "C-182", "C-183", "C-185", "C-187", "C-200", "C-211", "C-215", "C-480", "C-482", "O3090"], "319": ["C-159", "C-160", "C-161", "C-162", "C-163", "C-164", "C-167", "C-169", "C-170", "C-171", "C-172", "C-173", "C-174", "C-175", "C-176", "C-186", "C-189", "C-215", "C-217", "C-222", "C-480", "C-482", "M2035"], "SM15": ["O1005", "O1019", "O1030", "O1044", "O1087", "O1098", "O3077", "O3096", "O3105", "O3134"], "SM19": ["O2038", "O2053", "O2062", "O2087", "O2094", "O3086"], "AND2S": ["O1017", "O1039", "O1073", "O1100", "O3077", "O3079", "O3086", "O3090", "O3151"], "19E": ["C-1804", "C-1818", "C-1822", "C-1833", "C-1936", "K1506", "K1514", "K1515", "K1698", "K1728", "K1731", "K1757", "K1765", "K1773", "K1798", "K1801", "M2324", "M4675", "M4678", "M4701", "M4734", "O3086", "O3123", "O3151", "O4003"], "14B": ["C-034", "C-035", "C-036", "C-037", "C-038", "C-039", "C-040", "C-041", "C-042", "C-043", "C-044", "C-045", "C-046", "C-047", "C-048", "C-049", "C-050", "C-051", "C-052", "C-053", "C-054", "C-055", "C-056", "M4706", "M4739", "M4741", "O3086"], "19YK": ["K1701", "K1717", "K1735", "K1748", "K1751", "K1778", "K1782", "K1783", "K1796", "M2260", "M4673", "M4679", "M4707", "M4742", "O3086"], "14YK": ["K1513", "K1708", "K1711", "K1749", "K1750", "K1771", "K1790", "O3086"], "20D": ["C-1646", "C-1783", "C-1853", "C-1861", "O1013", "O1028", "O3086", "O3121", "O3147"], "M7": ["B5126", "B5299", "B5316", "B5331", "B5332", "K1015", "K1039", "K1051", "K1065", "K1080", "K1086", "K1095", "K1100", "K1106", "K1131", "K1149", "K1176", "K1178", "K1180", "K1197", "K1205", "K1213", "K1216", "K1248", "O1217", "O1242", "O2233", "O2235", "O2245", "O2258", "O3003"], "336H": ["B5003", "B5018", "B5054", "B5077", "B5101", "B5235", "B5249", "B5291", "B5299", "B5308", "B5316", "M2515", "M2523", "M2542", "M4548", "M4765", "O2201", "O3045"], "78E": ["B5021", "B5040", "B5061", "B5075", "B5126", "B5128", "B5171", "B5283", "B5285", "T1039"], "50N": ["A-764", "A-769", "A-771", "A-774", "A-775", "A-785", "A-801", "A-807", "A-821", "A-963", "A3034", "A3092", "A3104", "K1178", "M4502", "M4574"], "29": ["K1062", "K1213"], "32T": ["A3001", "A3028", "A3121", "A3128", "A3140", "A3143", "A3148"], "14CE": ["O1069", "O3143"], "55": ["B-083", "B-084", "B-085", "B-086", "B-087", "B-088", "B-089", "B-154", "B-155", "B-156", "B-157", "B-159", "B-160", "B-161", "B-162", "B-163"], "13AB": ["M2323"], "146A": ["B5055", "B5265", "B5268"], "144M": ["B5225", "B5246", "B5268", "B5314", "B5347"], "ES3": ["B5125", "B5203", "B5287", "M2518"], "429A": ["A-1215", "A-670", "A-671", "A-672", "A-673", "A-674", "A-675", "A-676", "A-677", "A-678", "A-679", "A-680", "A-681", "A-682", "A-683", "A-684", "A-685", "A-686", "A-687", "A-688", "A-689", "A-691", "A-692", "A-693", "A-694", "A-695", "A-696", "A-697", "A-698", "A-699", "A-700", "A-701", "A-702", "A-703", "A-704", "A-705", "B5078", "B5125", "B5221", "B5250", "B5371", "T1072", "T1082", "T1086"], "336E": ["A-262", "A-263", "A-264", "A-265", "A-266", "A-267", "A-268", "A-269", "A-270", "A-271", "A-272", "A-273", "A-274", "A-276", "A-277", "A-278", "A-279", "A-280", "A-281", "A-282", "A-283", "A-284", "A-285", "A-286", "A-288"], "132YS": ["C-082", "C-121", "C-122", "C-123", "C-124", "C-125", "K1691", "K1702", "K1711", "K1715", "K1721", "K1782", "K1783", "K1797", "O1010", "O1071", "O2132", "O2177", "O4014"], "14SB": ["C-076", "C-078", "C-091", "C-103", "C-105", "C-106", "C-107", "C-108", "C-109", "C-110", "C-111", "C-112", "C-113", "C-114", "C-115", "C-116", "C-117", "C-118", "C-135", "C-138", "C-144", "C-146", "O1017", "O1046", "O3139", "O4016"], "KM72": ["O1101", "O1109", "O1139", "O1166", "O2062"], "11ÜS": ["A-1832", "C-1603", "C-1842", "C-1923", "C-1931", "C-761", "C-762", "C-765", "C-766", "C-767", "K1712", "K1808", "O2106"], "KM21": ["D-010", "D-019", "D-046", "K1508", "K1512", "K1693", "K1694", "K1714", "K1718", "K1734", "K1762", "K1777", "K1808", "K1809", "O3276", "O4002", "O4020"], "19A": ["K1517", "K1700", "K1704", "K1725", "K1729", "K1761", "K1763", "K1774", "K1792", "K1808", "O2197"], "132SP": ["B-1903", "C-1037", "C-1062", "C-800", "C-819", "C-825", "C-830", "C-920", "O2017", "O2028", "O2030", "O2068", "O2069", "O2135", "O2167", "O2171", "O2195", "O4002", "O4018"], "132M": ["C-1709", "C-1734", "C-1758", "C-1800", "C-1805", "C-1816", "C-1817", "C-1824", "C-1825", "C-1827", "C-1828", "C-1837", "C-1866", "C-1872", "C-1873", "C-1877", "C-1887", "C-1888", "C-1889", "C-1891", "C-1893", "C-1907", "C-1908", "C-1938", "C-1942", "C-1945", "C-1948", "K1705", "K1716", "K1724", "K1737", "K1768", "K1772", "K1776", "K1794", "K1802", "O1182", "O2017", "O2192", "O3077", "O3158", "O3191", "O3238", "O4002"], "KM28": ["K1508", "K1694", "K1707", "K1709", "K1712", "K1740", "K1759", "K1798", "K1805", "O2170", "O4014"], "18K": ["C-807", "C-808", "C-815", "C-818", "C-822", "C-823", "C-858", "D-042", "K1508", "K1509", "K1510", "K1514", "K1515", "K1516", "K1706", "K1707", "K1712", "K1719", "K1733", "K1738", "K1747", "K1755", "K1759", "K1767", "K1777", "K1781", "K1800", "K1803", "K1804", "K1805", "O2170", "O4015"], "KM11": ["C-357", "C-358", "C-360", "C-361", "C-362", "C-363", "C-364", "C-365", "C-366", "C-367", "C-368", "C-369", "C-421", "C-428", "C-432", "K1694", "K1703", "K1710", "K1739", "K1807", "O1103", "O1154", "O2070", "O2082", "O3231", "O3260", "O3263"], "55T": ["B-1636", "B-1753", "B-1754", "B-1755", "B-1756", "B-1871", "B-259", "B-260", "B-261", "B-262", "B-263", "B-264", "B-265", "B-267", "B-307", "B-308", "K1151"], "BU-1": ["E1008", "E1025", "E1036", "E1058"], "AND1A": ["M2020", "M2035", "M2037", "M2047", "M2048", "M2057", "M2059", "M2246", "M2259", "M2260", "M2301", "M2324", "M2368", "M2376"], "133N": ["M2059", "O1110", "O3175", "O3210", "O3253"], "50Z": ["B-1514", "B-1703", "B-1750", "B-1872", "B-1874", "B-1890", "K1021", "K1137", "K1177", "K1247"], "38": ["O1190", "O1246", "O1303", "O2284", "O3022", "O3071"], "AVR1": ["B5020", "B5039", "B5041", "B5056", "B5073", "B5079", "B5089", "B5099", "B5102", "B5105", "B5107", "B5108", "B5138", "B5141", "B5146", "B5147", "B5150", "B5157", "B5160", "B5170", "B5175", "B5178", "B5180", "B5189", "B5201", "B5207", "B5276", "K1554", "K1620", "M4004", "O1212", "O2212", "T1063"], "78ZB": ["A-1859", "A3064", "B5080", "B5108"], "36AS": ["B5024", "B5108", "B5227"], "79B": ["B5025", "B5041", "B5146", "B5157", "B5197", "B5226", "B5254", "B5333", "B5369", "B5376", "T1040", "T1044", "T1096"], "79F": ["B5004", "B5060", "B5213", "B5226", "K1553", "K1688", "T1038"], "20Ü": ["C-150", "C-151", "C-152", "C-153", "C-154", "C-155", "C-156", "C-157", "C-166", "C-168", "C-195", "C-196", "C-203", "C-220"], "133TM": ["C-332", "C-333", "C-335", "K1714", "K1760", "K1787", "O2084", "O3183"], "142F": ["B5001", "B5009", "B5037", "B5096", "B5134", "B5324", "B5351", "B5361", "K1589", "K1598", "K1613", "K1629", "K1642", "K1643", "K1645", "K1648", "K1651", "K1655", "K1656", "K1657", "K1668", "K1673", "T1063"], "48T": ["K1033", "K1064", "K1118", "K1148", "K1193", "K1197", "K1206", "K1226"], "418": ["A-1200", "A-1201", "A-1202", "A-1203", "A-1204", "A-1205", "A-1206", "A-1207", "A-1208", "A-1209", "A-1210", "A-1211", "A-1212", "A-1213", "A-1214", "A-1216", "A-1217", "A-1218", "A-710", "A-711", "A-712", "A-713", "A-717", "A-718", "A-719", "A-720", "A-721", "A-722", "A-723", "A-724", "A-725", "A-726", "A-727", "A-728", "A-729", "A-730", "A-731", "A-830", "A-832", "M4011", "M4519", "M4531", "M4569", "M4577", "M4747", "M4758"], "89T": ["B5084", "B5183", "B5196", "B5252", "B5273"], "89K": ["A-1501", "A-1505", "A-1516", "A-1674", "A-1750", "A-192", "A-193", "A-194", "A-195", "A-196", "A-197", "A-198", "A-311", "A-312", "B5273"], "78H": ["A3041", "B5137", "B5265", "T1009", "T1010"], "132": ["O2097", "O2107", "O2131", "O2142", "O2164", "O2186", "O3184", "O3225", "O3251", "O3274", "O4013"], "SM2": ["O1009", "O2049", "O2073", "O2097"], "132A": ["O2032", "O2074", "O2097", "O2127", "O2154", "O2172"], "522ST": ["C-073", "C-075", "C-132", "C-136", "C-140", "C-141", "C-142", "C-145", "C-147", "C-763", "C-772", "C-853", "C-864", "C-865", "C-866", "C-867", "C-868", "C-869", "C-870", "O2021", "O2044", "O2163", "O2176", "O2190"], "98G": ["A3026", "A3094", "A3102", "O3052", "T1012", "T1014", "T1016", "T1036"], "36V": ["A3062", "O1198", "O1209", "O1254", "O1297", "O2208", "O2228", "O2240", "O2244", "O2304", "O3008", "O3015", "O3051", "O3062", "O3063"], "TM2": ["A-1649", "A-1651", "A3047", "B-1842", "B5105", "K1075", "K1183", "K1220"], "76V": ["B5015", "B5034", "B5192", "B5368"], "HT20": ["B5029", "B5034", "B5086", "B5106", "B5120", "B5155", "B5167", "B5170", "B5239", "B5357", "K1606"], "336K": ["B5298", "M4527", "M4762", "O1191", "O1195", "O1208", "O2007", "O2230", "O2265", "O2276", "O3029", "O3055"], "27SE": ["B-1714", "B-1716", "B-1732", "B-1740", "B-1745", "B-1813", "B-1822", "B-1829", "B-1917"], "76BA": ["A-768", "A-799", "A-805"], "38E": ["A-344", "A-345", "A-346", "A-347", "A-348", "A-349", "A-350"], "98AB": ["A-1502", "A-1509", "A-1806", "A-1808", "A-1834", "A-1858", "B-1836", "B-1915", "B5041", "B5121", "B5150", "B5184", "B5309", "T1045", "T1049", "T1051", "T1074", "T1077", "T1105"], "98KM": ["A-1838", "A-1839", "A-1841", "A-1844", "A-1845", "A-1846", "A-1847", "A-1849", "B5041", "B5148", "B5264", "C-1505", "K1546", "K1560", "K1590", "K1608", "K1614", "K1624", "K1641", "K1683", "K1686", "M4566", "T1073"], "145": ["B5274", "B5302", "B5327", "B5341", "B5342", "B5343", "B5345", "B5352", "B5356", "B5359", "B5362", "D-173"], "TM4": ["B-1501", "B-1526", "B-1527", "B-1602", "B-1728", "B-1741", "B-1747", "B-1757", "B5105", "K1174", "K1189", "O1245", "O3023", "O3037"], "98A": ["B5046", "B5160", "B5236", "T1027"], "TM16": ["O1225", "O1228", "O1229", "O1235", "O1286", "O1289", "O1299", "O2007", "O2253", "O2254", "O2277", "O2291"], "92B": ["A-199", "A-200", "A-201", "A-202", "A-205", "A-206", "A-207", "A-209", "A-211", "A-212", "A-213", "A-214", "A-215", "A-216", "B5135"], "85C": ["A3003", "A3006", "A3011", "A3038", "A3047", "A3069", "A3082", "A3142", "B5135"], "41AT": ["A3006", "A3011", "A3069", "A3082", "A3142", "B-1531", "B-1606", "B-1625", "B-1633", "B-1713", "B-1721", "B-1722", "B-1760", "B-1772", "B-1773", "B-1774", "B-1775", "B-1791", "B-1796", "B-1893", "B5135"], "73Y": ["B5022", "B5135"], "458": ["A-650", "A-651", "A-652", "A-656", "A-657", "A-658", "A-659", "A-660", "A-661", "A-662", "A-663", "A-664", "A-665", "A-666", "A-667", "A-833", "A-837", "A-838", "A-839", "B4001", "B5339", "B5371", "M2526"], "BM6": ["B5329", "B5336", "B5339", "B5342", "B5355", "B5366"], "UK": ["M2330", "M4658", "M4664", "M4665", "M4669", "M4671", "M4680", "M4682", "M4688", "M4700", "M4705", "M4707", "M4709", "M4711", "M4712", "M4726", "M4728", "M4731", "M4732", "M4733", "M4743"], "KM46": ["M2198", "M2283", "M2370"], "78F": ["B5019", "B5081", "B5127", "K1557", "K1582", "K1616", "M4540", "M4551", "M4560", "M4562"], "MK12": ["B5114", "B5278", "K1529", "K1554", "K1557", "K1569", "K1617", "K1689", "T1057", "T1068"], "HT29": ["B4042", "B5107", "B5203", "B5250", "B5303", "B5306", "B5323", "B5363", "B5371", "K1537", "K1565", "K1571", "K1585", "K1600", "K1621", "K1627", "K1631", "K1654", "K1658", "M2526", "M4011", "T1072", "T1082", "T1086"], "136B": ["C-1032", "C-1035", "C-1036", "C-1042", "C-1043", "C-1047", "C-1050", "C-1099", "M2080", "M2082", "M2094", "M2099", "M2108", "M2113", "M2128", "M2173"], "15D": ["M2080", "M2103", "M2134", "M2137", "M2146"], "336G": ["B5011", "B5065", "B5153", "B5158", "B5177", "B5219", "B5232", "B5278", "B5296", "B5375"], "KM27": ["C-397", "C-398", "C-399", "K1518", "K1722", "K1728", "K1747", "K1756", "K1760", "K1768", "K1781", "K1805", "O2079", "O3077"], "78G": ["B5094", "B5113", "B5170", "B5180", "B5189", "B5223", "B5237"], "MK13": ["B5050", "B5087", "B5100", "B5107", "B5164", "B5170", "K1540", "K1559", "K1615", "K1617", "K1620", "K1627", "K1628", "K1678", "M4004"], "78S": ["B4009", "B4019", "B4020", "B4021", "B4022", "B5060", "B5088", "B5139", "B5144", "B5170", "B5180", "B5189", "B5233"], "98TB": ["A-813", "A-814", "T1087"], "146": ["A-1522", "A-1539", "A-1563", "A-1663", "A-1676", "A-1743", "A-1744", "A-1856", "B-1887", "B4002", "K1519", "K1535", "K1595", "K1602", "K1610", "K1634", "K1636", "K1637", "K1638", "K1639", "K1640", "K1644", "K1646", "K1650", "K1652", "M4010"], "91E": ["A-297", "A-298", "A-299", "A-300", "A-301", "A-302", "A-303", "A-304", "A-305", "A-306", "A-307", "A-308", "A-309", "A-310", "A-318", "A-319"], "31Y": ["A-308", "A-309", "A-310", "A-318", "A-319", "A-320", "A-321", "A-322", "A-323", "A-324", "A-325", "A-326", "A-327", "A-328", "A-329", "B5010", "B5031", "B5279", "B5280"], "136": ["C-1053", "M2078", "M2083", "M2091", "M2104", "M2143", "M2154"], "SM6": ["O1073", "O2066", "O2078", "O2093", "O2120", "O2132", "O2137", "O2152", "O2180", "O2182"], "132S": ["A-1601", "B-1830", "C-1605", "C-1807", "C-1819", "C-1823", "C-1835", "C-1836", "C-1841", "C-1862", "C-1864", "C-1879", "C-1912", "C-1925", "C-1932", "O1050", "O1062", "O1073", "O3176", "O3280", "O3299"], "320A": ["B-1812", "C-1522", "C-1707", "C-1720", "C-1809", "C-1812", "C-1874", "C-1875", "C-1886", "C-1894", "C-1909", "C-1913", "C-1922", "C-1929", "O1073"], "AND1S": ["M2113", "M2119", "M2154", "M2165", "M2168", "M2173", "M2184"], "15A": ["M2077", "M2125", "M2145", "M2148", "M2154", "M2157", "M2160", "M2161", "M2165", "M2173"], "15TA": ["M2113", "M2119", "M2140", "M2154", "M2166", "M2575", "M2579", "M4697"], "121BS": ["C-224", "C-229", "C-230", "C-233", "C-261", "C-301", "C-304", "M2133", "M2154", "M2563", "M2582"], "MK15": ["B5002", "B5090", "B5104", "B5136", "B5241", "B5282", "B5325", "M2539", "T1029", "T1062", "T1108"], "41A": ["K1052", "K1069", "K1098", "K1102", "K1190", "K1211"], "54K": ["A-1507", "A-1707", "B-1777", "B-1778", "B-1783", "K1069", "K1098", "K1103", "K1105", "K1128", "K1134", "K1138", "K1142", "K1194"], "15F": ["M2077", "M2109", "M2126", "M2161", "M2164", "M2168", "M2564", "M2567", "M2569", "M2572", "M2573", "M2576", "M2583", "M2584", "M2588", "M2589", "M2591", "M2593", "M2594", "M2595", "M2597", "M2599"], "15H": ["C-1067", "M2168", "M2203", "M4681", "M4716", "M4722"], "15": ["C-1014", "C-1063", "C-1068", "C-1070", "C-1072", "C-1073", "C-1074", "C-1076", "C-1087", "M2165", "M2168"], "15SK": ["C-1024", "C-1027", "C-1061", "C-1066", "M2030", "M2168", "M2213", "M2233", "M2263", "M2336"], "14Y": ["C-1756", "C-1761", "C-1763", "C-1764", "C-1774", "C-1784", "C-1919", "M2168", "M4708", "M4737", "M4740"], "36D": ["B4018", "B4020", "B5112", "B5248", "B5297", "B5348"], "522": ["C-017", "C-018", "C-019", "C-020", "C-021", "C-022", "C-023", "C-024", "C-025", "C-027", "C-028", "C-029", "C-030", "C-031", "C-032", "C-064", "C-070"], "11": ["K1503", "K1690", "K1697", "K1713", "K1738", "K1767", "K1770", "K1789", "M2301", "O3090", "O4008"], "11ÇB": ["M2113", "M2568", "M2570", "M2577", "M2586", "M2596", "M2600", "M4659", "M4691", "M4702", "M4718", "M4729", "M4735", "M4738", "M4745"], "50AT": ["O1194", "O1238", "O1256", "O1302", "O2214", "O2227", "O2251", "O2273", "O3007", "O3012", "O3059"], "36C": ["B4032", "B4035", "B4036", "B4037", "B4038", "B5033", "B5047", "B5109", "B5138", "B5247", "B5281", "M4515", "M4516", "M4517", "M4518", "M4526", "M4537", "M4538", "M4541", "M4553", "M4561", "M4575", "M4754", "M4761", "O1194", "O1199", "O1256", "O2273", "O3062", "T1085"], "97M": ["A-1752", "A-1812", "A-290", "A-291", "A-292", "A-294", "A-295", "A-296", "A3134", "B-1861", "B-1881", "B5071", "B5089", "B5276"], "HS2": ["B5048", "B5085", "B5123", "B5208", "B5276", "K1535", "K1603", "K1611", "K1632", "K1664", "K1666", "K1667", "K1670", "M2503", "M2534", "M2545", "M2546", "M2548", "M2549", "T1063"], "154": ["O1298"], "130S": ["C-409", "C-410", "C-411", "C-412", "C-413", "C-415", "C-416", "C-417", "C-418", "C-419", "C-420", "C-421", "C-422", "C-423", "C-424", "C-425", "C-426", "C-427", "C-428", "C-429", "C-430", "C-431", "C-432", "C-433", "C-434", "C-435", "C-436", "C-437", "C-438", "C-439", "C-440", "C-441"], "UM73": ["C-077", "C-750", "C-751", "C-752", "C-755", "C-852", "C-871", "C-873", "O2014", "O2017", "O2028", "O2075", "O2090", "O2096", "O2114", "O2126", "O2168", "O2188", "O3151", "O4015"], "131V": ["C-753", "C-754", "C-757", "C-758", "C-759", "C-764", "C-840", "O2056", "O2158", "O2162"], "98Y": ["A3052", "A3056", "A3068", "A3079", "A3096", "A3099", "A3115", "A3132"], "146T": ["A3029", "A3040", "A3066", "A3075", "A3127", "B5012", "B5017", "B5036", "B5111", "B5145", "B5160", "B5181", "B5228", "B5267", "B5293", "B5294", "B5318", "K1542", "K1543", "K1548", "K1561", "K1562", "K1567", "K1570", "K1573", "K1574", "K1672", "M2506", "M2512"], "41C": ["B-1634", "B-1868", "K1238", "O1184", "O1220", "O1257", "O1267", "O2002", "O2255", "O2257", "O2269", "O2286", "O2288", "O2301", "O3041", "O3056", "O3066"], "142B": ["B5139", "B5147", "B5377", "B5378", "K1520", "K1573", "K1586", "K1607", "K1609", "K1613", "K1619", "K1625", "K1630", "K1669", "K1679", "K1682", "K1687", "M2501", "M2502", "M2504", "M2507", "M2508", "M2509", "M2511", "M2512", "M2517", "M2533", "M2538", "M2541", "M2550"], "25G": ["K1142", "K1184", "K1208", "K1240"], "54P": ["K1138", "K1240"], "500L": ["A3055", "A3063", "A3065", "A3071", "A3086", "A3087", "A3119", "A3147", "C-307", "C-308", "C-309", "C-310", "C-311", "C-312", "C-313", "C-314", "C-315", "C-316", "C-317", "K1702", "K1732", "K1752", "K1780", "O2005"], "32": ["A3005", "A3043", "A3070", "A3071", "A3080", "A3098", "A3112"], "79K": ["B5024", "B5039", "B5043", "B5116", "B5162", "B5190", "B5214", "B5238", "K1618"], "98B": ["A-1604", "A-1623", "A-1647", "A-1659", "B-1516", "B-1536", "B-233", "B-235", "B-236", "B-237", "B-238", "B-239", "B5020", "B5178", "B5338", "M2551"], "147": ["B5057", "B5097", "B5155", "B5217", "B5224", "B5292", "K1521", "K1525", "K1527", "K1534", "K1537", "K1547", "K1558", "K1575", "K1581", "K1584", "K1588", "K1662", "K1671", "M2519", "M2520", "M2525", "M2536", "M2543", "M2547", "M2551", "M4009"], "122D": ["K1742", "K1758", "K1766", "K1799", "K1810", "M2368"], "66": ["A-068", "A-069", "A-070", "A-071", "A-072", "A-073"], "131Y": ["A-1538", "A-1541", "C-119", "C-120", "O1004", "O1025", "O1067", "O1074", "O1121", "O1143", "O2046", "O2091", "O2092", "O2148", "O3077", "O3103", "O3167", "O3178", "O3188", "O3288"], "78C": ["A3041", "M4501", "M4504", "M4506", "M4511", "M4512", "M4514", "M4520", "M4532", "M4535", "M4542", "M4543", "M4547", "M4555", "M4556", "M4563", "M4570", "M4573", "M4750", "M4751", "M4753"], "14DK": ["C-057", "C-058", "C-059", "C-060", "C-061", "C-062", "C-063", "C-065", "C-066"], "401": ["A-1040", "A-1041", "A-1042", "A-1043", "A-1044", "A-1045", "A-1046", "A-1047", "A-1048", "A-1049", "A-1050", "A-1051", "A-1052", "A-1053", "A-1054", "A-1055", "A-1056", "A-1058", "A-1059", "A-1060", "A-1061", "A-1062", "A-1063", "A-1064", "A-1066", "A-1067", "A-1068", "A-1069", "A-1070", "A-1071", "A-1072", "A-1073", "A-1074", "A-1075", "A-1076", "A-1077", "A-1079", "A-1080", "A-1081", "A-1082", "A-1083", "A-1084", "A-1085", "A-1086"], "89C": ["B5220", "T1029", "T1032", "T1041", "T1059", "T1078", "T1079", "T1080", "T1081", "T1091", "T1092", "T1093", "T1095", "T1100", "T1101", "T1102", "T1105", "T1107"], "MK11": ["B5107", "B5146", "B5334", "T1004", "T1013", "T1050", "T1055", "T1060", "T1061", "T1081"], "AND2Y": ["O1115", "O1119", "O1120", "O1132", "O1154", "O2059", "O2101", "O3173", "O3257", "O3263", "O3276", "O3277"], "KM34": ["O1105", "O1115", "O1150", "O1157", "O1161", "O1173", "O3161", "O3200", "O3217", "O3225", "O3226", "O3249", "O3275", "O3277", "O3279", "O3295"], "98H": ["A-1527", "A-1534", "A-1543", "A-1548", "A-1565", "A-1624", "A-1625", "A-1747", "B5030", "B5165", "B5179", "B5185", "B5195", "T1046", "T1058", "T1099"], "19EK": ["B-1817", "C-1501", "C-1510", "C-1512", "C-1514", "C-1518", "C-1521", "C-1531", "C-1534", "C-1536", "C-1560", "C-1653", "C-1713", "C-1729", "C-1745", "C-1844", "C-1850", "C-1914", "C-1917", "C-1918", "C-1947", "M2324", "O1004", "O1100", "O2077", "O2121"], "131T": ["C-950", "C-951", "C-952", "C-953", "C-954", "C-955", "C-956", "C-957", "C-958", "C-959", "C-960", "C-961", "C-962", "C-963", "C-964", "C-965", "C-966", "C-967", "C-969", "C-970", "C-971", "C-972", "C-973", "C-974"], "25C": ["A-030", "A-034", "K1199", "O1269"], "25S2": ["K1199", "O1269"], "HM1": ["O1269", "O2198", "O2199", "O2224", "O2234", "O2255"], "25S1": ["K1085", "K1184", "K1199", "O1269"], "38B": ["B-006", "B-007", "B-009", "B-010", "B-011", "B-012", "B-013", "O1247", "O1282", "O2001", "O2218", "O2221", "O2256", "O2264", "O2280", "O2287", "O2292", "O2297", "O2300", "O2302", "O3001", "O3019", "O3036"], "97KZ": ["A3074", "A3085", "A3086", "A3091", "A3132"], "MK97": ["A-139", "A-140", "A3074", "A3091", "A3093", "A3095", "A3108", "A3124"], "19": ["C-517", "C-518", "C-519", "C-520", "C-521", "C-522", "C-523", "C-524", "C-525", "C-526", "C-527", "C-528", "C-529", "C-542", "M2301"], "79S": ["B5053", "B5087", "B5110"], "22RE": ["K1092", "K1160", "O2004", "O2262"], "TM1": ["A-252"], "98T": ["A-1517", "A-1864", "B5052", "B5141", "B5176"], "133KT": ["C-341", "C-342", "C-343", "C-344", "C-345", "C-346", "C-347", "C-348", "C-349", "C-350", "C-351", "C-352", "C-353", "C-354", "C-355", "C-356"], "HA-3": ["E1006", "E1022", "E1027", "E1031"], "HA-1": ["E1004", "E1006", "E1015", "E1022", "E1027", "E1035"], "14R": ["A-1566", "C-1549", "C-1620", "C-1658", "C-1702", "C-1712", "C-1733", "C-1737", "C-1751", "C-1752", "C-1753", "C-1754", "C-1755", "C-1759", "C-1761", "C-1762", "C-1763", "C-1881", "C-1882", "C-1900", "M2123", "M2301"], "19S": ["C-1600", "C-1602", "C-1604", "C-1643", "C-1644", "C-1645", "C-1651", "C-1652", "C-1662", "C-1668", "C-1776", "C-1777", "C-1780", "C-1782", "C-1845", "C-1847", "C-1855", "C-1863", "C-1865", "C-1867", "K1701", "K1729", "K1774", "M2260", "M2301", "O1071", "O2060", "O2070", "O2188", "O3090"], "HS3": ["A-1021", "A-1033", "A-1034", "A-1035", "M2522"], "143": ["A-1543", "A-1625", "B4007", "B4012", "B4029", "B5070", "B5143", "B5244", "B5284", "M2522", "T1048", "T1066"], "14ES": ["C-1500", "C-1541", "C-1546", "C-1561", "C-1606", "C-1757", "C-1793", "C-1926", "C-1928", "C-1935", "C-490", "C-491", "C-498", "C-500", "C-502", "C-505", "C-506", "C-508", "C-509", "C-510", "C-513", "O1047", "O1075"], "59RK": ["O1275", "O2004", "O2206", "O2223", "O2283", "O3030", "O3060", "O3067"], "336": ["M4503", "M4505", "M4507", "M4521", "M4522", "M4525", "M4530", "M4533", "M4546", "M4554", "M4561", "M4568", "M4571", "M4748", "M4752", "M4754", "M4757", "M4760"], "SM1": ["C-1826", "C-1829", "C-1921", "O1039", "O2013", "O2035", "O2052", "O2065", "O2066", "O2071", "O2109", "O2111", "O2166", "O2181", "O2191", "O2192", "O4006"], "146F": ["B5151", "B5264", "B5349"], "54E": ["B-058", "B-059", "B-060"], "131SB": ["O2036", "O2043", "O2104", "O2131", "O4007", "O4022"], "KM43": ["O1130", "O1145", "O1159", "O3157", "O3197", "O3201", "O3202", "O3204", "O3205", "O3230", "O3236", "O3243", "O3250", "O3283", "O3289", "O3290", "O3296", "O3301"], "134YK": ["C-1052", "C-804", "C-805", "C-806", "C-809", "C-811", "C-812", "C-826", "O1131", "O1151", "O1168", "O1180", "O3190", "O3201", "O3246", "O3293"], "HA-7": ["G3012", "G3024", "G3025", "G3028", "G3029", "G3030", "G3031", "G3043", "G3051", "G3060"], "15TK": ["B-1828", "C-1628", "C-1703", "C-1711", "M2124", "M2172"], "130ST": ["C-421", "C-428", "C-432", "C-437", "C-438", "C-439", "C-440", "C-441", "O3183", "O3257"], "BU-7": ["G3002", "G3018", "G3021", "G3025", "G3040", "G3046", "G3054"], "SM16": ["O1034", "O1084", "O2106", "O3130"], "79G": ["B4017", "B5038", "K1569", "K1572", "K1592", "K1593", "K1605", "K1663", "T1052", "T1056"], "15ÇB": ["M2113", "M2119", "M2140", "M2166", "M2173", "M2186"], "15Y": ["M2013", "M2025", "M2038", "M2043", "M2055", "M2173", "M2244", "M2343"], "DT2": ["B-1500", "B-1607", "B-1704", "B-1720", "B-1723", "B-1767", "B-1790", "B-254", "B-255", "B-256", "B-257", "B-258", "B-309", "B-310", "B-311", "B-312"], "34BZ": ["A5001", "A5006", "A5007", "A5009", "A5011", "A5012", "A5013", "A5017", "A5018", "A5019", "A5023", "A5024", "A5029", "A5031", "A5032", "A5034", "A5038", "A5039", "A5040", "A5041", "A5043", "A5044", "A5046", "A5047", "A5048", "A5051", "A5054", "A5056", "A5057", "A5058", "A5060", "A5061", "A5064", "A5065", "A5066", "A5071", "A5072", "A5073", "A5074", "A5075", "A5076", "A5077", "A5079", "A5081", "A5082", "A5095", "A5100", "A5102", "A5103", "A5104", "A5107", "A5112", "A5113", "A5114", "A5116", "A5117", "A5118", "A5121", "A5126", "A5127", "A5129", "A5130", "A5131", "A5132", "A5201", "A5203", "A5204", "A5206", "A5207", "A5208", "M3002", "M3004", "M3005", "M3008", "M3009", "M3010", "M3013", "M3014", "M3015", "M3018", "M3019", "M3020", "M3021", "M3022", "M3027", "M3028", "M3029", "M3030", "M3031", "M3032", "M3034", "M3036", "M3037", "M3039", "M3040", "M3042", "M3043", "M3044", "M3045", "M3046", "M3047", "M3048", "M3049", "M3051", "M3052", "M3053", "M3054", "M3055", "M3060", "M3061", "M3062", "M3064", "M3065", "M3066", "M3067", "M3069", "M3070", "M3071", "M3072", "M3074", "M3075", "M3077", "M3084", "M3086", "M3090", "M3091", "M3092", "M3093", "M3095", "M3096", "M3097", "M3099", "M3102", "M3104", "M3107", "M3108", "M3113", "M3115", "M3117", "M3121", "M3122", "M3123", "M3125", "M3126", "M3129", "M3133", "M3135", "M3137", "M3139", "M3140", "M3144", "M3145", "M3147", "M3148", "M3149", "M3150", "M3151", "M3153", "M3154", "M3155", "M3157", "M3158", "M3160", "M3161", "M3162", "M3163", "M3166", "M3167", "M3171", "M3173", "M3176", "M3177", "M3179", "M3180", "M3181", "M3184", "M3185", "M3186", "M3187", "M3189", "M3190", "M3191", "M3193", "M3195", "M3196", "M3199", "M3200", "M3203", "M3205", "M3207", "M3208", "M3209", "M3211", "M3213", "M3214", "M3218", "M3219", "M3220", "M3222", "M3223", "M3225", "M3228", "M3229", "M3231", "M3232", "M3233", "M3234", "M3235", "M3236", "M3237", "M3238", "M3239", "M3243", "M3244", "M3247", "M3249", "M4580", "M4581", "M4582", "M4585", "M4588", "M4589", "M4590", "M4593", "M4595", "M4597", "M4598", "M4599", "M4603", "M4605", "M4606", "M4607", "M4608", "M4609", "M4610", "M4612", "M4613", "M4615", "M4616", "M4617", "M4618", "M4619", "M4623", "M4624", "M4625", "M4626", "M4627", "M4630", "M4631", "M4633", "M4634", "M4636", "M4637", "M4639", "M4640", "M4642", "M4648", "M4649", "M4651", "M4652", "M4654", "M4801", "M4802", "M4803", "M4804", "M4805", "M4807", "M4810", "M4814", "M4817", "M4818", "M4819", "M4820", "M4821", "M4823", "M4825", "M4827", "M4828", "M4830", "M4831", "M4832", "M4833", "M4836", "M4837", "M4842", "M4845", "M4849", "M4850", "M4851", "M4852", "M4853", "M4857", "M4858", "M4859", "M4862", "M4863", "M4864", "M4865", "M4866", "M4868", "M4870", "M4875", "M4877", "M4878", "M4880", "M4881", "M4882", "M4883", "M4886", "M4887", "M4889", "M4890", "M4891", "M4893", "M4894", "M4895", "M4896", "M4897", "M4899", "M4902", "M4903", "M4904", "M4905", "M4907", "M4914", "M4915", "M4921", "M4922", "M4926", "O5003", "O5005", "O5007", "O5010", "O5011", "O5013", "O5015", "O5016", "O5019", "O5020", "O5022", "O5024", "O5033", "O5035", "O5036", "O5037", "O5039", "O5040", "O5041", "O5043", "O5044", "O5045", "O5047", "O5048", "O5052", "O5054", "O5057", "O5059", "O5062", "O5063", "O5071", "O5074", "O5075", "O5079", "O5080", "O5083", "O5088", "O5090", "O5091", "O5092", "O5094", "O5095", "O5096", "O5097", "O5098", "O5101", "O5102", "O5103", "O5104", "O5106", "O5108", "O5109", "O5111", "O5112", "O5113", "O5114", "O5115", "O5116", "O5117", "O5118", "O5120"], "34": ["A5011", "A5012", "A5015", "A5017", "A5028", "A5031", "A5032", "A5043", "A5049", "A5051", "A5054", "A5057", "A5082", "A5094", "A5103", "A5104", "A5121", "A5128", "A5132", "A5201", "A5203", "A5204", "A5205", "A5206", "A5207", "A5208", "M3001", "M3015", "M3018", "M3020", "M3026", "M3028", "M3031", "M3032", "M3038", "M3044", "M3047", "M3048", "M3050", "M3055", "M3058", "M3062", "M3066", "M3076", "M3077", "M3078", "M3096", "M3097", "M3104", "M3105", "M3108", "M3114", "M3115", "M3118", "M3123", "M3131", "M3132", "M3133", "M3141", "M3145", "M3146", "M3148", "M3149", "M3150", "M3154", "M3158", "M3166", "M3176", "M3177", "M3179", "M3182", "M3185", "M3191", "M3193", "M3195", "M3196", "M3197", "M3205", "M3207", "M3211", "M3218", "M3221", "M3222", "M3235", "M3241", "M3244", "M4580", "M4582", "M4585", "M4600", "M4616", "M4618", "M4625", "M4633", "M4636", "M4640", "M4648", "M4650", "M4651", "M4801", "M4808", "M4809", "M4817", "M4820", "M4823", "M4836", "M4840", "M4843", "M4846", "M4851", "M4852", "M4854", "M4865", "M4866", "M4867", "M4869", "M4881", "M4883", "M4887", "M4897", "M4907", "M4909", "M4915", "M4918", "O5011", "O5013", "O5015", "O5019", "O5022", "O5037", "O5044", "O5049", "O5057", "O5071", "O5079", "O5080", "O5083", "O5088", "O5094", "O5103", "O5109", "O5111"], "34AS": ["A5003", "A5004", "A5006", "A5009", "A5011", "A5012", "A5013", "A5014", "A5015", "A5016", "A5017", "A5018", "A5019", "A5021", "A5023", "A5026", "A5027", "A5028", "A5030", "A5034", "A5036", "A5037", "A5038", "A5039", "A5041", "A5042", "A5043", "A5044", "A5045", "A5048", "A5049", "A5050", "A5053", "A5054", "A5056", "A5059", "A5060", "A5061", "A5063", "A5064", "A5065", "A5066", "A5067", "A5068", "A5069", "A5072", "A5073", "A5074", "A5077", "A5078", "A5079", "A5080", "A5081", "A5082", "A5083", "A5085", "A5086", "A5087", "A5090", "A5091", "A5092", "A5094", "A5095", "A5096", "A5098", "A5099", "A5100", "A5101", "A5102", "A5103", "A5104", "A5105", "A5106", "A5107", "A5109", "A5111", "A5112", "A5113", "A5115", "A5119", "A5120", "A5122", "A5124", "A5125", "A5126", "A5128", "A5129", "A5130", "A5132", "A5205", "M3001", "M3002", "M3006", "M3007", "M3008", "M3009", "M3010", "M3011", "M3013", "M3014", "M3016", "M3017", "M3018", "M3020", "M3022", "M3023", "M3024", "M3025", "M3026", "M3028", "M3030", "M3031", "M3033", "M3034", "M3036", "M3038", "M3039", "M3040", "M3041", "M3042", "M3043", "M3044", "M3045", "M3047", "M3049", "M3050", "M3051", "M3053", "M3055", "M3057", "M3058", "M3061", "M3062", "M3063", "M3064", "M3065", "M3066", "M3067", "M3069", "M3071", "M3073", "M3074", "M3075", "M3076", "M3078", "M3079", "M3080", "M3081", "M3082", "M3083", "M3084", "M3085", "M3086", "M3087", "M3089", "M3090", "M3091", "M3095", "M3096", "M3097", "M3099", "M3102", "M3103", "M3105", "M3108", "M3109", "M3111", "M3114", "M3115", "M3117", "M3118", "M3119", "M3121", "M3122", "M3123", "M3124", "M3126", "M3128", "M3129", "M3131", "M3132", "M3133", "M3134", "M3135", "M3136", "M3137", "M3140", "M3141", "M3144", "M3145", "M3146", "M3148", "M3149", "M3150", "M3151", "M3153", "M3158", "M3159", "M3160", "M3161", "M3163", "M3167", "M3168", "M3170", "M3171", "M3172", "M3173", "M3177", "M3178", "M3179", "M3181", "M3182", "M3183", "M3184", "M3185", "M3187", "M3188", "M3190", "M3191", "M3195", "M3197", "M3199", "M3203", "M3205", "M3206", "M3208", "M3209", "M3211", "M3212", "M3214", "M3215", "M3216", "M3217", "M3220", "M3221", "M3222", "M3223", "M3225", "M3226", "M3228", "M3229", "M3230", "M3231", "M3233", "M3236", "M3239", "M3240", "M3241", "M3243", "M3244", "M3245", "M3246", "M3249", "M3250", "M4580", "M4582", "M4585", "M4586", "M4587", "M4588", "M4589", "M4591", "M4595", "M4596", "M4597", "M4598", "M4600", "M4602", "M4603", "M4604", "M4605", "M4606", "M4607", "M4608", "M4612", "M4615", "M4616", "M4618", "M4620", "M4622", "M4625", "M4626", "M4627", "M4630", "M4632", "M4633", "M4634", "M4635", "M4636", "M4637", "M4642", "M4645", "M4646", "M4647", "M4648", "M4650", "M4651", "M4801", "M4802", "M4803", "M4804", "M4806", "M4807", "M4808", "M4809", "M4814", "M4815", "M4817", "M4818", "M4819", "M4820", "M4821", "M4822", "M4823", "M4825", "M4828", "M4829", "M4832", "M4834", "M4835", "M4836", "M4837", "M4839", "M4840", "M4841", "M4843", "M4844", "M4845", "M4846", "M4848", "M4851", "M4852", "M4854", "M4856", "M4859", "M4860", "M4864", "M4865", "M4866", "M4867", "M4868", "M4869", "M4870", "M4872", "M4875", "M4879", "M4880", "M4881", "M4885", "M4886", "M4887", "M4889", "M4890", "M4892", "M4894", "M4897", "M4898", "M4901", "M4902", "M4903", "M4904", "M4906", "M4907", "M4908", "M4909", "M4910", "M4913", "M4914", "M4915", "M4919", "M4920", "M4921", "M4922", "M4923", "M4924", "M4926", "O5001", "O5002", "O5004", "O5007", "O5011", "O5013", "O5015", "O5019", "O5022", "O5024", "O5025", "O5027", "O5030", "O5033", "O5036", "O5037", "O5041", "O5043", "O5044", "O5045", "O5046", "O5049", "O5050", "O5052", "O5053", "O5056", "O5057", "O5059", "O5060", "O5062", "O5067", "O5068", "O5070", "O5073", "O5075", "O5077", "O5078", "O5079", "O5080", "O5083", "O5087", "O5089", "O5090", "O5094", "O5095", "O5096", "O5097", "O5098", "O5101", "O5102", "O5103", "O5104", "O5105", "O5106", "O5109", "O5110", "O5112", "O5113", "O5115", "O5116", "O5117", "O5118"], "34G": ["A5001", "A5003", "A5004", "A5006", "A5007", "A5009", "A5011", "A5012", "A5013", "A5014", "A5015", "A5016", "A5017", "A5018", "A5019", "A5021", "A5024", "A5027", "A5028", "A5029", "A5030", "A5031", "A5034", "A5036", "A5037", "A5038", "A5039", "A5040", "A5041", "A5042", "A5043", "A5044", "A5045", "A5047", "A5048", "A5049", "A5050", "A5051", "A5053", "A5054", "A5056", "A5057", "A5058", "A5059", "A5060", "A5061", "A5063", "A5064", "A5065", "A5066", "A5067", "A5068", "A5069", "A5070", "A5071", "A5072", "A5073", "A5074", "A5077", "A5078", "A5079", "A5080", "A5081", "A5083", "A5085", "A5086", "A5087", "A5090", "A5092", "A5094", "A5095", "A5096", "A5098", "A5099", "A5100", "A5101", "A5102", "A5103", "A5104", "A5105", "A5106", "A5107", "A5109", "A5111", "A5112", "A5113", "A5114", "A5115", "A5116", "A5117", "A5118", "A5119", "A5120", "A5121", "A5122", "A5123", "A5124", "A5125", "A5126", "A5127", "A5129", "A5130", "A5131", "A5132", "A5201", "A5203", "A5204", "A5205", "A5206", "M3001", "M3002", "M3003", "M3004", "M3006", "M3007", "M3008", "M3009", "M3010", "M3012", "M3013", "M3014", "M3015", "M3016", "M3017", "M3018", "M3019", "M3020", "M3021", "M3022", "M3023", "M3024", "M3025", "M3026", "M3028", "M3029", "M3030", "M3031", "M3032", "M3033", "M3034", "M3036", "M3037", "M3039", "M3040", "M3041", "M3042", "M3043", "M3044", "M3045", "M3046", "M3047", "M3048", "M3049", "M3050", "M3051", "M3052", "M3053", "M3055", "M3057", "M3058", "M3059", "M3060", "M3061", "M3062", "M3063", "M3064", "M3065", "M3067", "M3069", "M3070", "M3071", "M3072", "M3073", "M3074", "M3075", "M3077", "M3079", "M3080", "M3081", "M3082", "M3083", "M3084", "M3085", "M3086", "M3087", "M3089", "M3090", "M3091", "M3092", "M3093", "M3094", "M3095", "M3096", "M3097", "M3099", "M3100", "M3102", "M3103", "M3105", "M3106", "M3107", "M3108", "M3109", "M3111", "M3113", "M3115", "M3116", "M3117", "M3118", "M3119", "M3121", "M3122", "M3123", "M3124", "M3125", "M3126", "M3127", "M3128", "M3129", "M3130", "M3131", "M3132", "M3135", "M3136", "M3137", "M3138", "M3139", "M3140", "M3141", "M3142", "M3144", "M3145", "M3146", "M3147", "M3148", "M3149", "M3150", "M3151", "M3152", "M3153", "M3154", "M3155", "M3158", "M3159", "M3160", "M3161", "M3162", "M3163", "M3166", "M3167", "M3168", "M3169", "M3171", "M3172", "M3173", "M3174", "M3176", "M3177", "M3178", "M3179", "M3180", "M3181", "M3182", "M3183", "M3184", "M3185", "M3186", "M3187", "M3188", "M3189", "M3190", "M3191", "M3193", "M3194", "M3195", "M3197", "M3199", "M3200", "M3201", "M3203", "M3205", "M3206", "M3207", "M3208", "M3209", "M3211", "M3212", "M3213", "M3214", "M3215", "M3216", "M3217", "M3218", "M3219", "M3220", "M3221", "M3222", "M3223", "M3225", "M3226", "M3227", "M3228", "M3229", "M3230", "M3231", "M3232", "M3233", "M3234", "M3235", "M3236", "M3237", "M3238", "M3239", "M3240", "M3241", "M3243", "M3244", "M3245", "M3246", "M3247", "M3249", "M4580", "M4582", "M4584", "M4585", "M4586", "M4587", "M4588", "M4589", "M4590", "M4591", "M4593", "M4594", "M4595", "M4596", "M4597", "M4598", "M4600", "M4601", "M4603", "M4605", "M4606", "M4607", "M4608", "M4609", "M4610", "M4612", "M4613", "M4615", "M4616", "M4617", "M4618", "M4620", "M4622", "M4624", "M4625", "M4626", "M4630", "M4631", "M4632", "M4633", "M4634", "M4635", "M4637", "M4638", "M4639", "M4640", "M4642", "M4643", "M4644", "M4646", "M4647", "M4648", "M4649", "M4650", "M4651", "M4652", "M4653", "M4654", "M4801", "M4802", "M4803", "M4804", "M4805", "M4806", "M4808", "M4809", "M4810", "M4813", "M4815", "M4817", "M4818", "M4819", "M4820", "M4821", "M4822", "M4823", "M4825", "M4827", "M4828", "M4829", "M4830", "M4831", "M4832", "M4833", "M4834", "M4835", "M4837", "M4838", "M4840", "M4841", "M4842", "M4844", "M4845", "M4846", "M4847", "M4848", "M4849", "M4850", "M4851", "M4852", "M4853", "M4854", "M4856", "M4857", "M4858", "M4860", "M4861", "M4862", "M4863", "M4864", "M4865", "M4869", "M4870", "M4872", "M4874", "M4875", "M4876", "M4877", "M4878", "M4879", "M4880", "M4881", "M4882", "M4883", "M4884", "M4885", "M4886", "M4887", "M4889", "M4890", "M4891", "M4892", "M4893", "M4894", "M4895", "M4896", "M4897", "M4898", "M4899", "M4900", "M4902", "M4903", "M4904", "M4905", "M4906", "M4907", "M4908", "M4909", "M4910", "M4911", "M4913", "M4914", "M4915", "M4918", "M4919", "M4920", "M4921", "M4922", "M4923", "M4924", "M4926", "O5001", "O5002", "O5004", "O5005", "O5007", "O5009", "O5011", "O5013", "O5015", "O5016", "O5017", "O5018", "O5019", "O5020", "O5022", "O5023", "O5025", "O5026", "O5027", "O5030", "O5031", "O5033", "O5035", "O5036", "O5037", "O5038", "O5039", "O5041", "O5043", "O5045", "O5046", "O5047", "O5049", "O5050", "O5051", "O5052", "O5053", "O5054", "O5055", "O5056", "O5057", "O5059", "O5060", "O5062", "O5063", "O5064", "O5067", "O5068", "O5070", "O5071", "O5072", "O5073", "O5074", "O5075", "O5077", "O5078", "O5079", "O5080", "O5083", "O5085", "O5087", "O5088", "O5089", "O5090", "O5091", "O5092", "O5094", "O5095", "O5096", "O5097", "O5098", "O5101", "O5102", "O5103", "O5104", "O5106", "O5108", "O5109", "O5110", "O5111", "O5112", "O5113", "O5114", "O5115", "O5116", "O5117", "O5118", "O5120"], "34C": ["A5001", "A5003", "A5011", "A5012", "A5014", "A5015", "A5016", "A5017", "A5018", "A5020", "A5024", "A5028", "A5029", "A5030", "A5031", "A5032", "A5038", "A5040", "A5041", "A5043", "A5044", "A5045", "A5046", "A5047", "A5048", "A5049", "A5050", "A5051", "A5053", "A5054", "A5056", "A5057", "A5058", "A5059", "A5060", "A5063", "A5065", "A5066", "A5070", "A5071", "A5072", "A5073", "A5074", "A5075", "A5076", "A5077", "A5080", "A5081", "A5082", "A5083", "A5087", "A5090", "A5092", "A5094", "A5095", "A5096", "A5098", "A5100", "A5101", "A5102", "A5103", "A5104", "A5105", "A5106", "A5107", "A5108", "A5109", "A5113", "A5114", "A5115", "A5116", "A5117", "A5118", "A5120", "A5121", "A5122", "A5123", "A5124", "A5125", "A5127", "A5129", "A5130", "A5131", "A5132", "A5201", "A5203", "A5204", "A5205", "A5206", "A5207", "A5208", "M3001", "M3002", "M3003", "M3009", "M3012", "M3015", "M3017", "M3018", "M3019", "M3020", "M3021", "M3025", "M3026", "M3028", "M3029", "M3032", "M3034", "M3037", "M3041", "M3046", "M3047", "M3048", "M3049", "M3050", "M3051", "M3052", "M3053", "M3054", "M3057", "M3059", "M3060", "M3064", "M3065", "M3066", "M3072", "M3075", "M3078", "M3079", "M3083", "M3084", "M3086", "M3089", "M3090", "M3093", "M3094", "M3097", "M3099", "M3100", "M3101", "M3102", "M3104", "M3105", "M3106", "M3107", "M3109", "M3114", "M3115", "M3116", "M3117", "M3118", "M3121", "M3124", "M3126", "M3127", "M3129", "M3130", "M3131", "M3132", "M3135", "M3137", "M3138", "M3139", "M3141", "M3142", "M3144", "M3147", "M3148", "M3150", "M3151", "M3154", "M3157", "M3159", "M3160", "M3161", "M3162", "M3164", "M3166", "M3172", "M3174", "M3178", "M3180", "M3181", "M3182", "M3183", "M3187", "M3189", "M3190", "M3191", "M3192", "M3193", "M3197", "M3198", "M3199", "M3200", "M3201", "M3204", "M3205", "M3207", "M3211", "M3213", "M3218", "M3219", "M3220", "M3221", "M3222", "M3224", "M3225", "M3227", "M3230", "M3233", "M3234", "M3236", "M3239", "M3241", "M3244", "M3245", "M3247", "M3249", "M4580", "M4581", "M4582", "M4584", "M4586", "M4587", "M4589", "M4590", "M4598", "M4601", "M4603", "M4606", "M4607", "M4608", "M4609", "M4610", "M4612", "M4613", "M4615", "M4616", "M4618", "M4619", "M4622", "M4624", "M4631", "M4632", "M4633", "M4634", "M4637", "M4638", "M4640", "M4644", "M4649", "M4651", "M4654", "M4801", "M4808", "M4809", "M4815", "M4818", "M4820", "M4823", "M4827", "M4828", "M4829", "M4832", "M4833", "M4834", "M4838", "M4844", "M4846", "M4847", "M4848", "M4851", "M4853", "M4857", "M4859", "M4860", "M4863", "M4866", "M4870", "M4874", "M4876", "M4877", "M4879", "M4881", "M4882", "M4884", "M4887", "M4888", "M4889", "M4890", "M4891", "M4892", "M4893", "M4894", "M4895", "M4899", "M4900", "M4901", "M4902", "M4903", "M4904", "M4906", "M4908", "M4909", "M4911", "M4913", "M4914", "M4918", "M4920", "M4921", "M4923", "O5002", "O5003", "O5005", "O5007", "O5010", "O5011", "O5013", "O5015", "O5018", "O5019", "O5020", "O5022", "O5023", "O5024", "O5025", "O5026", "O5035", "O5039", "O5041", "O5043", "O5044", "O5046", "O5048", "O5051", "O5052", "O5054", "O5055", "O5056", "O5060", "O5062", "O5068", "O5071", "O5072", "O5074", "O5075", "O5077", "O5079", "O5083", "O5088", "O5090", "O5094", "O5095", "O5096", "O5097", "O5103", "O5106", "O5108", "O5109", "O5110", "O5111", "O5112", "O5113", "O5115", "O5118"], "34B": ["A5001", "A5004", "A5006", "A5007", "A5012", "A5013", "A5014", "A5019", "A5021", "A5023", "A5024", "A5027", "A5029", "A5034", "A5036", "A5037", "A5039", "A5040", "A5041", "A5042", "A5045", "A5046", "A5047", "A5050", "A5054", "A5056", "A5058", "A5059", "A5063", "A5064", "A5066", "A5067", "A5068", "A5070", "A5071", "A5072", "A5074", "A5075", "A5078", "A5079", "A5081", "A5082", "A5085", "A5086", "A5092", "A5094", "A5095", "A5099", "A5101", "A5105", "A5106", "A5108", "A5111", "A5112", "A5113", "A5114", "A5118", "A5119", "A5120", "A5121", "A5123", "A5124", "A5126", "A5131", "M3003", "M3004", "M3007", "M3013", "M3020", "M3022", "M3030", "M3031", "M3033", "M3036", "M3037", "M3040", "M3047", "M3048", "M3049", "M3051", "M3055", "M3059", "M3061", "M3064", "M3067", "M3069", "M3070", "M3071", "M3072", "M3074", "M3075", "M3079", "M3081", "M3082", "M3083", "M3084", "M3085", "M3086", "M3089", "M3090", "M3091", "M3094", "M3095", "M3097", "M3099", "M3101", "M3102", "M3103", "M3104", "M3105", "M3107", "M3108", "M3111", "M3113", "M3115", "M3118", "M3121", "M3124", "M3126", "M3129", "M3133", "M3136", "M3146", "M3147", "M3148", "M3151", "M3153", "M3154", "M3158", "M3162", "M3166", "M3168", "M3174", "M3177", "M3178", "M3179", "M3181", "M3182", "M3183", "M3187", "M3189", "M3190", "M3193", "M3194", "M3195", "M3200", "M3204", "M3207", "M3212", "M3214", "M3215", "M3217", "M3221", "M3223", "M3226", "M3229", "M3233", "M3235", "M3236", "M3237", "M3245", "M3246", "M3249", "M4580", "M4581", "M4587", "M4588", "M4594", "M4600", "M4605", "M4607", "M4615", "M4620", "M4622", "M4625", "M4627", "M4632", "M4636", "M4637", "M4646", "M4651", "M4802", "M4804", "M4807", "M4808", "M4810", "M4814", "M4815", "M4817", "M4819", "M4821", "M4823", "M4825", "M4827", "M4828", "M4829", "M4830", "M4832", "M4836", "M4840", "M4859", "M4862", "M4868", "M4869", "M4874", "M4875", "M4885", "M4886", "M4894", "M4898", "M4911", "M4914", "M4918", "M4919", "M4924", "M4926", "O5011", "O5015", "O5016", "O5022", "O5025", "O5027", "O5033", "O5043", "O5044", "O5049", "O5052", "O5054", "O5057", "O5068", "O5075", "O5077", "O5088", "O5090", "O5095", "O5101", "O5109", "O5112", "O5113", "O5117"], "34A": ["A5003", "A5009", "A5011", "A5018", "A5028", "A5031", "A5043", "A5044", "A5049", "A5051", "A5053", "A5058", "A5073", "A5074", "A5082", "A5094", "A5096", "A5103", "A5104", "A5112", "A5117", "A5123", "A5128", "A5132", "A5201", "A5203", "A5204", "A5205", "A5206", "M3001", "M3002", "M3017", "M3018", "M3038", "M3041", "M3050", "M3059", "M3065", "M3066", "M3072", "M3075", "M3077", "M3078", "M3083", "M3086", "M3105", "M3107", "M3109", "M3114", "M3116", "M3125", "M3141", "M3142", "M3147", "M3174", "M3182", "M3189", "M3197", "M3205", "M3219", "M3220", "M3221", "M3222", "M3235", "M3239", "M4580", "M4589", "M4598", "M4601", "M4607", "M4618", "M4619", "M4622", "M4644", "M4651", "M4808", "M4833", "M4842", "M4843", "M4844", "M4846", "M4857", "M4866", "M4867", "M4881", "M4884", "M4887", "M4899", "M4918", "M4926", "O5005", "O5072", "O5083", "O5088", "O5096", "O5112"], "3": ["M2187"], "14YE": ["O1027", "O1056", "O3134"], "25Y": ["O2203", "O2246", "O2293", "O3026"], "130H": ["O2061", "O2070", "O2099", "O2188", "O3261"], "132F": ["O1133", "O2037", "O2059", "O2061", "O2065", "O3182", "O3224"], "9ÇN": ["O1010", "O1043", "O1053", "O3095", "O3097", "O3099", "O3104", "O3133", "O3148"], "622": ["C-1046", "C-126", "C-127", "C-128", "C-129", "C-130", "C-131", "C-134", "C-1806", "C-1813", "C-1814", "C-1815", "C-1820", "C-1830", "C-1834", "C-1840", "C-1858", "C-1920", "C-1939", "C-868", "C-869", "K1702", "K1732", "K1752", "K1753", "K1780", "M2260", "O2179"], "76G": ["A-1003", "A-810", "A-819", "B5300", "B5353"], "SM18": ["O2125", "O4023"], "SM17": ["O1057", "O1064"], "14S": ["O2063", "O2106", "O2116", "O2129", "O2151", "O2160", "O2183", "O4011", "O4014", "O4022"], "17S": ["M2282", "O1122", "O1124", "O1183", "O2106", "O3170", "O3185", "O3218", "O3221", "O3235", "O3244", "O3272"], "34Z": ["A5003", "A5011", "A5021", "A5026", "A5028", "A5034", "A5042", "A5063", "A5067", "A5071", "A5079", "A5086", "A5103", "A5105", "A5112", "M3022", "M3038", "M3051", "M3052", "M3065", "M3077", "M3078", "M3082", "M3090", "M3118", "M3125", "M3134", "M3147", "M3197", "M3205", "M3219", "M3232", "M3244", "M4596", "M4597", "M4599", "M4604", "M4616", "M4619", "M4626", "M4801", "M4806", "M4808", "M4831", "M4839", "M4841", "M4857", "M4864", "M4878", "M4900", "M4901", "M4918", "M4919", "O5004", "O5007", "O5009", "O5018", "O5043", "O5055", "O5062", "O5101", "O5104", "O5108", "O5112", "O5114"], "36G": ["D-144", "D-145", "O2216", "O2233", "O2294", "O3004"], "98": ["A-1682", "A-1731", "A-1736", "A-1737", "A-1738", "A-1739", "A-1740", "A-1837", "B-1519", "B-1522", "B-1639", "B5156", "C-1623", "T1061"], "89F": ["B3001", "M4003", "T1004", "T1041", "T1042", "T1053", "T1054", "T1065", "T1066", "T1094", "T1106"], "MK16": ["B5114"], "MK22": ["B5172", "B5186", "B5194", "K1522", "K1524", "K1528", "K1538", "K1635", "M4508", "M4513", "M4557", "M4559", "M4564", "M4759", "T1015"], "TM8": ["B-029", "B-030", "B-031", "B-032", "B-034", "B-035", "B-036", "B-037", "B-038", "B-039"], "TM17": ["A-1001", "A-1004", "A-1006", "A-1029", "A-1031", "M4508", "M4515", "M4517", "M4527", "M4538", "M4550", "M4558", "M4565", "M4567", "M4579", "M4755", "M4764", "O1192", "O1285", "O2280", "O2305", "O3006", "O3023", "O3046", "O3050"], "TM18": ["A-1700", "B-1701", "B-1748", "B-1751", "B-1904", "M4516", "M4526", "M4541", "M4549", "M4746", "O2204", "O3025"], "401T": ["A-1161", "A-1165", "A-1220", "A-1227", "A-879", "A-900", "A-909", "A-922", "A-935", "A-942", "A-948", "A-957", "B5304", "B5317", "B5372", "M2526", "M4758"], "HT19": ["B5122", "B5221", "B5317", "B5363", "B5371", "M2526"], "KM37": ["O2039", "O2081", "O2111"], "KM15": ["O2048", "O2181"], "SM5": ["C-768", "C-769", "C-770", "O2079", "O2092", "O2095", "O2108", "O2181", "O2194", "O4017"], "19T": ["C-1769", "C-1771", "C-1772", "C-184", "C-190", "C-191", "C-192", "C-193", "C-194", "C-208", "M2348"], "80T": ["A-1130", "A-1140", "A-1142", "A-1150", "A-981", "A-982", "A-983", "A-986", "A-987"], "TM14": ["O2274", "O3034"], "19SK": ["C-1601", "C-1659", "C-1664", "C-1775", "C-1778", "C-1779", "C-1781", "C-1849", "C-1851", "C-1859", "C-1869", "C-1871"], "MR40": ["A-1000", "A-1002", "A-1026", "A-1100", "A-1101", "A-1160", "A-1166", "A-1180", "A-1185", "A-1226", "A-741", "B5141", "B5150", "B5244", "B5334"], "62H": ["K1224"], "19V": ["O1014", "O1033", "O1081", "O3129"], "MK50": ["A-1023", "A-1027", "A-1028", "M4538", "O1265", "O2005", "O2011", "O2306"], "TM19": ["O1266", "O2247", "O2296", "O3050"], "AVR2": ["A-988", "K1050", "K1056", "K1087", "K1097", "K1115", "K1139", "K1182", "O1187", "O1254", "O1290", "O1295", "O2005", "O2204", "O2211", "O2297", "O3050"], "36L": ["D-134", "D-135", "D-138", "D-142", "D-143", "D-160", "D-180", "O3050"], "98S": ["A-1504", "A-1540", "A-1619", "A-1710", "A-1753", "A-1800", "A-1874", "A-1876", "B5007", "B5026", "B5088", "B5089", "B5091", "B5118", "B5138", "B5191", "C-1647", "C-1648"], "AVR3K": ["K1022", "K1199", "K1209", "K1216", "K1218", "K1229", "O2257"], "29M2": ["K1209", "K1229"], "29M1": ["K1209", "K1229"], "97": ["B-193", "B-195", "B-196", "B-197", "B-198", "B-199", "B-200", "B-202", "B-203", "B-204", "B-205", "B-206", "B-207", "B-208", "B-209", "B-210", "B-211", "B-212", "B-213", "B-214", "B-215", "B-216", "B-217", "B-219", "B-221", "B-222", "B-223", "B-224", "B-225", "B-226", "B-227", "B-238", "B-239", "B5020", "K1530", "K1531", "K1533", "K1612"], "59HS": ["O1304", "O2229"], "AND2K": ["O2068", "O2070", "O2079", "O2193"], "KM18": ["O1107", "O2068", "O2115", "O3121", "O4012"], "300C": ["A-886", "A-887", "A-888", "A-889"], "139T": ["C-1049", "C-1081", "C-1085", "C-1089", "M2002", "M2048", "M2328", "M4670", "M4721", "M4725", "M4730"], "139": ["C-1017", "C-1049", "C-1082", "M2048"], "10": ["C-227", "C-228", "C-241", "C-242", "C-251", "C-256", "C-274", "C-284", "C-287", "C-288", "C-295", "C-296", "C-298", "C-302", "C-303", "C-493", "C-497", "C-499", "C-503", "C-515", "C-516", "M2002", "M2035", "M2048", "M2074", "M2220", "M2221", "M2297", "M2309", "M2341", "M4657", "M4677", "M4687", "M4692", "M4734"], "15C": ["A-1680", "A-1721", "C-1663", "C-1667", "M2048", "M2049", "M2070", "M2204", "M2207", "M2210", "M2233", "M2310", "M2382"], "16YK": ["M2231"], "8A": ["C-1520", "C-1554", "C-1655", "C-1731", "C-1736", "C-1927", "C-1934", "C-492", "C-494", "C-495", "C-511", "C-512", "D-044", "M2030", "M2219", "M2231", "M2272", "M2392"], "133F": ["C-1511", "C-1557", "C-160", "C-1727", "C-545", "C-546", "C-547", "M2020", "M2067", "M2076", "M2227", "M2231", "M2246", "M2259", "M2303", "M2342", "M2386", "O1148", "O1174", "O1176", "O3153", "O3154", "O3208", "O3234", "O3271"], "TM15": ["A-1537", "A-1742", "A-1835", "A-1872", "A-1875", "A-1878", "B-1717", "B-1804", "B-1819", "B-1880", "O3032"], "50A": ["A-385", "A-386", "A-387", "A-388", "A-389", "A-390", "A-391", "A-392", "A-393", "A-394", "A-395", "A-396", "A-409", "A3034", "A3101", "A3132", "K1030", "K1097", "K1182", "O1290", "O2204", "O2241"], "448": ["A-735", "A-736", "A-737", "A-738", "A-739", "A-740", "A-742", "A-743", "A-744", "A-745", "A-746", "A-747", "A-748", "A-749", "A-750", "A-751", "A-752", "A-753", "A-754", "A-831", "A-834", "A-835", "A-836", "A-840", "A-841", "A-842", "A-843", "A-844"], "14A": ["A-1552", "A-1562", "B-1638", "B-1742", "B-1794", "C-1526", "C-1661", "C-1665", "C-1672", "C-1724", "C-1832", "C-1902", "C-1916", "C-1933", "C-507"], "50R": ["A-256", "A-257", "A-258", "A-259", "A-260"], "THSS12": ["B5309", "B5313"], "79GE": ["B3004", "B5313", "T1062", "T1075", "T1083", "T1085", "T1108"], "10A": ["M2211", "M2295", "M2319", "M4655", "M4656", "M4661", "M4663", "M4674", "M4683", "M4684", "M4685", "M4686", "M4689", "M4703", "M4717", "M4720", "M4724"], "29B": ["B-1815", "B-1832", "K1040"], "KM33": ["O1111", "O1134", "O1150", "O3223", "O3228", "O3255", "O3256", "O3264", "O3281"], "500T": ["C-305", "C-306", "C-307", "C-321", "C-442", "C-443", "C-444", "C-445", "C-447", "C-448", "C-449", "C-450", "C-451", "C-452", "C-453", "C-454", "C-455", "C-456", "C-457", "C-458", "C-459", "C-460", "C-461", "C-462", "C-463", "C-464", "C-465", "C-466", "C-467", "C-468", "C-469", "C-470", "C-471", "C-472", "C-473", "C-474", "C-475", "C-476", "C-477", "C-478", "C-479"], "70KE": ["K1111", "K1120", "K1158"], "26B": ["K1048", "K1120", "K1147"], "79KT": ["B5063", "B5222", "B5350", "T1017", "T1021", "T1101"], "KM12": ["C-322", "C-323", "C-324", "O3162", "O3198", "O3213", "O3237", "O3257", "O3284", "O3300", "O3301"], "20": ["C-1029", "C-1030", "M2093", "M2107", "M2122", "M2153", "M2170"], "11Ü": ["M2007", "M2022", "M2023", "M2053", "M2195", "M2346"], "DS1": ["O3118", "O4105", "O4108"], "DS2": ["O3118", "O4106"], "139A": ["C-1017", "C-1019", "C-1022", "C-1045", "C-1048", "C-1083", "C-1090", "C-1092"], "142ES": ["B5307", "B5312", "B5319", "B5360"], "50E": ["A-397", "A-398", "A-399", "A-400", "A-401", "A-402", "A-403", "A-404", "A-405", "A-406", "A-407", "A-408", "A-409", "A3132", "K1003", "K1020", "K1056", "K1141", "M4509", "O2211"], "32M": ["A3008", "A3048", "A3051", "A3073", "A3146", "K1056"], "50M": ["K1139", "K1207", "K1212", "K1246", "O2211"], "74": ["K1003"], "13": ["C-137", "C-226", "C-253", "C-257", "C-269", "C-275", "C-276", "C-279", "C-280", "C-281", "C-282", "C-283", "C-286", "C-290", "C-291", "C-293", "C-294", "C-297", "C-300", "M2226", "M2230"], "AVR3": ["A3034", "A3101", "K1020", "K1041", "K1069", "K1162", "O1265"], "42KT": ["O2220", "O2272", "O3038"], "142": ["A-1506", "A-1556", "A-1557", "A-1561", "A-1653", "A-1701", "A-1703", "A-1704", "A-1803", "A-1804", "A-1867", "B-1788", "B-1811", "B-1870", "B5104", "B5221", "B5224", "B5241", "K1525", "K1532", "K1536", "K1551", "K1568", "K1579", "K1587", "K1613", "K1647", "K1675", "K1684", "M2503", "M2510", "M2537"], "HT48": ["B5370", "B5374"], "300M": ["A-892"], "SM7": ["O1096", "O3151"], "ÇM44": ["C-013", "C-016", "O1049", "O1080", "O1085", "O3091", "O3151"], "133P": ["C-895", "C-896", "C-900", "C-906", "C-907", "C-908", "C-909", "C-910", "C-911", "C-912", "C-913", "O2023", "O2042", "O2043", "O2047", "O2175", "O2191", "O2193", "O3151", "O3237"], "14BK": ["C-084", "C-085", "C-086", "C-087", "C-088", "C-089", "C-090", "C-092", "C-093", "C-094", "C-095", "C-096", "C-097", "C-098", "C-099", "C-100", "C-101", "C-102", "C-104", "C-133", "C-143", "M2057", "M2282", "M4662", "M4699"], "19K": ["C-197", "C-199", "M2030", "M2232", "M2302", "O1086"], "19F": ["B-1518", "C-1516", "C-1545", "C-1550", "C-1555", "C-1624", "C-1625", "C-1627", "C-1629", "C-1700", "C-1714", "C-1717", "C-1750", "C-1792", "C-530", "C-531", "C-532", "C-533", "C-534", "C-535", "C-536", "C-537", "C-538", "C-539", "C-540", "C-541", "C-543", "C-544", "M2008", "M2015", "M2030", "M2061", "M2064", "M2188", "M2212", "M2217", "M2255", "M2292", "M2300", "M2306", "M2311", "M2369", "M2377", "O1123", "O1132", "O1175", "O3239", "O3285"], "50F": ["K1002", "K1007"], "MR54": ["B5044", "B5134", "B5168", "B5262"], "33": ["A3012", "A3021", "A3024", "A3039", "A3088", "A3120", "A3137", "O1260"], "33Y": ["A-363", "A-364", "A3012", "A3021", "A3110", "A3133", "A3141", "O1260"], "HT5": ["O1222", "O1248", "O1260", "O1264", "O1279", "O1290", "O2236", "O2272"], "BM8": ["A-655"], "50G": ["O1211", "O1292"], "HT11": ["A3009", "A3050", "A3150", "B5149", "B5201", "O1292", "T1001", "T1005", "T1007", "T1008", "T1020", "T1022", "T1023", "T1024", "T1034"], "SM14": ["O2089", "O2197"], "144A": ["B4003", "B4005", "B4007", "B4008", "B4044", "K1587", "M4001", "M4007"], "11L": ["M2075", "M2392"], "76GM": ["A-760", "A-762"], "SM12": ["O1020", "O3094", "O3142"], "145T": ["D-103", "D-104", "D-105", "D-106"], "76D": ["D-061", "D-100", "D-101", "D-102", "D-103", "D-104", "D-106", "D-108", "D-109", "D-110", "D-111", "D-112", "D-113", "D-114", "D-115", "D-116", "D-117", "D-118", "D-119", "D-120", "D-121", "D-122", "D-123", "D-124", "D-125", "D-126", "D-127", "D-128", "D-129", "D-130"], "145M": ["D-104"], "146M": ["A-808", "A3046", "A3053", "A3139", "K1577", "T1031", "T1074"], "146B": ["A-793", "A-796", "A-797", "A-802", "A-804", "A-806", "A-808"], "137": ["M2081", "M2084", "M2094", "M2105", "M2106", "M2107", "M2159", "M2161", "M2163"], "136R": ["M2105", "M2127", "M2163", "M2185"], "138": ["O1004", "O1031", "O1052", "O1089", "O3079", "O3084", "O3116", "O3135", "O3138", "O3144"], "138B": ["O1076", "O1089", "O3084", "O3093", "O3135", "O3138", "O3147"], "BM7": ["A-653", "A-654"], "K3": ["K1013", "K1041", "K1057", "K1068", "K1079", "K1113"], "KM41": ["M2020", "O1106", "O1108", "O1119", "O1123", "O1132", "O1144", "O1169", "O1175", "O3152", "O3172", "O3174", "O3182", "O3216", "O3219", "O3239", "O3285", "O3303"], "132P": ["C-1011", "C-843", "C-845", "C-846", "C-847", "C-848", "C-849", "C-851", "C-854", "C-856", "C-857", "C-859", "C-860", "C-861", "C-862", "C-863", "O1144", "O2033", "O2085", "O2118", "O2157", "O2196", "O3168"], "16F": ["C-1538", "C-1544", "C-1548", "C-1556", "C-1611", "C-1622", "C-1671", "C-1701", "C-1705", "C-1708", "C-1766", "C-1810", "C-1905", "M2035", "M2319", "M2342", "O3172"], "38H": ["O1227", "O2231"], "36ES": ["A-338", "A-339", "A-340", "A-341", "A-342", "A-343", "A-351", "A-352", "A-353", "A-354", "A-355", "A-356", "A-357", "A-358", "A-359", "A3021"], "TM3": ["K1005", "K1009", "K1032", "K1091", "K1130", "K1169", "K1170"], "121B": ["C-243", "C-247", "C-248", "C-249", "C-250", "C-255", "C-278", "M2165", "M2566", "M2587"], "11H": ["C-1006", "C-1007", "C-1008", "C-1009", "C-1010", "C-1013", "C-1015", "C-1016", "C-1018", "C-1020", "C-1021", "C-1025", "C-1026", "C-1039", "C-1059", "C-1091", "C-1096", "C-1098", "M2038", "M2165", "M2578", "M2590", "M2598", "M4672", "M4721", "M4723"], "5": ["M2329"], "15SD": ["C-1530", "C-1856", "C-1883", "M2047", "M2097", "M2133", "M2142", "M2156", "M2167", "M2174", "M2180"], "SM4": ["O2025", "O2058", "O2117", "O2134", "O2145", "O2165", "O3121"], "SM3": ["O2024", "O2045", "O2123", "O4001", "O4004"], "50H": ["A-1611", "A-1614", "A3034", "B-1535", "C-1642", "C-1915", "K1014", "K1109", "K1123", "K1144", "K1162", "K1184", "K1230", "K1244", "O1198", "O1226"], "70FY": ["K1123"], "151": ["K1244", "O1186", "O1223", "O1281", "O1288", "O2206", "O2224", "O2238", "O2243", "O2250", "O2255", "O2260", "O2282", "O3014", "O3020", "O3021"], "42Z": ["O1187", "O1203", "O1226", "O1232"], "403": ["A-1181", "A-1182", "A-1183", "A-1184", "A-1186"], "90B": ["A-980", "A-985", "A-988"], "15SN": ["M2085", "M2095", "M2113", "M2129", "M2133", "M2144", "M2165", "M2182"], "135": ["C-1033", "M2117", "M2165", "M2171"], "54HT": ["B-281", "B-282", "B-283", "B-284", "B-285", "B-286", "B-287", "B-288"], "41SM": ["K1202", "K1245"], "TM12": ["A-1005", "B-1509", "B-1854", "B-1855", "K1060", "K1225", "K1245"], "TM13": ["A-250", "A-251", "A3010", "A3031", "A3061", "A3084", "K1138"], "17L": ["M2282", "O3153", "O3154", "O3159", "O3221"], "BA-1": ["E1002", "E1005", "E1013", "E1016", "E1019", "E1023", "E1028", "E1029", "E1032", "E1033", "E1037", "E1038", "E1049", "E1050", "E1052", "E1055", "E1060"], "BA-5": ["E1005", "E1010", "E1013", "E1016", "E1017", "E1018", "E1019", "E1026", "E1028", "E1029", "E1030", "E1032", "E1033", "E1038", "E1049", "E1052", "E1053", "E1056", "E1060"], "BA-4": ["E1001", "E1002", "E1003", "E1005", "E1010", "E1011", "E1013", "E1016", "E1017", "E1018", "E1019", "E1023", "E1028", "E1029", "E1030", "E1032", "E1033", "E1037", "E1038", "E1041", "E1042", "E1043", "E1048", "E1049", "E1050", "E1052", "E1053", "E1055", "E1056", "E1057", "E1060"], "BA-2": ["E1002", "E1005", "E1011", "E1013", "E1016", "E1017", "E1019", "E1023", "E1028", "E1029", "E1030", "E1032", "E1033", "E1037", "E1042", "E1043", "E1049", "E1050", "E1052", "E1053", "E1055", "E1056", "E1057", "E1060"], "78B": ["A3113", "B5062", "B5067", "B5148"], "HT12": ["B5042", "B5067", "B5147", "B5207", "B5269", "T1026", "T1028", "T1033", "T1092"], "559C": ["A-001", "A-002", "A-003", "A-004", "A-005", "A-006", "A-007", "A-008", "A-058", "O1282"], "40": ["O1282", "O2011", "O2301"], "15KB": ["M4676", "M4694", "M4695", "M4697", "M4702"], "KM24": ["C-370", "C-371", "C-372", "C-373", "C-374", "C-375", "C-376", "C-377", "K1699", "K1743", "K1745", "K1764", "K1788", "K1803", "O1128", "O2169", "O3230", "O3264"], "8E": ["A-1546", "A-1675", "C-1527", "C-1537", "C-1542", "C-1543", "C-1725", "C-1735", "C-1743", "C-1943", "M2278"], "8": ["M2278"], "1": ["M2189", "M2333"], "14C": ["M2041", "M2060"], "KA-7": ["G3017", "G3034", "G3038", "G3049"], "KA-2": ["E1054"], "KA-1": ["E1034", "E1047", "E1054"], "54ÖR": ["B-061", "B-062", "B-063", "B-064", "B-065", "K1136"], "59A": ["O1196", "O1278", "O1289", "O1301", "O2009", "O3017", "O3040", "O3044", "O3064"], "K1": ["K1135", "K1150"], "K2": ["K1058", "K1125"], "29D": ["A-1530", "A-1629", "A-1630", "A-1648", "A-1705", "A-1852", "B-1604", "B-1608", "B-1610", "B-1620", "B-1630", "B-1800", "B-1826", "B-1865", "B-1897", "B-1920", "K1209"], "40T": ["A-031", "A-032", "A-033", "A-034", "A-035", "A-036", "A-037", "A-038", "A-039", "A-040", "A-041", "A-042", "A-044"], "22": ["A-011", "A-012", "A-013", "A-014", "A-015", "A-016", "A-017", "A-018", "A-019", "A-020", "A-021", "A-022", "A-023", "A3034", "K1122"], "65A": ["K1012", "K1041", "K1083", "K1129", "K1140", "K1155"], "29GM": ["K1041", "K1157"], "ES2": ["B5373"], "46T": ["B-021", "B-022", "B-023", "B-024", "B-025", "B-026", "B-027", "B-028"], "134": ["C-801", "C-802", "C-803", "C-806", "C-829", "O2080", "O2112", "O2129", "O2192", "O3216"], "TM9": ["A3020", "A3101", "K1001", "K1073", "K1081", "K1114", "O1290"], "MR9": ["O1029", "O1036", "O3098"], "76TM": ["B5305", "B5322", "B5326", "B5337", "B5344"], "HT18": ["B5122", "B5209", "B5287", "B5363"], "87": ["B-090", "B-091", "B-092", "B-093", "B-094", "B-095", "B-096", "B-097", "B-098", "B-099", "B-100"], "36Y": ["B5047", "B5068", "B5103", "O1218", "O3011", "O3043"], "36HT": ["B4038", "B5047", "B5364", "O1218", "O2266", "O3039", "O3043"], "36B": ["O3011", "O3043"], "BA-7": ["G3004", "G3008", "G3009", "G3010", "G3011", "G3014", "G3026", "G3033", "G3035", "G3039", "G3042", "G3056", "G3057", "G5001", "G5004", "G5010"], "H-2": ["O2216", "O2227"], "H-6": ["O1197", "O2002", "O2200", "O2202", "O2217", "O2226", "O2227"], "54HS": ["K1116"], "54KT": ["K1046"], "79KM": ["B5023", "B5039", "B5083", "B5099", "B5137", "B5193", "B5194", "B5223", "K1563", "K1591", "K1597", "K1599", "K1601", "M4006", "T1040", "T1096", "T1104"], "29A": ["K1028"], "29E": ["B-1730", "B-1734", "K1028"], "9S": ["B-1515", "O3145"], "133K": ["C-392", "C-393", "C-394", "C-395", "C-396", "O2102", "O2143"], "20K": ["C-001", "C-002", "C-003", "C-004", "C-005", "C-006", "C-007", "C-009", "C-010", "C-011", "C-012", "C-014", "C-026", "C-068", "C-069", "C-071", "C-072", "O1017", "O3090"], "131K": ["O1094", "O3079", "O3123", "O3138"], "19Y": ["C-216", "O1051", "O1063", "O2193", "O3107", "O3132", "O3137"], "KM70": ["O2027", "O2051", "O2070", "O2080", "O2152", "O2184", "O2185"], "15BK": ["A-1518", "A-1607", "A-1709", "B-1795", "B-1902", "C-1502", "C-1504", "C-1507", "C-1529", "C-1539", "C-1540", "C-1551", "C-1615", "C-1674", "C-1704", "C-1710", "C-1726", "C-1739", "C-1852", "C-1897", "C-1903", "C-1910", "C-1940", "M2047", "M2126", "M2184", "M2565", "M2580", "M2585", "M2592"], "50T": ["B-040", "B-042", "B-043", "B-044", "O1201", "O1211"], "KM45": ["O1101", "O1104", "O1146", "O1151", "O1155", "O1156", "O1162", "O1169", "O3202", "O3247"], "130A": ["O3300", "O3301"], "89A": ["A-1503", "A-1508", "A-1513", "A-1545", "A-1600", "A-1671", "A-1716", "A-1717", "B-1735", "B-1736", "B5013"], "KM31": ["C-812", "C-817", "O1125", "O1150", "O1153", "O1158", "O1178", "O1183", "O3163", "O3182", "O3193", "O3209", "O3214", "O3221"], "48U": ["K1189", "O1221"], "135A": ["C-1040", "C-1088", "M2113", "M2119"], "KM3": ["O1125"], "KM61": ["A-1533", "B-1513", "O1035", "O1059"], "MR61": ["O3237"], "86V": ["A-239", "A-240", "A-241", "A-242", "A-243", "A-244", "A-245", "A-246", "A-247", "A3058"], "8Y": ["M2314"], "36S": ["O1214", "O2006"], "79E": ["A3106", "A3109", "A3117", "B3004", "B5064", "B5117", "B5132", "B5154", "B5182", "B5256", "T1047", "T1062", "T1075", "T1083", "T1085"], "KM48": ["C-534", "M2377", "O1177", "O3292"], "33ES": ["A3081", "A3141"], "144B": ["B5367", "M4011"], "402": ["A-1162", "A-1167", "A-1168", "A-1169", "A-1170"], "11T": ["M2258", "M2271", "O1024", "O1092", "O1093", "O3083", "O3087", "O3150"], "30A": ["A-141", "A3119", "B-1624", "B-1705", "B-1706", "B-1707", "B-1769", "K1061", "K1122", "K1235", "K1242", "O3004"], "57UL": ["K1061", "O3004", "O3054"], "73H": ["A-153", "A-154", "A-155", "A-156", "A-157", "A3027", "A3108", "B5141", "B5178", "O1265", "O1295"], "36Z": ["D-132", "D-154", "D-155", "D-158", "D-159", "D-161", "D-163", "D-167", "D-168", "D-177", "D-178", "D-179", "D-181", "O1300"], "58UL": ["O1300"], "300B": ["A-885"], "300": ["A-885", "A-890", "A-893", "A-894"], "122C": ["C-079", "C-080", "C-081", "C-083", "C-139", "M2037", "M2324", "M4670", "M4698", "M4719", "M4736"], "129T": ["C-1513", "C-1519", "C-1660", "C-1666", "M2368"], "2": ["C-1740", "C-1741", "C-1765", "M2020", "M2225"], "6": ["M2036", "M2071", "M2206", "M2211", "M2223", "M2261", "M2295", "M2298", "M2324", "M2357", "M2389", "M2391"], "129L": ["C-317", "C-318", "C-319", "C-320", "C-321", "M2271"], "33TE": ["A3041", "A3065", "A3105", "A3111"], "HT1": ["A-1688", "A-313", "A-314", "A-315", "A-316", "A-317", "A3018", "A3077", "A3103", "A3131", "B5059", "B5074", "B5082", "B5089", "B5286", "T1030", "T1088", "T1089", "T1090"], "50S": ["A-777", "A-779", "A-780", "A-781", "A-783", "A-789", "A-791", "A-795", "A-798", "A-800", "K1006", "K1017", "K1038", "K1043", "K1045", "K1050", "K1166", "K1167", "M4529"], "136T": ["M2096", "M2101", "M2157"], "KM30": ["C-812"], "144K": ["A-714", "A-715", "B5069"], "E-10": ["O2107", "O2137"], "132Y": ["O1181", "O2130", "O2152", "O3160"], "E-58": ["D-059", "D-165", "D-166", "D-169", "D-170", "D-172", "D-174", "D-176", "D-182"], "142A": ["B4003", "B4007", "B4008", "B4014", "B4026", "B4043", "B5035", "B5204", "B5240", "B5245", "B5293"], "142K": ["B4023", "B4026", "B4043", "B5085", "B5221"], "144": ["B4014", "M4002"], "TM5": ["A-253", "K1104", "K1219"], "ES1": ["B5335", "B5365", "M2518"], "79FY": ["A-1850", "A-1853", "A-1854", "B5169", "O1212", "O2212", "T1019"], "141K": ["A-289", "A-337", "B4013", "B5006", "B5152"], "89M": ["B5006", "B5027", "B5074", "B5152", "B5272"], "50V": ["A-1702", "A-1756", "A-1815", "B-1859", "B-1860", "B-1862", "B-1876", "B-1877", "B-1879", "C-1857"], "46KT": ["K1082"], "41ST": ["A-1652", "A-1870", "A3145", "B-1542", "B-1623", "B-1640", "B-1792", "B-1793", "B-1802", "B-1807", "B-1823", "B-1827", "B-1831", "B-1837", "B-1867", "B-1869", "B-1888", "B-1892", "B-1901", "B-1913", "B-1916", "C-1547", "K1044", "K1082", "K1143"], "89YB": ["B5072", "B5173", "B5275"], "ES4": ["B5206", "B5221", "B5301", "B5363"], "15B": ["C-225", "C-231", "C-232", "C-234", "C-235", "C-236", "C-238", "C-239", "C-244", "C-245", "C-251", "C-252", "C-254", "C-256", "C-258", "C-259", "C-260", "C-262", "C-270", "C-271", "C-273", "C-299"], "89S": ["A-1510", "A-1751", "A-1813", "A-1821", "A-1877", "B-1719", "B-1809", "B-1891"], "50D": ["A-1602", "B-1520", "B-1616", "B-1725", "B-1805", "B-1824", "B-1834", "B-1864", "K1008", "K1018", "K1031", "K1037", "K1096", "K1186", "K1223"], "31": ["A-1500", "A-1521", "A-1529", "A-1559", "A-1634", "A-1643", "A-1660", "A-1672", "A-1689", "A-1690", "A-1714", "A-1726", "B-1507"], "HM3": ["K1042", "K1158"], "59CH": ["B5105", "K1035", "K1042", "K1055"], "48H": ["K1055", "K1074", "K1188", "K1192"], "92C": ["A3032", "A3054", "A3083", "A3107"], "7": ["M2026", "M2233", "M2316", "M2345", "M2372"], "15ÇK": ["A-1553", "C-1535", "C-1553", "C-1673", "C-1746", "M2026", "M2235", "M2378", "M2385"], "BN1": ["A-1542", "A-1558", "A-1616", "A-1620", "A-1734", "A-1814", "A-1818", "A-1820", "A-1860", "A-1861", "A-1865", "A-1866", "A-1869", "B-1797", "B-1808", "B-1843", "B-1847", "B-1849", "B-1895", "B-1918"], "12C": ["M2024", "M2192"], "19M": ["M2052", "M2192", "M2209", "M2367", "O1015", "O1086", "O3073"], "404": ["A-1078", "A-1221", "A-1223", "A-1224", "A-1225", "A-1228", "A-1230"], "MR52": ["A-1022", "B3001", "B5133", "B5191", "B5198"], "29T": ["K1070", "K1208"], "48": ["B5056", "K1036", "K1071", "K1094", "K1132"], "48C": ["K1094"], "27E": ["A-1551", "A-1708", "B-1538", "B-1743", "B-1770", "B-241", "B-242", "B-243", "B-244", "B-245", "B5105"], "320Y": ["O1065", "O3082"], "92S": ["A-1512", "A-1519", "A-1531", "A-1536", "A-1661", "A-1662", "A-1728", "A-330", "A-331", "A-332", "A-333", "A-334", "A-335", "A-336", "B-1820", "B5102", "B5201"], "91M": ["A-1719", "A-1828", "A-1830", "A3134", "B5058", "B5073", "B5079", "B5102", "B5150", "B5207"], "122H": ["O2135", "O2156"], "K4": ["K1027"], "10F": ["M2069", "M2287", "M2362", "M2390"], "EL2": ["O2004", "O2270", "O3035", "O3057"], "76O": ["A-1555", "A-1618", "A-1631", "A-1679", "A-1816", "A-1817", "A-1819", "A-1840", "A-1862", "A-1871", "A-1879", "A-369", "A-370", "A-371", "A3144", "M4534", "M4545", "M4749"], "11R": ["O1003", "O1031", "O1032", "O3102"], "UM60": ["O1001", "O1006", "O1041", "O1042", "O1055", "O1072", "O1079", "O3074", "O3102", "O3141"], "MK42": ["A-1008", "A-1020", "A-1024", "A-1025", "A-1612", "A-1628", "B3002", "B5056", "B5066", "B5147", "B5160", "B5178", "B5202", "T1003"], "97T": ["A-1735", "B-1523", "B-275", "B-276", "B-277", "B-278"], "TM11": ["A-1741", "A-1827", "B-1850", "B-1851", "B-1852", "B-1853", "K1016", "K1153", "K1172", "O3010"], "62": ["A-1564", "A-1706", "A-1711", "B-172", "B-173", "B-174", "B-1759", "B-176", "B-1765", "B-177", "B-1779", "B-178", "B-1784", "B-179", "B-180", "B-181", "B-1894", "B-1909", "C-1895", "K1126", "K1161", "K1162"], "11K": ["C-006", "M2028", "M2218"], "SM13": ["O1012"], "BM5": ["B5304", "B5372"], "72YT": ["B5124"], "HA-2": ["E1004", "E1045"], "BM4": ["B5315"], "400A": ["A-761", "A-763", "A-770", "A-784", "A-786", "A-787", "A-788", "A-803", "A-809", "A-811", "A-812", "A-815", "A-816", "A-817", "A-818", "A-820", "A-870", "A-884", "A-931", "A-945", "A-958", "A-962", "B5315"], "SM9": ["O3186", "O3233"], "50L": ["B-045", "B-046", "B-047", "B-048", "B-049", "B-050", "B-051", "B-052", "B-053", "K1020", "K1025", "K1151", "M4510", "O2297"], "55G": ["K1128", "K1151"], "36YS": ["B5054", "O1185"], "11A": ["A-1520", "B-1910", "C-1523", "C-1532", "C-1718", "C-1839", "C-1896", "O2057", "O2072", "O2187", "O3108", "O3119"], "UM62": ["O1077", "O3085", "O3119", "O3149"], "76": ["D-139", "D-146", "D-147", "D-173"], "UM36": ["M2328"], "MR60": ["O1107"], "300D": ["A-890", "A-891"], "15P": ["C-1525", "C-1619", "M2088", "M2089", "M2100", "M2110", "M2111", "M2118", "M2169"], "MK14": ["B5008", "B5045", "B5146", "B5163", "B5234"], "11D": ["M2045", "M2214", "M2320"], "27T": ["A-1723", "B-1510", "B-1718", "B-1763", "B-1766", "B-246", "B-247", "B-248", "B-249", "B-313"], "132Z": ["O2054", "O2088", "O2103", "O2119", "O2153", "O2173"], "18YS": ["O1083", "O2076", "O2100", "O2113", "O2153"], "33B": ["A3014", "A3035", "A3042", "A3072", "A3097", "A3122", "A3123", "A3135", "A3136", "A3138"], "26A": ["K1110", "K1198", "O2297"], "40B": ["A-1622", "A-1732", "B-1601", "B-1637", "B-1710", "B-1786", "B-1818", "O2297"], "42K": ["O2271"], "48N": ["A-174", "A-190", "A-191", "A-203", "A-204", "A-208", "A-210", "A-218", "A-222", "A-229"], "48S": ["K1204"], "62G": ["K1024", "K1112", "K1185", "K1204"], "31E": ["B-125", "B-126", "B-127", "B-128", "B-129", "B-130"], "135T": ["C-1058"], "70FE": ["A-074", "A-075", "A-076", "A-077", "A-078", "A-079", "A-080", "K1214"], "16M": ["M2211", "O1016", "O3087", "O3140", "O3150"], "15R": ["C-1060", "C-1064", "M2044", "M2384"], "130E": ["O1129", "O1152", "O1171", "O3171", "O3177", "O3181"], "139D": ["O3089"], "19FS": ["M2040"], "74A": ["B-191", "B-192"], "59N": ["A-1670", "A-1718", "A-1730", "B-1530", "B-1540", "B-1744", "B-1798", "B-1898"], "97A": ["A-1638", "A-1658", "A-1683", "A-1684", "A-1685", "B-1525", "B-1776", "B-229", "B-231"], "15S": ["C-1028", "C-1065", "M2065", "M2213", "M2375"], "77A": ["A-060", "A-061", "A-062", "A-063", "A-064", "A-065", "A-066"], "152": ["O1189", "O1197", "O1232", "O1240", "O2215", "O2250", "O2283", "O2295", "O2299", "O3009", "O3027", "O3033", "O3065", "O3070"], "KM10": ["O1149", "O1165", "O3188"], "KM47": ["O1102", "O3182", "O3211", "O3287"], "KM60": ["O1070", "O1117", "O3187", "O3193", "O3245"], "15KÇ": ["M2010", "M2034", "M2086", "M2162", "M2166", "M2179"], "ÇM42": ["O1013", "O1053", "O3111"], "UM13": ["M2002"], "EM1": ["A-059", "A-098", "A-099", "A-100", "A-101", "A-102", "A-103", "A-104", "A-106", "A-107", "A-108", "A-109", "A-110", "A3025", "A3100", "K1087"], "EM2": ["A-059", "A-107", "A-109", "A-111", "A-112", "A-113", "A-1560", "A3025", "A3100", "A3149", "B-1641", "B-1644", "B-1645", "K1022", "K1049", "K1087"], "50K": ["B-298", "B-299", "B-300", "B-301", "B-302", "B-303", "B-304", "B-305", "B-306"], "79C": ["B5129", "B5255", "T1096"], "36CB": ["O2279", "O3049"], "KÇ2": ["B5271"], "KM13": ["C-325", "C-326", "C-327", "C-328", "C-329", "C-330", "O2043", "O3215", "O3242", "O3258", "O3278"], "133S": ["C-336", "C-337", "C-338", "C-339", "C-340", "O2142", "O3183", "O3282", "O3286"], "UM74": ["C-1706", "C-1728", "C-1880", "O2122", "O2142", "O2156"], "133T": ["C-331", "O3215", "O3229", "O3284"], "KM14": ["O3300"], "FB2": ["C-1517"], "17": ["O1114", "O3195", "O3203", "O3254", "O3264", "O3268", "O3278"], "133G": ["O1160", "O3259"], "132T": ["O1127", "O2124", "O2174", "O3164", "O3206", "O3207", "O3267"], "88": ["O1193", "O1234", "O1271", "O1273", "O1275", "O1283", "O1295", "O2237", "O3013", "O3028", "O3058"], "88A": ["O1216", "O1243", "O1249", "O1284", "O1295", "O2011", "O2219", "O2263", "O2306"], "42HM": ["A-1868", "B-1529", "B-1603", "B-1628", "C-1506", "C-1924"], "133AK": ["C-890", "C-891", "C-892", "C-893", "C-894", "C-897", "C-898", "C-899", "C-901", "C-902", "C-903", "C-904", "C-905"], "48P": ["O1213", "O2278"], "14KS": ["C-1626", "C-1801", "C-1802", "C-1846", "C-1860", "C-1870", "C-1884", "C-1885", "C-1898", "C-1899", "C-1901", "C-1904", "C-1937", "C-1944", "C-1946"], "41SF": ["O1237", "O1244", "O2010", "O2232", "O2290", "O3005"], "59RS": ["A-057", "A-1650", "A-1729", "B-1508", "B-1524", "B-1537", "B-1712", "B-1729"], "132E": ["O1136", "O3215"], "10E": ["C-205", "C-206", "C-219", "M4668", "M4713"], "15T": ["C-1068", "C-1070", "C-1072", "C-1076", "C-1077", "C-1906"], "70KY": ["A-081", "A-082", "A-083", "A-084", "A-085", "A-086", "A-087", "A-097", "K1066"], "77": ["A-088", "A-089", "A-090", "A-091", "A-092", "A-094", "A-095", "A-096", "A-097", "A-098", "A-099"], "14F": ["C-148", "C-149", "C-198", "C-201", "C-207", "C-209", "C-218", "M2009", "M2269", "M2305"], "14FD": ["C-148", "C-149"], "99A": ["B-066", "B-067", "B-068", "B-069", "B-070", "B-071", "B-072", "B-073", "B-074", "B-1746", "K1115"], "ÇM41": ["O1032", "O3101"], "50B": ["A-1550", "B-1838", "B-1839", "B-1844", "B-1845", "B-1846", "B-1848"], "55Y": ["K1020", "K1093"], "15U": ["C-1054", "M2066", "M2074", "M2190", "M2210"], "9T": ["O1008", "O3125"], "136Z": ["C-1057", "C-1100"], "97GE": ["A-1523", "A-1526", "A-1544", "A-1549", "A-1554", "A-1612", "A-1627", "A-1628", "A-1720", "A-1722", "A-1725", "A-1831", "A-1848", "C-1892"], "15K": ["M2070", "M2253", "M2274", "M2334", "M2381"], "E-3": ["C-1803", "C-1808", "C-1811", "C-1831", "C-1838", "C-1848", "C-1876", "C-1878"], "20E": ["C-202", "C-213", "M4666", "M4693", "M4704"], "256": ["M2280", "M2387"], "25A": ["K1156", "O2205", "O2285", "O3061"], "KM25": ["D-023", "D-045", "D-053", "D-055", "K1730", "K1775", "K1781", "K1784", "O2059"], "KM26": ["C-1075", "D-004", "D-054", "D-056", "O2040", "O2159"], "8K": ["M2345"], "72T": ["A-1532", "A-1745", "A-217", "A-219", "A-220", "A-221", "A-223", "A-224", "A-225", "B-1781", "B-1878"], "73": ["A-159", "A-160", "A-161", "A-162", "A-163", "A-164", "A-165", "A-166", "A-167", "A-168", "A-169", "A-170"], "41N": ["K1059", "K1121", "K1210", "K1218"], "92M": ["A-372", "A-373", "A3057", "A3114"], "98M": ["B5049", "B5175", "B5215", "C-1505"], "KM23": ["C-378", "C-379", "C-380", "C-381", "C-382", "C-383", "C-384", "C-385", "C-386", "C-387", "C-388", "C-389", "C-391", "O1120"], "11E": ["M2032"], "15TY": ["C-1000", "C-1001", "C-1002", "C-1005", "C-1012", "C-1023", "C-1044", "C-1069", "C-1084", "C-1086", "C-1093", "C-1094", "C-1095", "M2102"], "150": ["O1258", "O2011", "O2281", "O2298", "O3024", "O3047", "O3053"], "122M": ["C-146", "O1040", "O1078", "O3088", "O3109"], "28": ["B-118", "B-119", "B-120", "B-121", "B-122", "B-123", "B-124"], "13Y": ["M2046"], "MR51": ["B5115", "B5231", "B5340", "B5354"], "303A": ["A-871", "A-872", "A-873", "A-874", "A-875", "A-876", "A-877", "A-878", "A-880", "A-881", "A-882", "A-883", "A-907", "A-908", "A-910", "A-911", "A-912", "A-913", "A-914", "A-915", "A-916", "A-917", "A-918", "A-919", "A-920", "A-921", "A-923", "A-924", "A-925", "A-926", "A-927", "A-928", "A-929", "A-930", "A-932", "A-933", "A-934", "A-936", "A-937", "A-938", "A-939", "A-940", "A-941", "A-943", "A-944", "A-946", "A-947", "A-949", "A-950", "A-951", "A-952", "A-953", "A-955", "A-956", "A-959", "A-960", "A-961", "A-964", "A-965"], "130T": ["O2105", "O3278"], "ER1": ["C-1719", "M2276"], "KM42": ["C-1528", "C-1533", "C-1558", "O3156", "O3179", "O3192", "O3241", "O3252"], "29S": ["A-1535", "A-1733", "B-1539", "B-1611", "B-1643", "B-1656", "B-1666", "B-1724", "B-1738", "B-1752", "B-1761", "B-1762", "B-1764"], "15M": ["C-1078", "M2092"], "65G": ["B-183", "B-184", "B-185", "B-186", "B-187", "B-188", "B-190", "B-271", "B-272", "B-273", "B-274"], "14K": ["M2224", "M2273", "M2341", "M2359"], "14E": ["M2341"], "35": ["B-131", "B-132", "B-133", "B-134", "B-135", "B-136", "B-1505", "B-1521", "B-1780"], "132SB": ["O2031", "O2161", "O3222"], "135G": ["C-1051", "C-1055"], "25E": ["A-024", "A-025", "A-026", "A-027", "A-028", "A-029"], "303B": ["A-901", "A-902", "A-903", "A-904", "A-905"], "KM29": ["C-400", "C-401", "C-402", "C-403", "C-404", "C-405", "C-406", "C-407", "C-408", "O2101"], "MK31": ["B5016", "B5032", "B5166", "B5243"], "HT13": ["A3060", "B5066", "B5202", "B5230"], "55ET": ["A3118"], "46Ç": ["B-014", "B-015", "B-016", "B-017", "B-018", "B-019", "B-020"], "139S": ["O3075"], "132YM": ["O1045", "O1088"], "54TE": ["K1238"], "38Z": ["O1215", "O1231", "O1250", "O1255", "O2241"], "SG-2": ["E-001", "E-002", "E-003", "E-004", "E-007", "E-009", "E-010", "E-013", "E-016", "E-022", "E-023", "E-027", "E-030"], "MR42": ["T1076"], "98MB": ["B5005", "B5140", "B5187", "B5330", "T1069"], "MK19": ["T1043", "T1069", "T1071"], "16A": ["O1141", "O3155", "O3194", "O3260", "O3294"], "14TM": ["M2376", "O1048", "O3124"], "93T": ["A-1606", "A-1613", "A-1713", "A-1727", "A-1823", "B-106", "B-107", "B-108", "B-109", "B-110", "B-111", "B-112", "B-113", "B-114", "B-115", "B-116"], "64Ç": ["K1124", "K1159", "K1201"], "29C": ["A-1805", "B-1532", "B-1631", "B-1635", "B-1657", "B-1709", "B-1711", "B-1726", "B-1737", "B-1758", "B-1863", "B-1884", "B-1886", "B-1889", "B-1899", "B-1900", "B-1905"], "142E": ["B5205"], "19D": ["C-1519", "C-1740"], "11BE": ["M2062", "M2364", "M2374"], "132C": ["C-780", "C-781", "C-782", "C-783", "C-784", "C-785", "C-786", "C-787", "C-788", "C-789", "C-810", "C-813", "O2015", "O2016", "O2083", "O2133", "O2141", "O4011"], "42": ["K1236"], "133M": ["O2018", "O2084", "O2155"], "MR50": ["A-1022", "A-1030", "A-1032", "B5133"], "32A": ["A3016", "A3030", "A3058", "A3125"], "92T": ["A-147", "A-148", "A-149", "A-150", "A-151", "A-152", "A3007", "A3017", "A3022"], "66Z": ["K1049", "K1134"], "MR20": ["A-1525", "A-1811"], "UM11": ["M2338"], "UM40": ["O1021", "O1026", "O1090", "O3112", "O3127", "O3131"], "28T": ["B-075", "B-076", "B-077", "B-078", "B-079", "B-080"], "132N": ["O3106"], "132D": ["O2091", "O2138", "O2172", "O3225", "O3251", "O3266"], "133GP": ["O2150", "O3184", "O3251", "O3273"], "121A": ["C-237", "C-240", "C-264", "C-265", "C-266", "C-267", "C-272", "C-278", "C-285", "C-289", "C-292", "M2566", "M2581", "M2587", "M2588"], "58N": ["B-1612", "B-1613", "B-1614", "B-1615", "B-1626", "B-1627", "B-1749", "C-1911"], "133A": ["O1135", "O3269"], "KM44": ["M2194", "M2270", "O3199", "O3240"], "11Y": ["C-1669", "C-1670", "M2056", "M2062", "M2326", "M2355", "M2388"], "15N": ["C-1003", "C-1080"], "48K": ["O2239"], "59R": ["B-268", "B-269", "B-270"], "HM4": ["B-1885"], "59K": ["K1164"], "33TM": ["A3049"], "131YS": ["C-277", "C-501", "C-756", "C-771", "C-773", "C-841", "C-842", "C-850", "C-872", "C-930", "C-931", "C-932", "C-933", "C-934", "C-935", "C-936", "C-937", "C-938", "C-939", "C-990", "C-991", "C-992"], "122ÇK": ["O1002", "O1038"], "98D": ["A-1824", "A-1825", "A-1836", "A-1863", "B-1512", "B-1806"], "48M": ["B5289", "O2252"], "48KA": ["O1294", "O2249", "O2252", "O2303", "O3031", "O3068"], "336M": ["B4033", "B4034", "M4523", "M4528"], "HM2": ["B-1731", "K1099"], "36AY": ["A3037", "A3067", "A3090", "B5216", "B5295", "K1545"], "142T": ["B4015", "B4016", "B4039", "B5321", "B5346"], "30D": ["B-166", "B-167", "B-168", "B-169", "B-170", "B-171"], "E-57": ["D-133", "D-150", "D-156", "D-157", "D-162"], "97BT": ["A3130"], "18UK": ["C-1723", "C-1941", "O2020", "O4009"], "11CÜ": ["M2001"], "58A": ["O1251", "O1270", "O1293", "O2008", "O2209", "O2222", "O2225", "O2248", "O2275", "O3018", "O3054"], "KM32": ["C-814", "C-816"], "133Ü": ["O2124"], "15E": ["M2011", "M2043", "M2215"], "135K": ["A-1609", "C-1004", "C-1056", "C-1524"], "35C": ["A-1524", "B-137", "B-138", "B-139", "B-140", "B-141", "B-142", "B-143", "B-144", "B-145", "B-146", "B-147", "B-148", "B-1502", "B-1600", "B-1715", "B-1739", "B-1896"], "122Y": ["O3081", "O3110", "O3113"], "141M": ["A-1547", "A-1712", "A-1715", "A-1719", "A-1724", "A-1801", "A-1802", "A-1810", "A-1826", "A-1828", "A-1830", "A-1855", "A-1857", "B-1799", "B5058", "B5073", "B5079", "C-1890"], "78": ["A-175", "A-176", "A-177", "A-178", "A-179", "A-180", "A-181", "A-182", "A-183", "A-184", "A-185", "A-226", "A-227", "A-228", "A-230", "A-231", "A-232", "A-233"], "36KE": ["A-234", "A-235", "A-236", "A-237", "A-238", "O2268"], "153": ["A-1669", "B-1619"], "TM10": ["B-1840", "B-1841", "B-1856", "B-1857", "B-1883", "B-1912", "C-1650", "K1032", "K1101", "K1107", "K1130", "K1136", "K1152", "K1165", "O1188", "O1261"], "KM36": ["C-828", "O3196", "O3227"], "98E": ["A-1514", "B5092", "B5259"], "11P": ["O1068", "O3092", "O3115"], "UM61": ["O1023", "O3136"], "58S": ["A-009"], "3B": ["M2191"], "141A": ["B5175", "B5244"], "9KS": ["O1011"], "11G": ["O1077"], "93": ["A-1617", "A-1755", "A-1822", "B-101", "B-102", "B-103", "B-104", "B-105", "C-1618"], "16U": ["O1112", "O3189", "O3212", "O3232"], "48G": ["O1259", "O2012"], "11C": ["M2200", "M2205", "M2288", "M2350", "M2365", "M2373"], "11ST": ["C-015", "M2340", "M2375"], "92": ["B5095", "B5188", "B5277"], "15Z": ["M2202", "M2382"], "89": ["B5093", "B5159", "B5229"], "GZ1": ["C-1609"], "HT10": ["A3078", "A3116"], "59RH": ["K1077", "K1089", "K1167"], "12": ["C-165", "C-209", "C-210", "C-212", "C-214"], "132B": ["O1181"], "HT6": ["A3019", "K1115"], "97G": ["A-360", "A-361", "A-362", "A-374", "A-375", "A-376", "A-377", "A-378", "A-379", "A-380", "A-381", "A-382"], "43R": ["A-051", "A-052", "A-053", "A-054", "A-055", "A-056"], "73F": ["B5076"], "89B": ["A-1163", "A-1164", "A-765", "A-766", "A-767", "A-772", "A-773", "A-778", "A-782", "A-790", "A-792"], "25": ["O2213", "O2267", "O3048"], "35D": ["A-1102", "A-1103", "A-1104", "A-1105", "A-1106", "A-1107", "A-1108", "A-1110", "A-1111", "A-1112", "A-1114", "A-984"], "63": ["A-1626", "A-1641", "A-1754", "A-1807", "A-1809", "B-1533", "B-1702", "B-1782", "B-1801", "B-1814", "B-1816", "B-1821", "B-1833", "B-1875", "B-1906", "B-1907"], "26": ["K1173", "K1215"], "MK53": ["O3042"], "76A": ["B5260"], "TM6": ["A-1113", "O2003"], "134CK": ["C-820", "C-821"], "36F": ["B4006", "B4027", "B4030", "B4032", "B4041", "B5281", "O2242"], "132YB": ["O1082", "O3146"], "77Ç": ["A-254", "A-255"], "132K": ["O2019", "O2050", "O2098", "O2128", "O2136", "O2146"], "73B": ["A-1515", "A-1644", "A3027"], "3A": ["M2068"], "336Y": ["O1274", "O1287"], "132H": ["O2086"], "13B": ["C-514", "M2033", "M2196", "M2285"], "13M": ["C-504", "M2196", "M2208", "M2245", "M2264", "M2285"], "U1": ["B-279", "B-280"], "48L": ["K1004", "K1011", "K1029", "K1054", "K1146", "K1196"], "92K": ["B5042", "B5269"], "4": ["C-1503", "C-1508", "C-1509", "C-1552", "C-1716", "C-1722", "C-1742", "C-1747", "C-1748", "C-1749", "O3173"], "H-3": ["B5263", "B5380"], "97E": ["A3013", "B5230", "T1006", "T1025"], "FB1": ["C-1607"], "134GK": ["C-827"], "36": ["A-365", "A-366", "A-367", "A-368"], "15YK": ["M2123"], "144H": ["B4004", "B4011"], "MK49": ["A-1007", "A-1009", "A-1109", "O1219", "O1236", "O1262", "O3016"], "ÇM43": ["O3072", "O3076"], "79T": ["B5075", "B5130", "B5199", "B5257"], "54T": ["K1085"], "50Y": ["A-776", "A-794", "A3036", "K1076", "K1108", "K1191", "K1232"], "54Ç": ["B-149", "B-150", "B-151", "B-152", "B-153"], "15CA": ["C-1038", "M2204"], "48D": ["O1280", "O2261"], "14T": ["O1060", "O1061", "O3120"], "H-8": ["O2207"], "13H": ["M2073", "M2268", "M2281", "M2304"], "11SA": ["O1164", "O3165"], "18D": ["D-020", "D-021", "D-034", "D-035", "D-038", "D-040", "D-041", "D-047", "D-048", "D-049", "D-050", "D-052"], "132ÇK": ["O1095", "O3126"], "82": ["A-114", "A-115", "A-116", "A-117", "A-118", "A-119", "A-171", "A-172", "A-173"], "14M": ["A-1605", "A-1608", "A-1609", "A-1833", "C-1515", "C-1524", "C-1730", "C-1738", "C-1760", "C-1868"], "70D": ["A3149"], "93M": ["A-120", "A-121", "A-122", "A-123", "A-124", "A-125", "A-126", "A-127", "A-129", "A-130", "A-131", "A-132", "A-134", "A-135", "A-136", "A-137", "A-138"], "9H": ["O1097", "O3100"], "30M": ["A-142", "A-143", "A-144", "A-145", "A-146", "B-001", "B-002", "B-003", "B-004", "B-005", "B-081", "B-082", "B-164", "K1172", "K1237"], "50P": ["A-248", "A-249", "A-383", "A-384", "A-411", "A-412", "A-413", "A-414", "A-415", "A-416", "A-417", "A-418", "A-419", "A-420", "A-421", "A-422", "K1053", "K1136", "K1228"], "KM35": ["O1118", "O3169", "O3262", "O3297"], "DT1": ["B-1609", "B-1660", "B-1873", "B-289", "B-290", "B-291", "B-292", "B-293", "B-294", "B-295", "B-296", "B-297"], "134UK": ["C-824"], "79Y": ["B5028", "B5131", "B5174", "B5211", "B5358"], "90": ["A-1131", "A-1141", "A-1222", "A-1229", "A-989"], "122V": ["O1007", "O1099"], "251": ["D-018", "D-022", "D-025", "D-029", "D-030", "D-032"], "11M": ["M2050", "M2358"], "ER2": ["C-1744"], "MR11": ["A-1668", "B-1621"], "50C": ["B-054", "B-055", "B-056", "B-057", "K1019", "K1078"], "9A": ["M2293"], "41E": ["B-1504", "B-1511", "B-1517", "B-1534", "B-1605", "B-1622", "B-1658", "B-1661", "B-1727", "B-1858", "B-1908", "B-1911", "B-1914", "B-1919"], "H-1": ["B5288", "B5381"], "41": ["K1047"], "KM71": ["O1018", "O2026"], "33M": ["A3002", "A3023", "A3033", "A3045", "A3110"], "SG-1": ["E-011", "E-012", "E-015", "E-019", "E-020", "E-025", "E-026"], "336A": ["O1277"], "KM17": ["O1113", "O1172", "O3180"], "71T": ["A-186", "A-188", "A-189"], "11ES": ["M2383"], "132G": ["O3220"], "KM2": ["O3248"], "U2": ["B-250", "B-251", "B-252", "B-253"], "E-59": ["D-031", "D-131", "D-141", "D-149", "D-151", "D-152", "D-153", "D-164", "D-171", "D-175"], "10EK": ["C-1773", "C-1785"], "13FY": ["C-1786", "M2238"], "TM7": ["K1195", "K1203"], "300G": ["A-893", "A-894", "A-895", "A-896", "A-897", "A-898", "A-899"], "14D": ["M2014", "M2054", "M2241", "M2242", "M2356"], "16D": ["D-001", "D-002", "D-003", "D-005", "D-006", "D-007", "D-008", "D-009", "D-011", "D-012", "D-013", "D-014", "D-016", "D-017", "D-024", "D-026", "D-027", "D-028", "D-036", "D-037", "D-039", "D-043", "D-051", "D-057", "D-058", "D-060"], "E-56": ["D-136", "D-137", "D-140", "D-148"], "78K": ["B5212"], "42T": ["A-045", "A-046", "A-047", "A-048", "A-049", "A-050"], "34T": ["A5001", "A5003", "A5004", "A5006", "A5007", "A5009", "A5011", "A5012", "A5013", "A5014", "A5015", "A5016", "A5017", "A5018", "A5019", "A5021", "A5024", "A5027", "A5028", "A5029", "A5030", "A5031", "A5034", "A5036", "A5037", "A5038", "A5039", "A5040", "A5041", "A5042", "A5043", "A5044", "A5045", "A5047", "A5048", "A5049", "A5050", "A5051", "A5053", "A5054", "A5056", "A5057", "A5058", "A5059", "A5060", "A5061", "A5063", "A5064", "A5065", "A5066", "A5067", "A5068", "A5069", "A5070", "A5071", "A5072", "A5073", "A5074", "A5077", "A5078", "A5079", "A5080", "A5081", "A5083", "A5085", "A5086", "A5087", "A5090", "A5092", "A5094", "A5095", "A5096", "A5098", "A5099", "A5100", "A5101", "A5102", "A5103", "A5104", "A5105", "A5106", "A5107", "A5109", "A5111", "A5112", "A5113", "A5114", "A5115", "A5116", "A5117", "A5118", "A5119", "A5120", "A5121", "A5122", "A5123", "A5124", "A5125", "A5126", "A5127", "A5129", "A5130", "A5131", "A5132", "A5201", "A5203", "A5204", "A5205", "A5206", "M3001", "M3002", "M3003", "M3004", "M3006", "M3007", "M3008", "M3009", "M3010", "M3012", "M3013", "M3014", "M3015", "M3016", "M3017", "M3018", "M3019", "M3020", "M3021", "M3022", "M3023", "M3024", "M3025", "M3026", "M3028", "M3029", "M3030", "M3031", "M3032", "M3033", "M3034", "M3036", "M3037", "M3039", "M3040", "M3041", "M3042", "M3043", "M3044", "M3045", "M3046", "M3047", "M3048", "M3049", "M3050", "M3051", "M3052", "M3053", "M3055", "M3057", "M3058", "M3059", "M3060", "M3061", "M3062", "M3063", "M3064", "M3065", "M3067", "M3069", "M3070", "M3071", "M3072", "M3073", "M3074", "M3075", "M3077", "M3079", "M3080", "M3081", "M3082", "M3083", "M3084", "M3085", "M3086", "M3087", "M3089", "M3090", "M3091", "M3092", "M3093", "M3094", "M3095", "M3096", "M3097", "M3099", "M3100", "M3102", "M3103", "M3105", "M3106", "M3107", "M3108", "M3109", "M3111", "M3113", "M3115", "M3116", "M3117", "M3118", "M3119", "M3121", "M3122", "M3123", "M3124", "M3125", "M3126", "M3127", "M3128", "M3129", "M3130", "M3131", "M3132", "M3135", "M3136", "M3137", "M3138", "M3139", "M3140", "M3141", "M3142", "M3144", "M3145", "M3146", "M3147", "M3148", "M3149", "M3150", "M3151", "M3152", "M3153", "M3154", "M3155", "M3158", "M3159", "M3160", "M3161", "M3162", "M3163", "M3166", "M3167", "M3168", "M3169", "M3171", "M3172", "M3173", "M3174", "M3176", "M3177", "M3178", "M3179", "M3180", "M3181", "M3182", "M3183", "M3184", "M3185", "M3186", "M3187", "M3188", "M3189", "M3190", "M3191", "M3193", "M3194", "M3195", "M3197", "M3199", "M3200", "M3201", "M3203", "M3205", "M3206", "M3207", "M3208", "M3209", "M3211", "M3212", "M3213", "M3214", "M3215", "M3216", "M3217", "M3218", "M3219", "M3220", "M3221", "M3222", "M3223", "M3225", "M3226", "M3227", "M3228", "M3229", "M3230", "M3231", "M3232", "M3233", "M3234", "M3235", "M3236", "M3237", "M3238", "M3239", "M3240", "M3241", "M3243", "M3244", "M3245", "M3246", "M3247", "M3249", "M4580", "M4582", "M4584", "M4585", "M4586", "M4587", "M4588", "M4589", "M4590", "M4591", "M4593", "M4594", "M4595", "M4596", "M4597", "M4598", "M4600", "M4601", "M4603", "M4605", "M4606", "M4607", "M4608", "M4609", "M4610", "M4612", "M4613", "M4615", "M4616", "M4617", "M4618", "M4620", "M4622", "M4624", "M4625", "M4626", "M4630", "M4631", "M4632", "M4633", "M4634", "M4635", "M4637", "M4638", "M4639", "M4640", "M4642", "M4643", "M4644", "M4646", "M4647", "M4648", "M4649", "M4650", "M4651", "M4652", "M4653", "M4654", "M4801", "M4802", "M4803", "M4804", "M4805", "M4806", "M4808", "M4809", "M4810", "M4813", "M4815", "M4817", "M4818", "M4819", "M4820", "M4821", "M4822", "M4823", "M4825", "M4827", "M4828", "M4829", "M4830", "M4831", "M4832", "M4833", "M4834", "M4835", "M4837", "M4838", "M4840", "M4841", "M4842", "M4844", "M4845", "M4846", "M4847", "M4848", "M4849", "M4850", "M4851", "M4852", "M4853", "M4854", "M4856", "M4857", "M4858", "M4860", "M4861", "M4862", "M4863", "M4864", "M4865", "M4869", "M4870", "M4872", "M4874", "M4875", "M4876", "M4877", "M4878", "M4879", "M4880", "M4881", "M4882", "M4883", "M4884", "M4885", "M4886", "M4887", "M4889", "M4890", "M4891", "M4892", "M4893", "M4894", "M4895", "M4896", "M4897", "M4898", "M4899", "M4900", "M4902", "M4903", "M4904", "M4905", "M4906", "M4907", "M4908", "M4909", "M4910", "M4911", "M4913", "M4914", "M4915", "M4918", "M4919", "M4920", "M4921", "M4922", "M4923", "M4924", "M4926", "O5001", "O5002", "O5004", "O5005", "O5007", "O5009", "O5011", "O5013", "O5015", "O5016", "O5017", "O5018", "O5019", "O5020", "O5022", "O5023", "O5025", "O5026", "O5027", "O5030", "O5031", "O5033", "O5035", "O5036", "O5037", "O5038", "O5039", "O5041", "O5043", "O5045", "O5046", "O5047", "O5049", "O5050", "O5051", "O5052", "O5053", "O5054", "O5055", "O5056", "O5057", "O5059", "O5060", "O5062", "O5063", "O5064", "O5067", "O5068", "O5070", "O5071", "O5072", "O5073", "O5074", "O5075", "O5077", "O5078", "O5079", "O5080", "O5083", "O5085", "O5087", "O5088", "O5089", "O5090", "O5091", "O5092", "O5094", "O5095", "O5096", "O5097", "O5098", "O5101", "O5102", "O5103", "O5104", "O5106", "O5108", "O5109", "O5110", "O5111", "O5112", "O5113", "O5114", "O5115", "O5116", "O5117", "O5118", "O5120"], "34U": ["A5001", "A5003", "A5004", "A5006", "A5007", "A5009", "A5011", "A5012", "A5013", "A5014", "A5015", "A5016", "A5017", "A5018", "A5019", "A5021", "A5024", "A5027", "A5028", "A5029", "A5030", "A5031", "A5034", "A5036", "A5037", "A5038", "A5039", "A5040", "A5041", "A5042", "A5043", "A5044", "A5045", "A5047", "A5048", "A5049", "A5050", "A5051", "A5053", "A5054", "A5056", "A5057", "A5058", "A5059", "A5060", "A5061", "A5063", "A5064", "A5065", "A5066", "A5067", "A5068", "A5069", "A5070", "A5071", "A5072", "A5073", "A5074", "A5077", "A5078", "A5079", "A5080", "A5081", "A5083", "A5085", "A5086", "A5087", "A5090", "A5092", "A5094", "A5095", "A5096", "A5098", "A5099", "A5100", "A5101", "A5102", "A5103", "A5104", "A5105", "A5106", "A5107", "A5109", "A5111", "A5112", "A5113", "A5114", "A5115", "A5116", "A5117", "A5118", "A5119", "A5120", "A5121", "A5122", "A5123", "A5124", "A5125", "A5126", "A5127", "A5129", "A5130", "A5131", "A5132", "A5201", "A5203", "A5204", "A5205", "A5206", "M3001", "M3002", "M3003", "M3004", "M3006", "M3007", "M3008", "M3009", "M3010", "M3012", "M3013", "M3014", "M3015", "M3016", "M3017", "M3018", "M3019", "M3020", "M3021", "M3022", "M3023", "M3024", "M3025", "M3026", "M3028", "M3029", "M3030", "M3031", "M3032", "M3033", "M3034", "M3036", "M3037", "M3039", "M3040", "M3041", "M3042", "M3043", "M3044", "M3045", "M3046", "M3047", "M3048", "M3049", "M3050", "M3051", "M3052", "M3053", "M3055", "M3057", "M3058", "M3059", "M3060", "M3061", "M3062", "M3063", "M3064", "M3065", "M3067", "M3069", "M3070", "M3071", "M3072", "M3073", "M3074", "M3075", "M3077", "M3079", "M3080", "M3081", "M3082", "M3083", "M3084", "M3085", "M3086", "M3087", "M3089", "M3090", "M3091", "M3092", "M3093", "M3094", "M3095", "M3096", "M3097", "M3099", "M3100", "M3102", "M3103", "M3105", "M3106", "M3107", "M3108", "M3109", "M3111", "M3113", "M3115", "M3116", "M3117", "M3118", "M3119", "M3121", "M3122", "M3123", "M3124", "M3125", "M3126", "M3127", "M3128", "M3129", "M3130", "M3131", "M3132", "M3135", "M3136", "M3137", "M3138", "M3139", "M3140", "M3141", "M3142", "M3144", "M3145", "M3146", "M3147", "M3148", "M3149", "M3150", "M3151", "M3152", "M3153", "M3154", "M3155", "M3158", "M3159", "M3160", "M3161", "M3162", "M3163", "M3166", "M3167", "M3168", "M3169", "M3171", "M3172", "M3173", "M3174", "M3176", "M3177", "M3178", "M3179", "M3180", "M3181", "M3182", "M3183", "M3184", "M3185", "M3186", "M3187", "M3188", "M3189", "M3190", "M3191", "M3193", "M3194", "M3195", "M3197", "M3199", "M3200", "M3201", "M3203", "M3205", "M3206", "M3207", "M3208", "M3209", "M3211", "M3212", "M3213", "M3214", "M3215", "M3216", "M3217", "M3218", "M3219", "M3220", "M3221", "M3222", "M3223", "M3225", "M3226", "M3227", "M3228", "M3229", "M3230", "M3231", "M3232", "M3233", "M3234", "M3235", "M3236", "M3237", "M3238", "M3239", "M3240", "M3241", "M3243", "M3244", "M3245", "M3246", "M3247", "M3249", "M4580", "M4582", "M4584", "M4585", "M4586", "M4587", "M4588", "M4589", "M4590", "M4591", "M4593", "M4594", "M4595", "M4596", "M4597", "M4598", "M4600", "M4601", "M4603", "M4605", "M4606", "M4607", "M4608", "M4609", "M4610", "M4612", "M4613", "M4615", "M4616", "M4617", "M4618", "M4620", "M4622", "M4624", "M4625", "M4626", "M4630", "M4631", "M4632", "M4633", "M4634", "M4635", "M4637", "M4638", "M4639", "M4640", "M4642", "M4643", "M4644", "M4646", "M4647", "M4648", "M4649", "M4650", "M4651", "M4652", "M4653", "M4654", "M4801", "M4802", "M4803", "M4804", "M4805", "M4806", "M4808", "M4809", "M4810", "M4813", "M4815", "M4817", "M4818", "M4819", "M4820", "M4821", "M4822", "M4823", "M4825", "M4827", "M4828", "M4829", "M4830", "M4831", "M4832", "M4833", "M4834", "M4835", "M4837", "M4838", "M4840", "M4841", "M4842", "M4844", "M4845", "M4846", "M4847", "M4848", "M4849", "M4850", "M4851", "M4852", "M4853", "M4854", "M4856", "M4857", "M4858", "M4860", "M4861", "M4862", "M4863", "M4864", "M4865", "M4869", "M4870", "M4872", "M4874", "M4875", "M4876", "M4877", "M4878", "M4879", "M4880", "M4881", "M4882", "M4883", "M4884", "M4885", "M4886", "M4887", "M4889", "M4890", "M4891", "M4892", "M4893", "M4894", "M4895", "M4896", "M4897", "M4898", "M4899", "M4900", "M4902", "M4903", "M4904", "M4905", "M4906", "M4907", "M4908", "M4909", "M4910", "M4911", "M4913", "M4914", "M4915", "M4918", "M4919", "M4920", "M4921", "M4922", "M4923", "M4924", "M4926", "O5001", "O5002", "O5004", "O5005", "O5007", "O5009", "O5011", "O5013", "O5015", "O5016", "O5017", "O5018", "O5019", "O5020", "O5022", "O5023", "O5025", "O5026", "O5027", "O5030", "O5031", "O5033", "O5035", "O5036", "O5037", "O5038", "O5039", "O5041", "O5043", "O5045", "O5046", "O5047", "O5049", "O5050", "O5051", "O5052", "O5053", "O5054", "O5055", "O5056", "O5057", "O5059", "O5060", "O5062", "O5063", "O5064", "O5067", "O5068", "O5070", "O5071", "O5072", "O5073", "O5074", "O5075", "O5077", "O5078", "O5079", "O5080", "O5083", "O5085", "O5087", "O5088", "O5089", "O5090", "O5091", "O5092", "O5094", "O5095", "O5096", "O5097", "O5098", "O5101", "O5102", "O5103", "O5104", "O5106", "O5108", "O5109", "O5110", "O5111", "O5112", "O5113", "O5114", "O5115", "O5116", "O5117", "O5118", "O5120"], "130Ş": ["C-409", "C-410", "C-411", "C-412", "C-413", "C-415", "C-416", "C-417", "C-418", "C-419", "C-420", "C-421", "C-422", "C-423", "C-424", "C-425", "C-426", "C-427", "C-428", "C-429", "C-430", "C-431", "C-432", "C-433", "C-434", "C-435", "C-436", "C-437", "C-438", "C-439", "C-440", "C-441"], "130ŞT": ["C-421", "C-428", "C-432", "C-437", "C-438", "C-439", "C-440", "C-441", "O3183", "O3257"], "133Ş": ["C-336", "C-337", "C-338", "C-339", "C-340", "O2142", "O3183", "O3282", "O3286"], "14ŞB": ["C-076", "C-078", "C-091", "C-103", "C-105", "C-106", "C-107", "C-108", "C-109", "C-110", "C-111", "C-112", "C-113", "C-114", "C-115", "C-116", "C-117", "C-118", "C-135", "C-138", "C-144", "C-146", "O1017", "O1046", "O3139", "O4016"], "15ŞN": ["M2085", "M2095", "M2113", "M2129", "M2133", "M2144", "M2165", "M2182"], "29Ş": ["A-1535", "A-1733", "B-1539", "B-1611", "B-1643", "B-1656", "B-1666", "B-1724", "B-1738", "B-1752", "B-1761", "B-1762", "B-1764"], "54HŞ": ["K1116"], "78Ş": ["B4009", "B4019", "B4020", "B4021", "B4022", "B5060", "B5088", "B5139", "B5144", "B5170", "B5180", "B5189", "B5233"], "79Ş": ["B5053", "B5087", "B5110"], "92Ş": ["A-1512", "A-1519", "A-1531", "A-1536", "A-1661", "A-1662", "A-1728", "A-330", "A-331", "A-332", "A-333", "A-334", "A-335", "A-336", "B-1820", "B5102", "B5201"], "AND1Ş": ["M2113", "M2119", "M2154", "M2165", "M2168", "M2173", "M2184"]};
 const DOOR_LINES_MAP = {"C-483": "12A", "C-482": "12A", "C-481": "12A", "C-480": "12A", "C-223": "12A", "O1019": "SM15", "O1030": "SM15", "O3105": "SM15", "O1087": "SM15", "O1044": "SM15", "O1005": "SM15", "O1098": "SM15", "O3096": "SM15", "O2094": "SM19", "O3086": "20D", "B5316": "M7", "B5299": "M7", "B5126": "M7", "K1178": "M7", "K1095": "M7", "K1213": "M7", "A3140": "32T", "A3143": "32T", "A3148": "32T", "A3001": "32T", "A3121": "32T", "A3128": "32T", "M4741": "14B", "M4706": "14B", "M4739": "14B", "O3143": "14CE", "C-221": "12A", "C-215": "12A", "B-157": "55", "B-163": "55", "B-087": "55", "B-086": "55", "B-085": "55", "B-084": "55", "B-083": "55", "B-162": "55", "B-161": "55", "B-160": "55", "B-159": "55", "B-156": "55", "B-155": "55", "B-154": "55", "M2323": "13AB", "B5268": "146A", "B5125": "429A", "A-284": "336E", "C-124": "132YS", "C-122": "132YS", "O4016": "14SB", "O1046": "14SB", "O2087": "SM19", "O2038": "SM19", "O2062": "SM19", "O2053": "SM19", "O3139": "14SB", "K1808": "11ÜS", "K1718": "KM21", "O4020": "KM21", "K1734": "KM21", "K1512": "KM21", "K1762": "KM21", "O4002": "132M", "K1508": "KM28", "K1694": "KM28", "K1693": "KM21", "K1809": "KM21", "B-1636": "55T", "B-264": "55T", "B-308": "55T", "B-267": "55T", "B-1755": "55T", "B-1754": "55T", "B-1753": "55T", "B-1871": "55T", "B-265": "55T", "B-263": "55T", "B-262": "55T", "B-261": "55T", "B-260": "55T", "B-259": "55T", "B-307": "55T", "E1058": "BU-1", "E1036": "BU-1", "B-088": "55", "B-089": "55", "M2059": "AND1A", "B-1514": "50Z", "B-1872": "50Z", "O3071": "38", "B5108": "36AS", "B5101": "336H", "B5003": "336H", "M2542": "336H", "B5226": "79F", "C-153": "20Ü", "K1777": "KM21", "K1714": "KM21", "K1651": "142F", "K1197": "48T", "A-1217": "418", "B5273": "89T", "T1009": "78H", "O2097": "SM2", "B5252": "89T", "O2044": "522ST", "T1036": "98G", "O2240": "36V", "A-1649": "TM2", "B5034": "HT20", "O1208": "336K", "B-1822": "27SE", "A-768": "76BA", "A-805": "76BA", "A-799": "76BA", "A-350": "38E", "B5041": "98KM", "B5333": "79B", "B5362": "145", "B-1527": "TM4", "B5046": "98A", "B5236": "98A", "T1027": "98A", "O2007": "336K", "B5135": "73Y", "B5339": "458", "C-196": "20Ü", "C-150": "20Ü", "C-157": "20Ü", "C-166": "20Ü", "C-155": "20Ü", "C-154": "20Ü", "C-220": "20Ü", "C-203": "20Ü", "C-151": "20Ü", "C-152": "20Ü", "C-195": "20Ü", "C-156": "20Ü", "M4705": "UK", "M4733": "UK", "M4707": "UK", "M4728": "UK", "M4711": "UK", "M4726": "UK", "M2370": "KM46", "K1557": "78F", "K1621": "HT29", "M2080": "15D", "B5278": "MK12", "K1177": "50Z", "K1747": "KM27", "B5170": "HT20", "T1087": "98TB", "A-813": "98TB", "A-814": "98TB", "K1639": "146", "A-299": "91E", "A-304": "91E", "A-306": "91E", "A-302": "91E", "A-297": "91E", "A-303": "91E", "A-300": "91E", "C-168": "20Ü", "C-169": "319", "C-217": "319", "C-176": "319", "C-171": "319", "C-174": "319", "C-162": "319", "C-163": "319", "C-167": "319", "C-170": "319", "C-186": "319", "C-175": "319", "C-161": "319", "C-173": "319", "M4688": "UK", "M4732": "UK", "M4671": "UK", "M4658": "UK", "A-298": "91E", "A-301": "91E", "A-309": "91E", "A-307": "91E", "M2078": "136", "O1073": "320A", "M2154": "136", "M2539": "MK15", "K1174": "TM4", "A-305": "91E", "K1098": "54K", "M2109": "15F", "M2168": "15F", "M2091": "136", "B5112": "36D", "C-029": "522", "K1767": "11", "M2125": "15A", "M4735": "11ÇB", "M2586": "11ÇB", "O1194": "36C", "B5276": "HS2", "B5123": "HS2", "O1298": "154", "C-423": "130S", "O4015": "UM73", "A-832": "418", "O2162": "131V", "O2158": "131V", "K1648": "142F", "A3096": "98Y", "C-830": "132SP", "C-172": "319", "C-164": "319", "M4712": "UK", "M4664": "UK", "B5017": "146T", "O2269": "41C", "K1619": "142B", "K1240": "25G", "B5341": "145", "A3071": "32", "K1193": "48T", "B5024": "36AS", "M2551": "147", "B5377": "142B", "K1758": "122D", "A-071": "66", "A-072": "66", "A-070": "66", "A-069": "66", "A-073": "66", "A-068": "66", "K1690": "11", "O2148": "131Y", "M4753": "78C", "C-059": "14DK", "C-062": "14DK", "C-057": "14DK", "C-066": "14DK", "C-065": "14DK", "C-061": "14DK", "M4731": "UK", "M4743": "UK", "M4682": "UK", "M4665": "UK", "M4700": "UK", "A-1071": "401", "T1081": "MK11", "K1765": "19E", "O1115": "AND2Y", "K1805": "KM27", "T1046": "98H", "O2121": "19EK", "C-950": "131T", "O1269": "25S1", "O2218": "38B", "A3091": "MK97", "C-063": "14DK", "C-060": "14DK", "C-058": "14DK", "C-521": "19", "C-527": "19", "C-526": "19", "C-524": "19", "C-529": "19", "C-525": "19", "C-542": "19", "C-523": "19", "M4709": "UK", "M2330": "UK", "M4680": "UK", "K1642": "142F", "B5239": "HT20", "B5087": "79S", "K1092": "22RE", "A-252": "TM1", "M4010": "146", "O1299": "TM16", "B5052": "98T", "C-346": "133KT", "E1027": "HA-1", "E1006": "HA-1", "E1031": "HA-3", "E1022": "HA-3", "M2301": "19", "C-522": "19", "C-528": "19", "M4669": "UK", "O2291": "TM16", "M2522": "HS3", "C-510": "14ES", "O3030": "59RK", "M4546": "336", "A-711": "418", "A-721": "418", "O2066": "SM6", "T1038": "79F", "A-290": "97M", "B5084": "89T", "B5264": "146F", "B-060": "54E", "O2131": "132", "A-723": "418", "O3201": "134YK", "G3029": "HA-7", "G3028": "HA-7", "G3030": "HA-7", "G3031": "HA-7", "C-1711": "15TK", "M2124": "15TK", "M2172": "15TK", "C-1703": "15TK", "C-1628": "15TK", "B-1828": "15TK", "C-438": "130S", "C-441": "130S", "C-417": "130S", "C-410": "130S", "C-412": "130S", "C-439": "130S", "C-425": "130S", "C-435": "130S", "G3043": "HA-7", "G3060": "HA-7", "G3012": "HA-7", "C-437": "130S", "C-420": "130S", "C-409": "130S", "C-431": "130S", "C-430": "130S", "C-427": "130S", "C-419": "130S", "C-416": "130S", "C-433": "130S", "C-434": "130S", "C-422": "130S", "C-415": "130S", "C-413": "130S", "C-411": "130S", "C-440": "130S", "G3051": "HA-7", "G3025": "BU-7", "G3024": "HA-7", "C-436": "130S", "C-432": "KM11", "C-429": "130S", "C-428": "130S", "C-426": "130S", "O3130": "SM16", "O1034": "SM16", "O1084": "SM16", "T1052": "79G", "C-1053": "136", "M2173": "15A", "B-309": "DT2", "O5022": "34B", "M3002": "34BZ", "C-424": "130S", "C-421": "KM11", "C-418": "130S", "M2187": "3", "O3077": "SM15", "O3134": "SM15", "K1638": "146", "K1646": "146", "K1644": "146", "C-1752": "14R", "O3026": "25Y", "O2203": "25Y", "O2293": "25Y", "O2246": "25Y", "M4519": "418", "O2061": "130H", "C-1712": "14R", "O3148": "9ÇN", "C-131": "622", "O5047": "34BZ", "B5300": "76G", "A-1076": "401", "B5343": "145", "C-484": "12A", "C-204": "12A", "C-487": "12A", "C-486": "12A", "C-489": "12A", "C-488": "12A", "O2125": "SM18", "O4023": "SM18", "O1057": "SM17", "O1064": "SM17", "O2106": "11ÜS", "A5036": "34AS", "A5037": "34B", "M3022": "34AS", "A5024": "34C", "O5096": "34BZ", "M3031": "34", "M4865": "34BZ", "O5019": "34G", "M4620": "34G", "M4588": "34G", "M4593": "34G", "A5116": "34C", "M4902": "34AS", "M4810": "34B", "M4874": "34G", "M4911": "34G", "M4835": "34G", "O5035": "34BZ", "M3154": "34BZ", "M4596": "34Z", "M4876": "34G", "M3008": "34G", "M3219": "34G", "M3021": "34G", "M4654": "34G", "M4818": "34G", "A5056": "34C", "M4804": "34B", "O5013": "34G", "O5116": "34G", "M3013": "34BZ", "O5117": "34AS", "A5043": "34C", "M3151": "34G", "M4624": "34G", "M4889": "34G", "M4607": "34B", "K1015": "M7", "K1086": "M7", "K1100": "M7", "O1217": "M7", "K1039": "M7", "K1149": "M7", "O2233": "M7", "T1013": "MK11", "T1055": "MK11", "T1050": "MK11", "T1060": "MK11", "B5107": "MK11", "T1061": "98", "T1004": "MK11", "T1057": "MK12", "B5114": "MK12", "T1068": "MK12", "K1529": "MK12", "K1554": "MK12", "K1617": "MK12", "K1689": "MK12", "B5376": "79B", "K1528": "MK22", "B-035": "TM8", "B-032": "TM8", "B-037": "TM8", "B-030": "TM8", "O3023": "TM17", "M4526": "TM18", "O3025": "TM18", "B-1748": "TM18", "B-1701": "TM18", "B5329": "BM6", "B5355": "BM6", "B5366": "BM6", "B5342": "BM6", "B5336": "BM6", "B5317": "401T", "A-1227": "401T", "A-922": "401T", "O2111": "KM37", "C-1921": "SM1", "O2166": "SM1", "O2065": "132F", "O2181": "SM5", "O2109": "SM1", "O2052": "SM1", "C-194": "19T", "C-1771": "19T", "O2049": "SM2", "O2073": "SM2", "A-982": "80T", "O3034": "TM14", "O2274": "TM14", "C-1779": "19SK", "C-1781": "19SK", "C-1778": "19SK", "C-1871": "19SK", "C-1775": "19SK", "C-1659": "19SK", "C-1849": "19SK", "C-1664": "19SK", "C-1851": "19SK", "C-1859": "19SK", "C-1869": "19SK", "M4833": "34G", "M4904": "34C", "M4900": "34G", "M4633": "34C", "M4870": "34AS", "M3102": "34G", "M3149": "34BZ", "M4840": "34G", "M4910": "34G", "M4618": "34G", "A5069": "34AS", "M4915": "34G", "M4887": "34G", "M4881": "34G", "M4829": "34G", "A5118": "34C", "M4923": "34AS", "A5016": "34C", "A5081": "34C", "O5038": "34G", "M3220": "34G", "M4815": "34G", "M4586": "34G", "M4872": "34G", "M4846": "34G", "M4830": "34G", "M4854": "34G", "M4869": "34G", "M4819": "34G", "M4892": "34G", "M3012": "34G", "B5334": "MR40", "B5254": "79B", "K1224": "62H", "B5155": "147", "A-713": "418", "C-1518": "19EK", "K1519": "146", "B-1751": "TM18", "B-1904": "TM18", "A-1700": "TM18", "M4541": "TM18", "M4516": "TM18", "M4746": "TM18", "M4549": "TM18", "O3006": "TM17", "A-1031": "TM17", "A-1029": "TM17", "O1192": "TM17", "M4558": "TM17", "O2280": "38B", "O1285": "TM17", "A-935": "401T", "A-879": "401T", "A-900": "401T", "A-957": "401T", "A-1161": "401T", "A-1220": "401T", "A-1165": "401T", "A-948": "401T", "A-942": "401T", "A-909": "401T", "O1009": "SM2", "C-1601": "19SK", "A-1060": "401", "A-1044": "401", "A-1042": "401", "A-1041": "401", "A-1040": "401", "A-1085": "401", "A-1055": "401", "A-1058": "401", "A-1046": "401", "A-1062": "401", "A-1075": "401", "A-1050": "401", "A-1077": "401", "A-1064": "401", "A-1052": "401", "A-1081": "401", "A-1047": "401", "A-1053": "401", "A-1048": "401", "A-1070": "401", "A-1054": "401", "M3163": "34G", "M3179": "34B", "M4922": "34G", "O5016": "34G", "O5078": "34AS", "O5083": "34G", "M3081": "34G", "M3122": "34G", "A5050": "34C", "M4590": "34BZ", "M3085": "34AS", "A5114": "34B", "A5109": "34C", "M4856": "34AS", "M4595": "34AS", "M3048": "34BZ", "M3221": "34G", "O1014": "19V", "M4550": "TM17", "O3046": "TM17", "M4515": "TM17", "M4579": "TM17", "M4527": "336K", "M4508": "MK22", "M4565": "TM17", "A-1006": "TM17", "A-1004": "TM17", "A-1001": "TM17", "M4517": "TM17", "M4755": "TM17", "M4538": "MK50", "O2247": "TM19", "O3050": "TM19", "O1266": "TM19", "B5091": "98S", "B5026": "98S", "K1229": "29M1", "K1199": "25S1", "B-211": "97", "B-225": "97", "B-208": "97", "B-223": "97", "B-227": "97", "B-219": "97", "B-221": "97", "B-212": "97", "B-215": "97", "B-217": "97", "B-216": "97", "B-224": "97", "B-214": "97", "O1304": "59HS", "O2114": "UM73", "O2068": "132SP", "A-887": "300C", "C-1081": "139T", "C-1049": "139", "C-1085": "139T", "M2048": "15C", "C-1089": "139T", "M2231": "133F", "A-1063": "401", "A-1079": "401", "A-1069": "401", "A-1083": "401", "A-1073": "401", "B-1880": "TM15", "O2204": "AVR2", "A-831": "448", "A-739": "448", "A-735": "448", "A-751": "448", "A-753": "448", "A-736": "448", "A-747": "448", "A-742": "448", "A-750": "448", "A-749": "448", "A-844": "448", "C-1661": "14A", "C-1526": "14A", "C-1665": "14A", "B-1794": "14A", "C-1724": "14A", "B-1742": "14A", "C-1933": "14A", "C-1916": "14A", "A-256": "50R", "B5313": "79GE", "B5309": "98AB", "M4674": "10A", "B-1526": "TM4", "M2568": "11ÇB", "T1108": "79GE", "K1040": "29B", "M4560": "78F", "K1618": "79K", "K1721": "132YS", "O3255": "KM33", "C-464": "500T", "M2549": "HS2", "K1120": "26B", "M2104": "136", "M4740": "14Y", "T1101": "79KT", "O3213": "KM12", "C-1029": "20", "K1520": "142B", "K1589": "142F", "M2346": "11Ü", "O4108": "DS1", "O3118": "DS2", "C-1017": "139", "B5319": "142ES", "B5360": "142ES", "B5307": "142ES", "O2296": "TM19", "K1056": "AVR2", "O2211": "AVR2", "K1003": "74", "C-286": "13", "C-282": "13", "C-291": "13", "K1069": "54K", "O3038": "42KT", "A-1704": "142", "A-1556": "142", "A-1506": "142", "A-1653": "142", "A-1804": "142", "B-213": "97", "B-226": "97", "B-222": "97", "B-210": "97", "B-209": "97", "B5374": "HT48", "B5370": "HT48", "O3205": "KM43", "A-703": "429A", "A-702": "429A", "A-705": "429A", "A-892": "300M", "O1096": "SM7", "O3151": "133P", "C-092": "14BK", "C-100": "14BK", "C-085": "14BK", "C-104": "14BK", "C-087": "14BK", "C-133": "14BK", "M2030": "19F", "K1002": "50F", "K1007": "50F", "A-257": "50R", "A-260": "50R", "A-258": "50R", "A-259": "50R", "A-1067": "401", "B5262": "MR54", "B5044": "MR54", "B5168": "MR54", "A-1035": "HS3", "A-1034": "HS3", "A-1021": "HS3", "A-1033": "HS3", "B5134": "142F", "O1260": "HT5", "A-655": "BM8", "A-840": "448", "A-737": "448", "A-744": "448", "A-748": "448", "A-835": "448", "A-841": "448", "A-842": "448", "A-746": "448", "A-745": "448", "A-754": "448", "A-752": "448", "C-1832": "14A", "A-1562": "14A", "C-1672": "14A", "C-1902": "14A", "O1292": "50G", "O2197": "19A", "K1632": "HS2", "B5312": "142ES", "B-1870": "142", "A-1803": "142", "B-1811": "142", "B-1788": "142", "M2510": "142", "K1684": "142", "K1551": "142", "K1587": "144A", "K1532": "142", "K1568": "142", "A-1867": "142", "A-1703": "142", "B-207": "97", "M2392": "11L", "C-090": "14BK", "C-093": "14BK", "C-084": "14BK", "C-096": "14BK", "M2057": "14BK", "A-760": "76GM", "O3142": "SM12", "O3094": "SM12", "O1020": "SM12", "D-103": "145T", "D-106": "145T", "D-104": "145T", "K1247": "50Z", "B-1703": "50Z", "K1021": "50Z", "B-1890": "50Z", "B-1874": "50Z", "B-1750": "50Z", "A-808": "146B", "M2106": "137", "M2081": "137", "M2161": "15F", "M2094": "136B", "M2107": "137", "M2159": "137", "M2084": "137", "M2163": "137", "O3084": "138B", "B5306": "HT29", "A-654": "BM7", "A-653": "BM7", "K1079": "K3", "K1068": "K3", "K1057": "K3", "K1113": "K3", "K1013": "K3", "O1144": "132P", "O3239": "19F", "O3172": "16F", "O1175": "19F", "O3285": "19F", "O1132": "19F", "A-740": "448", "A-743": "448", "A-738": "448", "K1711": "14YK", "K1782": "19YK", "O1227": "38H", "A3021": "33", "A-364": "33Y", "A3133": "33Y", "O1119": "KM41", "O3219": "KM41", "A-310": "31Y", "K1005": "TM3", "K1009": "TM3", "K1170": "TM3", "B-039": "TM8", "B-038": "TM8", "B-034": "TM8", "B-036": "TM8", "C-288": "10", "C-255": "121B", "M2598": "11H", "C-1009": "11H", "M2329": "5", "A-1537": "TM15", "K1536": "142", "M2537": "142", "K1579": "142", "K1675": "142", "A-1561": "142", "B-059": "54E", "B-058": "54E", "B5157": "AVR1", "M4716": "15H", "M2167": "15SD", "O2025": "SM4", "O2134": "SM4", "O2117": "SM4", "O2058": "SM4", "O3121": "SM4", "O2145": "SM4", "O2165": "SM4", "O2123": "SM3", "O4001": "SM3", "B-1535": "50H", "C-1642": "50H", "A-1614": "50H", "A-1611": "50H", "K1109": "50H", "K1123": "50H", "K1244": "50H", "K1014": "50H", "K1184": "25G", "O1198": "36V", "C-1915": "50H", "K1230": "50H", "O1226": "42Z", "K1144": "50H", "A-1186": "403", "A-1181": "403", "A-988": "90B", "C-247": "121B", "M2165": "15", "C-243": "121B", "B-288": "54HT", "B-285": "54HT", "B-287": "54HT", "B-283": "54HT", "B-286": "54HT", "B-284": "54HT", "B-281": "54HT", "B-282": "54HT", "K1245": "41SM", "A3031": "TM13", "K1138": "TM13", "M2282": "17S", "E1028": "BA-1", "E1049": "BA-4", "E1052": "BA-4", "B5148": "98KM", "B5067": "HT12", "B5062": "78B", "A3113": "78B", "K1220": "TM2", "K1183": "TM2", "K1075": "TM2", "B-1842": "TM2", "A3047": "TM2", "A-843": "448", "A-836": "448", "A-834": "448", "O1282": "40", "O3175": "133N", "M4702": "15KB", "O3197": "KM43", "O3230": "KM43", "M2278": "8", "C-1537": "8E", "C-1735": "8E", "C-1725": "8E", "A-1546": "8E", "C-1943": "8E", "C-1542": "8E", "A-1675": "8E", "M2333": "1", "M2060": "14C", "C-507": "14A", "M2189": "1", "B-1757": "TM4", "G3017": "KA-7", "G3034": "KA-7", "G3049": "KA-7", "G3038": "KA-7", "E1054": "KA-2", "B-062": "54ÖR", "B-065": "54ÖR", "B-064": "54ÖR", "B-063": "54ÖR", "B-061": "54ÖR", "A-1878": "TM15", "B-1717": "TM15", "A-1872": "TM15", "A-1835": "TM15", "A-251": "TM13", "O1225": "TM16", "O1289": "59A", "O1228": "TM16", "O2254": "TM16", "O2277": "TM16", "O1286": "TM16", "O2253": "TM16", "A3084": "TM13", "A3010": "TM13", "A-250": "TM13", "A3061": "TM13", "M2142": "15SD", "K1135": "K1", "K1150": "K1", "M2097": "15SD", "K1125": "K2", "K1058": "K2", "B5020": "AVR1", "G3046": "BU-7", "G3021": "BU-7", "G3018": "BU-7", "G3002": "BU-7", "G3040": "BU-7", "O2024": "SM3", "O4004": "SM3", "O2045": "SM3", "A-762": "76GM", "K1209": "29M1", "A-036": "40T", "A-041": "40T", "K1640": "146", "B4002": "146", "K1652": "146", "A3034": "22", "O1238": "50AT", "O3007": "50AT", "O3012": "50AT", "O3059": "50AT", "O2251": "50AT", "O1302": "50AT", "O1256": "50AT", "O2214": "50AT", "K1041": "65A", "B5373": "ES2", "K1194": "54K", "B-028": "46T", "B-024": "46T", "B-025": "46T", "B-021": "46T", "B-027": "46T", "B-026": "46T", "B-023": "46T", "B-022": "46T", "O2013": "SM1", "O2192": "SM1", "O2035": "SM1", "K1691": "132YS", "C-121": "132YS", "K1702": "132YS", "O1010": "132YS", "O1071": "132YS", "O2132": "SM6", "C-125": "132YS", "O4014": "KM28", "C-082": "132YS", "C-123": "132YS", "O1290": "HT5", "C-1755": "14R", "O1036": "MR9", "O3098": "MR9", "O1029": "MR9", "B5326": "76TM", "K1704": "19A", "K1700": "19A", "K1792": "19A", "K1517": "19A", "K1725": "19A", "K1763": "19A", "K1729": "19S", "K1761": "19A", "K1182": "AVR2", "M4694": "15KB", "M4695": "15KB", "M4676": "15KB", "B5122": "HT18", "B5287": "ES3", "C-1761": "14R", "C-1753": "14R", "C-1759": "14R", "O2082": "KM11", "M4505": "336", "O3250": "KM43", "O3296": "KM43", "O3290": "KM43", "O3236": "KM43", "B5088": "98S", "O3170": "17S", "B-096": "87", "B-100": "87", "B-090": "87", "B-092": "87", "B-091": "87", "B-099": "87", "B-098": "87", "B-097": "87", "B-095": "87", "B-094": "87", "B-093": "87", "C-1847": "19S", "O1218": "36HT", "B5047": "36HT", "O3011": "36B", "O3043": "36HT", "G3042": "BA-7", "G3039": "BA-7", "G3057": "BA-7", "G3026": "BA-7", "G3004": "BA-7", "G3054": "BU-7", "K1535": "146", "K1636": "146", "O2273": "50AT", "O2227": "50AT", "O2228": "36V", "O3063": "36V", "O2304": "36V", "K1116": "54HS", "K1046": "54KT", "B5039": "79KM", "K1028": "29E", "B-1515": "9S", "M4687": "10", "M4657": "10", "M4692": "10", "M4734": "10", "B5344": "76TM", "B5305": "76TM", "C-393": "133K", "E1060": "BA-2", "E1019": "BA-4", "O3090": "320", "O1039": "SM1", "O3079": "131K", "O1100": "19EK", "O1017": "20K", "O2193": "133P", "O2079": "SM5", "O2070": "19S", "M2565": "15BK", "M2580": "15BK", "M2592": "15BK", "M2585": "15BK", "K1715": "132YS", "O5005": "34BZ", "A5074": "34A", "M4589": "34G", "M4636": "34AS", "M3018": "34AS", "A5077": "34C", "O5059": "34G", "A5104": "34C", "M3095": "34B", "M3150": "34G", "O5015": "34B", "A5102": "34C", "A5040": "34C", "M3213": "34G", "M3235": "34B", "O5052": "34G", "M3234": "34C", "M4894": "34C", "M3115": "34BZ", "M4832": "34BZ", "M4605": "34B", "M3104": "34B", "M3072": "34BZ", "M3019": "34BZ", "M3052": "34C", "M3229": "34B", "M4877": "34G", "M4905": "34BZ", "M3195": "34BZ", "M3166": "34G", "M3200": "34BZ", "M3027": "34BZ", "B-044": "50T", "B-043": "50T", "O1211": "50G", "B-040": "50T", "B-042": "50T", "O1201": "50T", "O3202": "KM43", "O1130": "KM43", "O1159": "KM43", "O3301": "130A", "O3243": "KM43", "O3204": "KM43", "O1145": "KM43", "O3157": "KM43", "O1235": "TM16", "O1229": "TM16", "G3056": "BA-7", "G3010": "BA-7", "G3033": "BA-7", "G3014": "BA-7", "M2283": "KM46", "K1611": "HS2", "B-1736": "89A", "B5322": "76TM", "C-520": "19", "C-517": "19", "C-519": "19", "C-518": "19", "M4561": "336", "M4754": "336", "O2017": "UM73", "M2575": "15TA", "O1281": "151", "O1288": "151", "O3020": "151", "O1223": "151", "O2282": "151", "O3014": "151", "O3021": "151", "O2224": "151", "O2260": "151", "O3221": "17S", "B5359": "145", "B5274": "145", "B5327": "145", "B5345": "145", "B5352": "145", "B5356": "145", "B5302": "145", "M4677": "10", "C-806": "134YK", "C-352": "133KT", "O2089": "SM14", "M2126": "15BK", "K1189": "TM4", "O3037": "TM4", "A-1552": "14A", "B-1638": "14A", "M2119": "135A", "O2177": "132YS", "K1797": "132YS", "M3161": "34G", "M3069": "34G", "O5106": "34G", "O5120": "34BZ", "O5011": "34BZ", "O5075": "34BZ", "M3186": "34BZ", "A5039": "34AS", "M3228": "34AS", "M4868": "34B", "A5046": "34B", "M4882": "34C", "M3015": "34", "A5082": "34B", "O5115": "34C", "O5104": "34BZ", "M4875": "34G", "O5010": "34BZ", "A5113": "34C", "O5109": "34AS", "M4625": "34BZ", "M3158": "34G", "O5044": "34C", "M4581": "34C", "M4862": "34B", "M3062": "34G", "A5006": "34G", "M3205": "34AS", "M3218": "34C", "O5101": "34B", "M3133": "34", "M3037": "34G", "O5033": "34BZ", "M3157": "34C", "A5001": "34B", "M3225": "34BZ", "M3032": "34G", "M3034": "34AS", "M3239": "34G", "M3223": "34G", "M3093": "34G", "M4897": "34G", "M4903": "34BZ", "M3180": "34G", "M3209": "34BZ", "O5097": "34G", "M3193": "34BZ", "O5113": "34BZ", "O5037": "34G", "A5011": "34AS", "M3125": "34G", "A5129": "34C", "A5054": "34C", "B5241": "MK15", "B5136": "MK15", "B5090": "MK15", "B5282": "MK15", "O1125": "KM31", "K1506": "19E", "K1801": "19E", "K1514": "18K", "O5111": "34G", "M3196": "34BZ", "A5207": "34C", "A5208": "34C", "M3176": "34BZ", "K1749": "14YK", "K1790": "14YK", "K1708": "14YK", "K1513": "14YK", "K1750": "14YK", "O1059": "KM61", "O3237": "KM12", "A-245": "86V", "A-243": "86V", "A-247": "86V", "K1140": "65A", "K1012": "65A", "M2314": "8Y", "M2083": "136", "O1214": "36S", "O2256": "38B", "T1085": "36C", "K1106": "M7", "K1205": "M7", "B5332": "M7", "K1248": "M7", "O2245": "M7", "K1080": "M7", "G3008": "BA-7", "G5004": "BA-7", "G5010": "BA-7", "G5001": "BA-7", "M2217": "19F", "M2015": "19F", "M2369": "19F", "M2212": "19F", "M2292": "19F", "M2311": "19F", "M2377": "19F", "A3141": "33Y", "C-160": "319", "B5367": "144B", "M4011": "HT29", "A-1167": "402", "A-1169": "402", "A-1170": "402", "A-1168": "402", "A-1162": "402", "E1048": "BA-4", "E1030": "BA-2", "E1055": "BA-2", "E1029": "BA-4", "O2180": "SM6", "O3083": "11T", "O1093": "11T", "A-1875": "TM15", "O3032": "TM15", "C-1047": "136B", "C-1043": "136B", "O2301": "40", "K1760": "133TM", "K1787": "133TM", "O3004": "57UL", "A3108": "MK97", "A-140": "MK97", "A-139": "MK97", "A3093": "MK97", "A3124": "MK97", "M4823": "34G", "M4918": "34G", "O2116": "14S", "O2129": "14S", "K1510": "18K", "K1733": "18K", "K1804": "18K", "K1800": "18K", "D-144": "36G", "O2294": "36G", "D-145": "36G", "O1300": "58UL", "A-885": "300", "K1565": "HT29", "B5303": "HT29", "B5323": "HT29", "K1627": "MK13", "M2113": "15TA", "M2184": "15BK", "M2037": "122C", "M2047": "15SD", "M2368": "129T", "M2260": "19YK", "M2020": "2", "M2035": "10", "M2324": "122C", "M3199": "34G", "O5071": "34G", "M3047": "34B", "A5057": "34C", "A5127": "34C", "M4649": "34G", "A5029": "34B", "M3247": "34C", "M3153": "34AS", "M3129": "34C", "M3244": "34AS", "M4652": "34G", "M4827": "34G", "O5020": "34G", "A5038": "34C", "O5095": "34G", "M4857": "34C", "M3214": "34BZ", "M3060": "34G", "M3171": "34G", "M4626": "34AS", "M4642": "34G", "O5043": "34C", "M4831": "34Z", "M4609": "34C", "M4880": "34G", "M3249": "34BZ", "M3137": "34BZ", "M3042": "34G", "A5058": "34A", "M3145": "34G", "A5073": "34AS", "A5060": "34C", "M3117": "34BZ", "M3040": "34AS", "A5132": "34C", "M3189": "34BZ", "M4895": "34G", "M3203": "34AS", "A5121": "34B", "A5066": "34B", "M4890": "34BZ", "O5062": "34Z", "A5100": "34AS", "M2526": "458", "C-316": "500L", "C-315": "500L", "C-317": "129L", "A3065": "500L", "A3063": "500L", "A3086": "500L", "C-314": "500L", "C-321": "500T", "T1082": "429A", "A3103": "HT1", "K1050": "50S", "M3144": "34C", "M4606": "34G", "M4820": "34AS", "M3029": "34G", "M4913": "34AS", "M3043": "34AS", "M3174": "34G", "M3197": "34C", "M4615": "34G", "M4921": "34C", "M3070": "34G", "M3124": "34G", "M3194": "34G", "K1717": "19YK", "M4924": "34AS", "M4885": "34G", "M4802": "34G", "M4646": "34G", "M4926": "34G", "M4627": "34B", "M4914": "34BZ", "M3067": "34G", "O5077": "34B", "M4825": "34G", "M3090": "34B", "O5027": "34B", "M2157": "15A", "M2101": "136T", "M2096": "136T", "M4909": "34C", "M4585": "34G", "M4650": "34G", "O3045": "336H", "A-725": "418", "M4569": "418", "K1065": "M7", "B5331": "M7", "K1131": "M7", "O2235": "M7", "K1176": "M7", "K1051": "M7", "K1216": "M7", "E1050": "BA-4", "E1002": "BA-4", "E1032": "BA-1", "E1057": "BA-2", "E1037": "BA-4", "E1053": "BA-2", "E1056": "BA-4", "E1042": "BA-2", "E1013": "BA-5", "E1011": "BA-2", "E1023": "BA-4", "E1017": "BA-4", "E1016": "BA-4", "E1005": "BA-4", "O2305": "TM17", "G3009": "BA-7", "G3035": "BA-7", "C-533": "19F", "C-532": "19F", "C-531": "19F", "C-812": "134YK", "B5069": "144K", "A-715": "144K", "A-714": "144K", "O2093": "SM6", "O2182": "SM6", "O2078": "SM6", "O2137": "E-10", "O2120": "SM6", "O2152": "SM6", "A-1742": "TM15", "B-1819": "TM15", "A5045": "34C", "A5130": "34C", "M3191": "34BZ", "C-770": "SM5", "O2095": "SM5", "C-768": "SM5", "C-769": "SM5", "T1072": "HT29", "K1571": "HT29", "K1600": "HT29", "K1585": "HT29", "K1654": "HT29", "K1537": "HT29", "B5250": "HT29", "D-170": "E-58", "D-176": "E-58", "D-172": "E-58", "D-166": "E-58", "C-1096": "11H", "M4721": "11H", "B4007": "143", "B4008": "144A", "B4043": "142K", "B4014": "144", "B4026": "142K", "B5204": "142A", "B5035": "142A", "B4003": "144A", "B5245": "142A", "C-045": "14B", "C-800": "132SP", "C-1037": "132SP", "C-920": "132SP", "C-1062": "132SP", "C-819": "132SP", "C-825": "132SP", "O2069": "132SP", "O2028": "132SP", "B-1903": "132SP", "M3181": "34AS", "A5047": "34B", "O5074": "34C", "M4886": "34AS", "O5063": "34BZ", "A5112": "34A", "M3096": "34AS", "M4603": "34AS", "M3009": "34AS", "M3030": "34BZ", "A5061": "34AS", "M4651": "34A", "M4852": "34AS", "A5019": "34BZ", "M3107": "34C", "M3051": "34BZ", "M3039": "34AS", "M4801": "34BZ", "M3233": "34C", "M4899": "34BZ", "O5094": "34BZ", "A5131": "34B", "A5076": "34BZ", "M4828": "34G", "A5095": "34B", "M4612": "34G", "A5126": "34B", "M3075": "34BZ", "K1097": "AVR2", "B-1887": "146", "K1602": "146", "K1650": "146", "K1595": "146", "K1610": "146", "A-1663": "146", "A-1539": "146", "A-1522": "146", "K1634": "146", "K1637": "146", "A-1744": "146", "A-1743": "146", "A-1856": "146", "A-1676": "146", "A-1563": "146", "K1625": "142B", "K1573": "146T", "M3036": "34AS", "M3245": "34AS", "A5098": "34G", "M3230": "34C", "M3016": "34G", "M4591": "34G", "M4632": "34C", "M3026": "34C", "M3119": "34G", "O5009": "34G", "A5067": "34AS", "M3033": "34G", "M3058": "34AS", "M3004": "34G", "O5068": "34G", "M3020": "34G", "O5046": "34G", "M3094": "34G", "A5083": "34C", "M3207": "34G", "M3023": "34G", "A5051": "34G", "M4849": "34BZ", "O5053": "34G", "O5114": "34BZ", "O5017": "34G", "M3116": "34G", "M3243": "34G", "M3074": "34G", "M4850": "34G", "M3109": "34C", "M4803": "34BZ", "A5117": "34A", "A5090": "34C", "M4834": "34G", "M3126": "34G", "M4859": "34BZ", "M4919": "34Z", "M4580": "34", "O5049": "34AS", "M4807": "34BZ", "M4817": "34G", "M4622": "34A", "M4814": "34B", "M4587": "34G", "B5194": "MK22", "K1104": "TM5", "M2518": "ES3", "O2212": "AVR1", "O1212": "79FY", "B5006": "89M", "B5152": "141K", "O4017": "SM5", "C-1606": "14ES", "A3079": "98Y", "A-1702": "50V", "M2143": "136", "K1082": "41ST", "B5275": "89YB", "B5240": "142A", "B5206": "ES4", "C-273": "15B", "O3019": "38B", "M2219": "8A", "E1043": "BA-4", "E1033": "BA-4", "M4567": "TM17", "M4764": "TM17", "G3011": "BA-7", "B-1719": "89S", "B-1616": "50D", "A-1672": "31", "K1042": "59CH", "K1055": "48H", "C-538": "19F", "C-1792": "19F", "K1137": "50Z", "B-1804": "TM15", "A-194": "89K", "O2092": "131Y", "O2194": "SM5", "O2108": "SM5", "A3083": "92C", "K1658": "HT29", "M2026": "15ÇK", "B5007": "98S", "A-1874": "98S", "B5118": "98S", "A-1860": "BN1", "A-1861": "BN1", "T1062": "MK15", "B3004": "79GE", "T1075": "79GE", "T1083": "79GE", "M2192": "19M", "A-1224": "404", "B5191": "98S", "E1038": "BA-4", "K1208": "25G", "K1094": "48C", "B5105": "27E", "O3129": "19V", "O1081": "19V", "O1033": "19V", "O1065": "320Y", "O3082": "320Y", "O2160": "14S", "O2063": "14S", "O2183": "14S", "O2151": "14S", "D-059": "E-58", "B5102": "AVR1", "O2030": "132SP", "O2171": "132SP", "O2167": "132SP", "O2135": "122H", "O4018": "132SP", "M4907": "34G", "M4851": "34BZ", "M3185": "34BZ", "O5079": "34G", "O5118": "34AS", "M4896": "34BZ", "M4639": "34G", "A5072": "34BZ", "M4858": "34BZ", "M4617": "34G", "M4598": "34AS", "M4863": "34G", "A5034": "34B", "O5090": "34C", "A5012": "34G", "M3173": "34G", "M3238": "34G", "O5092": "34BZ", "M4608": "34G", "M3187": "34C", "A5013": "34G", "M3046": "34G", "A5032": "34C", "K1586": "142B", "K1613": "142F", "K1609": "142B", "M2517": "142B", "O5072": "34G", "M4600": "34B", "A5078": "34B", "A5063": "34C", "M3190": "34B", "M3215": "34G", "A5096": "34C", "M4844": "34C", "O5002": "34C", "M3130": "34G", "M3053": "34G", "M3182": "34A", "M3178": "34C", "M4891": "34G", "M3152": "34G", "M3138": "34G", "M4613": "34C", "M4809": "34AS", "M3135": "34AS", "M3162": "34BZ", "O5039": "34BZ", "M3172": "34G", "M3240": "34G", "O5089": "34G", "O5036": "34G", "M4864": "34AS", "M3084": "34BZ", "M4879": "34G", "M4861": "34G", "M3065": "34AS", "O5064": "34G", "A5071": "34B", "M3083": "34C", "M3212": "34G", "A5111": "34B", "A5085": "34B", "M3024": "34AS", "M3082": "34AS", "M3227": "34C", "M3183": "34C", "M3063": "34G", "M3216": "34AS", "K1027": "K4", "K1521": "147", "M2390": "10F", "M2362": "10F", "M2069": "10F", "M2287": "10F", "O2004": "59RK", "O1242": "M7", "O3003": "M7", "K1180": "M7", "K1766": "122D", "T1041": "89C", "B5036": "146T", "M4749": "76O", "B5237": "78G", "B4017": "79G", "A-830": "418", "O3102": "UM60", "A3099": "98Y", "B5160": "146T", "K1561": "146T", "A3068": "98Y", "C-376": "KM24", "B-275": "97T", "M4920": "34C", "C-399": "KM27", "B-1851": "TM11", "C-030": "522", "C-028": "522", "C-1033": "135", "K1126": "62", "K1161": "62", "C-006": "20K", "A-156": "73H", "A-157": "73H", "O1012": "SM13", "B5304": "BM5", "M4758": "418", "B5124": "72YT", "A3069": "85C", "A3142": "85C", "A3006": "85C", "A3011": "85C", "A3082": "85C", "O1123": "19F", "O1108": "KM41", "E1004": "HA-1", "E1015": "HA-1", "B5315": "400A", "O3233": "SM9", "O2195": "132SP", "M3049": "34G", "M3113": "34G", "O5048": "34BZ", "O5098": "34AS", "M3061": "34B", "M3045": "34BZ", "M3211": "34G", "M3005": "34BZ", "A5103": "34AS", "M3064": "34AS", "O5041": "34BZ", "O5054": "34BZ", "O5103": "34C", "M3167": "34AS", "M3028": "34G", "O5024": "34C", "M3071": "34BZ", "M4805": "34G", "K1151": "55G", "B5054": "336H", "O2005": "MK50", "K1752": "622", "K1732": "622", "K1780": "622", "A3119": "30A", "A3055": "500L", "A3087": "500L", "A3147": "500L", "K1122": "30A", "K1783": "132YS", "B5104": "MK15", "A5028": "34C", "O5060": "34G", "A5120": "34AS", "A5122": "34C", "A5009": "34AS", "M3237": "34B", "A5094": "34B", "O5070": "34AS", "A5041": "34C", "A5048": "34AS", "M3077": "34Z", "A5086": "34AS", "O5087": "34AS", "M3123": "34AS", "M4616": "34G", "M4648": "34G", "M4883": "34", "A5107": "34AS", "M3091": "34G", "M4638": "34G", "M3188": "34G", "M4906": "34G", "M4845": "34G", "M4908": "34G", "M4601": "34A", "M3184": "34G", "M4610": "34C", "M3147": "34B", "O5073": "34G", "O5050": "34G", "M3086": "34B", "A5030": "34C", "M3057": "34C", "A5099": "34G", "O5045": "34BZ", "A5106": "34C", "M4808": "34", "A5042": "34AS", "A5115": "34C", "M4813": "34G", "O5026": "34G", "O5085": "34G", "M4594": "34B", "A5059": "34C", "A5021": "34G", "B5074": "HT1", "B-1910": "11A", "C-1896": "11A", "C-1523": "11A", "O3119": "UM62", "O2057": "11A", "C-1718": "11A", "C-1839": "11A", "A-1520": "11A", "K1598": "142F", "B5201": "HT11", "O2258": "M7", "E1001": "BA-4", "B5372": "BM5", "D-173": "76", "C-1826": "SM1", "O4006": "SM1", "O2191": "133P", "O2071": "SM1", "C-1829": "SM1", "M2038": "15Y", "K1212": "50M", "K1246": "50M", "K1207": "50M", "M2328": "139T", "O1107": "KM18", "O3153": "133F", "O3154": "133F", "O3186": "SM9", "O3145": "9S", "M4597": "34AS", "M3054": "34C", "M3208": "34AS", "M4582": "34BZ", "A5018": "34C", "M4634": "34BZ", "O5102": "34G", "M4630": "34G", "C-313": "500L", "C-308": "500L", "C-312": "500L", "C-311": "500L", "C-310": "500L", "C-309": "500L", "C-307": "500L", "K1525": "147", "B5224": "147", "A-891": "300D", "O2220": "42KT", "O3097": "9ÇN", "O3133": "9ÇN", "O3095": "9ÇN", "A5049": "34AS", "A5087": "34AS", "M3017": "34G", "M3089": "34B", "M4806": "34G", "A5017": "34C", "M4842": "34G", "M4853": "34G", "M4644": "34G", "M3106": "34G", "O5018": "34C", "M4635": "34G", "O5055": "34Z", "M3201": "34C", "M3128": "34AS", "M4841": "34AS", "M3222": "34A", "M4631": "34C", "M4647": "34G", "M3055": "34G", "A5007": "34B", "M3118": "34C", "M3044": "34BZ", "M3132": "34C", "M3079": "34C", "M4838": "34G", "O5001": "34AS", "O5025": "34G", "M2545": "HS2", "K1673": "142F", "C-178": "320", "K1687": "142B", "K1048": "26B", "E1041": "BA-4", "E1003": "BA-4", "C-1525": "15P", "M2118": "15P", "M2049": "15C", "C-1620": "14R", "M2310": "15C", "B5146": "MK11", "K1162": "50H", "K1143": "41ST", "M2218": "11K", "M2028": "11K", "M2045": "11D", "A-986": "80T", "A-987": "80T", "A-983": "80T", "T1063": "HS2", "O3159": "17L", "C-1025": "11H", "M2145": "15A", "B-1766": "27T", "B-1718": "27T", "B-248": "27T", "B-247": "27T", "B-246": "27T", "B-313": "27T", "C-912": "133P", "C-911": "133P", "K1139": "AVR2", "A5044": "34AS", "M3140": "34G", "M3148": "34B", "A5203": "34BZ", "M3139": "34G", "M3155": "34G", "O5088": "34B", "A5079": "34AS", "M3160": "34G", "M4619": "34Z", "M3066": "34C", "A5128": "34A", "M3076": "34AS", "M4843": "34A", "M3241": "34C", "M3038": "34Z", "M3050": "34AS", "M3114": "34C", "M4867": "34A", "M4866": "34AS", "A5205": "34C", "M3108": "34AS", "O5023": "34C", "A5064": "34BZ", "M3146": "34G", "M3003": "34G", "M4878": "34Z", "M3097": "34G", "A5014": "34C", "O5110": "34G", "A5065": "34AS", "M4584": "34G", "M3232": "34G", "M3206": "34G", "A5053": "34C", "O5080": "34G", "O5030": "34G", "M4847": "34C", "A5124": "34C", "M3136": "34G", "A5125": "34AS", "M3246": "34G", "O5056": "34C", "O5112": "34G", "M3041": "34G", "E1018": "BA-5", "E1010": "BA-5", "E1034": "KA-1", "E1047": "KA-1", "M2534": "HS2", "A-1213": "418", "O2153": "18YS", "K1044": "41ST", "A3138": "33B", "A3136": "33B", "A3014": "33B", "B5183": "89T", "B5196": "89T", "O2297": "50L", "O1187": "42Z", "B-1510": "27T", "A-1723": "27T", "B-1763": "27T", "B-249": "27T", "K1128": "55G", "B-242": "27E", "B-244": "27E", "A-1551": "27E", "B-245": "27E", "B-243": "27E", "B-1538": "27E", "B-1770": "27E", "A-1708": "27E", "B-1743": "27E", "B-241": "27E", "A3042": "33B", "O5108": "34Z", "M3236": "34BZ", "M3010": "34AS", "A5201": "34BZ", "M4623": "34BZ", "B5048": "HS2", "K1666": "HS2", "O3209": "KM31", "O1158": "KM31", "O1056": "14YE", "B5221": "142", "B5363": "HT29", "B5371": "458", "M3078": "34C", "M3141": "34C", "M3105": "34G", "M4836": "34B", "M3131": "34G", "M3001": "34AS", "O1162": "KM45", "M4860": "34C", "M4822": "34AS", "M4837": "34BZ", "M4821": "34B", "O5057": "34G", "O5007": "34Z", "M3006": "34AS", "A5105": "34B", "M4898": "34AS", "A5015": "34", "A5123": "34B", "A5101": "34B", "A5070": "34B", "A-1223": "404", "A-1078": "404", "A-1221": "404", "A-1228": "404", "A-1225": "404", "A-1230": "404", "A-726": "418", "O2271": "42K", "A-229": "48N", "A-222": "48N", "A-218": "48N", "K1204": "62G", "M4640": "34G", "M3168": "34B", "M3204": "34C", "M3177": "34AS", "M3103": "34AS", "A5075": "34B", "M3231": "34BZ", "B5096": "142F", "K1656": "142F", "K1629": "142F", "B5361": "142F", "K1655": "142F", "B-130": "31E", "B-129": "31E", "C-1058": "135T", "A-074": "70FE", "O1195": "336K", "O3087": "16M", "O1016": "16M", "O3140": "16M", "O3150": "11T", "C-1553": "15ÇK", "M2385": "15ÇK", "M2235": "15ÇK", "C-1535": "15ÇK", "C-1746": "15ÇK", "M2599": "15F", "M2569": "15F", "M2594": "15F", "M2572": "15F", "M2567": "15F", "M2576": "15F", "M2595": "15F", "M2591": "15F", "M2597": "15F", "M2584": "15F", "M2589": "15F", "M2564": "15F", "M2164": "15F", "M2583": "15F", "M2593": "15F", "M2573": "15F", "O3185": "17S", "O3235": "17S", "O3218": "17S", "A-239": "86V", "A-240": "86V", "A-244": "86V", "A-246": "86V", "A-241": "86V", "A-242": "86V", "C-1083": "139A", "C-1048": "139A", "C-1045": "139A", "C-1090": "139A", "O3144": "138", "C-1060": "15R", "C-1064": "15R", "M2384": "15R", "O3181": "130E", "O1152": "130E", "O3177": "130E", "O1171": "130E", "O1129": "130E", "O3171": "130E", "O3089": "139D", "A-650": "458", "A-663": "458", "A-665": "458", "A-839": "458", "A-838": "458", "A-837": "458", "A-833": "458", "A-667": "458", "A-666": "458", "A-664": "458", "A-662": "458", "A-1066": "401", "A-1084": "401", "A-1082": "401", "A-1072": "401", "A-1080": "401", "A-1074": "401", "A-1051": "401", "A-1049": "401", "A-1068": "401", "A-1061": "401", "A-1045": "401", "A-1043": "401", "A-1086": "401", "C-324": "KM12", "C-323": "KM12", "C-322": "KM12", "O3162": "KM12", "O3198": "KM12", "A3038": "85C", "A3003": "85C", "M2040": "19FS", "K1799": "122D", "K1742": "122D", "K1810": "122D", "B-191": "74A", "B-192": "74A", "K1624": "98KM", "A-810": "76G", "A-1003": "76G", "A-819": "76G", "A3132": "50A", "A3085": "97KZ", "A-1718": "59N", "A-1670": "59N", "B-1530": "59N", "B-1540": "59N", "A-1730": "59N", "B-1744": "59N", "B-1798": "59N", "O2104": "131SB", "A-354": "36ES", "A-341": "36ES", "A-342": "36ES", "A-340": "36ES", "A-355": "36ES", "A-352": "36ES", "B-238": "98B", "B-239": "98B", "B-199": "97", "B-1525": "97A", "B-231": "97A", "B-229": "97A", "A-1685": "97A", "A-1638": "97A", "A-1684": "97A", "A-1658": "97A", "A-1683": "97A", "B-1776": "97A", "M4514": "78C", "M4555": "78C", "M4501": "78C", "M4750": "78C", "M4751": "78C", "M4547": "78C", "M4532": "78C", "M4506": "78C", "M4542": "78C", "M4570": "78C", "M4543": "78C", "M4563": "78C", "M4520": "78C", "M4535": "78C", "M4556": "78C", "M4512": "78C", "M4691": "11ÇB", "M4729": "11ÇB", "M2570": "11ÇB", "M4659": "11ÇB", "M2065": "15S", "A-153": "73H", "A-155": "73H", "A-154": "73H", "M2134": "15D", "M2146": "15D", "M2137": "15D", "M2103": "15D", "A-065": "77A", "A-062": "77A", "A-063": "77A", "A-060": "77A", "A-064": "77A", "A-061": "77A", "A-066": "77A", "O2250": "152", "O2238": "151", "O2206": "151", "O2243": "151", "O1149": "KM10", "O3188": "131Y", "O1165": "KM10", "C-817": "KM31", "O3214": "KM31", "O1178": "KM31", "O3182": "KM31", "O3193": "KM31", "O3163": "KM31", "M4533": "336", "M4568": "336", "B-125": "31E", "B-127": "31E", "B-128": "31E", "B-126": "31E", "A5023": "34B", "A5027": "34B", "B5077": "336H", "B5265": "146A", "M2034": "15KÇ", "B5063": "79KT", "B5222": "79KT", "T1017": "79KT", "B5350": "79KT", "T1021": "79KT", "B5219": "336G", "O1013": "20D", "M2002": "139T", "B5138": "36C", "B5056": "MK42", "B5089": "98S", "O1254": "36V", "B5207": "HT12", "K1087": "EM2", "O3135": "138B", "O3116": "138", "C-225": "15B", "B-1765": "62", "B-179": "62", "B-174": "62", "B-301": "50K", "B-300": "50K", "B-299": "50K", "B-298": "50K", "B-306": "50K", "B-305": "50K", "B-304": "50K", "B-303": "50K", "D-042": "18K", "C-823": "18K", "C-859": "132P", "C-857": "132P", "C-845": "132P", "C-862": "132P", "C-846": "132P", "C-1011": "132P", "C-849": "132P", "O2085": "132P", "C-847": "132P", "C-861": "132P", "C-863": "132P", "C-860": "132P", "C-856": "132P", "K1591": "79KM", "B5193": "79KM", "B5083": "79KM", "T1104": "79KM", "T1096": "79KM", "T1040": "79KM", "K1597": "79KM", "K1563": "79KM", "K1599": "79KM", "K1601": "79KM", "A-1184": "403", "A-1183": "403", "A-1182": "403", "C-907": "133P", "C-895": "133P", "C-909": "133P", "C-896": "133P", "O2279": "36CB", "O3049": "36CB", "B5271": "KÇ2", "B-1901": "41ST", "B-1623": "41ST", "B-1892": "41ST", "B-1869": "41ST", "A3145": "41ST", "A-1870": "41ST", "B-1802": "41ST", "B-1916": "41ST", "A-1652": "41ST", "C-1547": "41ST", "B-1888": "41ST", "C-908": "133P", "C-906": "133P", "O2043": "KM13", "O2047": "133P", "O2042": "133P", "O2175": "133P", "O1267": "41C", "O1070": "KM60", "O1117": "KM60", "O3245": "KM60", "O3187": "KM60", "A3028": "32T", "C-336": "133S", "C-337": "133S", "C-340": "133S", "C-339": "133S", "C-338": "133S", "O2142": "132", "O3282": "133S", "O3286": "133S", "O3183": "133S", "M2206": "6", "M2389": "6", "M2036": "6", "M2357": "6", "M2223": "6", "M2391": "6", "M2295": "10A", "M2298": "6", "K1142": "25G", "A-1707": "54K", "A-1507": "54K", "B-1783": "54K", "B-1777": "54K", "K1103": "54K", "O3284": "KM12", "O3257": "130ST", "O3300": "130A", "C-1517": "FB2", "O3268": "17", "O3203": "17", "O1114": "17", "O3264": "KM33", "O3254": "17", "A-1516": "89K", "A-1505": "89K", "A-1501": "89K", "A-193": "89K", "A-1674": "89K", "A-192": "89K", "A-312": "89K", "A-1750": "89K", "M2203": "15H", "C-180": "320", "C-177": "320", "E1035": "HA-1", "K1569": "79G", "K1593": "79G", "B5038": "79G", "K1605": "79G", "T1056": "79G", "K1538": "MK22", "B5186": "MK22", "B5172": "MK22", "M4564": "MK22", "K1635": "MK22", "K1522": "MK22", "M4557": "MK22", "T1033": "HT12", "T1026": "HT12", "T1092": "HT12", "K1158": "70KE", "K1111": "70KE", "O1160": "133G", "O3259": "133G", "C-392": "133K", "O3267": "132T", "B-1740": "27SE", "B-1745": "27SE", "B-1716": "27SE", "B-1813": "27SE", "B-1714": "27SE", "B-1917": "27SE", "B-1732": "27SE", "B-1829": "27SE", "O1295": "88A", "A-212": "92B", "A-201": "92B", "A-209": "92B", "A-205": "92B", "A-202": "92B", "A-200": "92B", "A-199": "92B", "A-215": "92B", "A-206": "92B", "A-207": "92B", "A-216": "92B", "A-214": "92B", "M2541": "142B", "B5378": "142B", "A-1868": "42HM", "B-1529": "42HM", "C-905": "133AK", "C-903": "133AK", "C-899": "133AK", "C-898": "133AK", "C-902": "133AK", "C-901": "133AK", "C-893": "133AK", "C-892": "133AK", "C-897": "133AK", "C-891": "133AK", "C-890": "133AK", "O1278": "59A", "O3040": "59A", "O1213": "48P", "O2278": "48P", "C-1860": "14KS", "C-1626": "14KS", "C-1846": "14KS", "C-1884": "14KS", "C-1870": "14KS", "M2233": "15C", "O3005": "41SF", "O2010": "41SF", "O1237": "41SF", "O2290": "41SF", "O1244": "41SF", "C-1853": "20D", "B-1712": "59RS", "B-1729": "59RS", "A-057": "59RS", "B-1508": "59RS", "B-1524": "59RS", "A-1650": "59RS", "B-1537": "59RS", "C-530": "19F", "C-1555": "19F", "C-1550": "19F", "C-1717": "19F", "C-1625": "19F", "C-1714": "19F", "M2300": "19F", "M2306": "19F", "M2188": "19F", "M2061": "19F", "M2008": "19F", "C-1516": "19F", "C-1545": "19F", "C-544": "19F", "A3012": "33", "A3024": "33", "A3137": "33", "A3039": "33", "A3120": "33", "O1136": "132E", "C-230": "121BS", "C-229": "121BS", "C-233": "121BS", "M2582": "121BS", "M2133": "15SD", "C-304": "121BS", "C-301": "121BS", "C-261": "121BS", "C-1040": "135A", "C-1088": "135A", "A3094": "98G", "A3026": "98G", "O3287": "KM47", "O3211": "KM47", "M4713": "10E", "C-205": "10E", "C-219": "10E", "C-206": "10E", "M4668": "10E", "C-1007": "11H", "C-1091": "11H", "C-1059": "11H", "M4672": "11H", "C-1018": "11H", "C-1098": "11H", "M2590": "11H", "C-1073": "15", "C-1072": "15", "C-1070": "15", "C-1068": "15", "C-1063": "15", "A-097": "77", "C-201": "14F", "C-198": "14F", "C-218": "14F", "C-207": "14F", "C-148": "14F", "C-149": "14F", "B-069": "99A", "B-068": "99A", "B-067": "99A", "B-066": "99A", "C-1532": "11A", "O3138": "138B", "O1094": "131K", "O1031": "138", "O1032": "11R", "B-1520": "50D", "A-1602": "50D", "B-1834": "50D", "B-1725": "50D", "K1037": "50D", "K1018": "50D", "K1008": "50D", "K1223": "50D", "O2216": "H-2", "C-333": "133TM", "C-335": "133TM", "C-332": "133TM", "B-1848": "50B", "B-1846": "50B", "A-1550": "50B", "B-1845": "50B", "B-1844": "50B", "B-1839": "50B", "B-1838": "50B", "A-398": "50E", "A-409": "50E", "A-407": "50E", "A-401": "50E", "A-399": "50E", "A-403": "50E", "K1020": "50E", "C-077": "UM73", "C-751": "UM73", "C-750": "UM73", "C-873": "UM73", "C-871": "UM73", "C-852": "UM73", "C-752": "UM73", "K1774": "19S", "C-1667": "15C", "C-1663": "15C", "A-1680": "15C", "A-1721": "15C", "M2207": "15C", "M2210": "15C", "O1008": "9T", "O3125": "9T", "C-1100": "136Z", "O3123": "19E", "A-330": "92S", "A-1728": "92S", "A-332": "92S", "A-1531": "92S", "A-336": "92S", "A-1661": "92S", "A-331": "92S", "A-1512": "92S", "A-1536": "92S", "A-1519": "92S", "A-335": "92S", "A-1662": "92S", "A-334": "92S", "B-1820": "92S", "A-1720": "97GE", "A-1628": "97GE", "A-1627": "97GE", "A-1612": "97GE", "A-1554": "97GE", "A-1549": "97GE", "A-1544": "97GE", "A3134": "97M", "A-291": "97M", "A-295": "97M", "B-1861": "97M", "B5071": "97M", "A-1752": "97M", "B-1881": "97M", "M2274": "15K", "M2070": "15C", "M2381": "15K", "C-1831": "E-3", "C-1808": "E-3", "C-1878": "E-3", "C-1876": "E-3", "C-1811": "E-3", "C-1838": "E-3", "C-1803": "E-3", "C-1848": "E-3", "M4704": "20E", "C-213": "20E", "C-202": "20E", "M4693": "20E", "M4666": "20E", "M2387": "256", "M2280": "256", "O2285": "25A", "O3061": "25A", "D-023": "KM25", "D-045": "KM25", "K1784": "KM25", "K1775": "KM25", "K1730": "KM25", "D-056": "KM26", "D-004": "KM26", "O2159": "KM26", "D-054": "KM26", "C-1075": "KM26", "C-070": "522", "C-020": "522", "C-021": "522", "C-019": "522", "C-018": "522", "C-064": "522", "C-031": "522", "C-032": "522", "C-025": "522", "C-024": "522", "C-023": "522", "C-022": "522", "C-027": "522", "C-017": "522", "A3041": "78C", "B5267": "146T", "K1562": "146T", "K1567": "146T", "B5181": "146T", "B5111": "146T", "K1574": "146T", "B5318": "146T", "K1543": "146T", "K1672": "146T", "B5294": "146T", "B5228": "146T", "M2316": "7", "M2345": "7", "M2372": "7", "A-082": "70KY", "A-086": "70KY", "A-087": "70KY", "A-085": "70KY", "A-084": "70KY", "A-081": "70KY", "B-1878": "72T", "A-1532": "72T", "B-1781": "72T", "A-1745": "72T", "A-164": "73", "A-159": "73", "A-163": "73", "A-170": "73", "A-169": "73", "A-168": "73", "A-167": "73", "A-166": "73", "A-165": "73", "A-162": "73", "A5031": "34C", "A5204": "34BZ", "A5206": "34C", "O5004": "34Z", "M3087": "34G", "M3134": "34Z", "M3159": "34C", "M3073": "34G", "M3080": "34G", "A5068": "34AS", "O5003": "34C", "A-077": "70FE", "A-078": "70FE", "A-076": "70FE", "A-080": "70FE", "A-075": "70FE", "A-079": "70FE", "A-1553": "15ÇK", "C-1673": "15ÇK", "M2378": "15ÇK", "K1121": "41N", "K1059": "41N", "K1218": "41N", "K1210": "41N", "M2077": "15F", "M2271": "129L", "M2258": "11T", "A3074": "MK97", "A3095": "MK97", "A-373": "92M", "A3057": "92M", "A3114": "92M", "A-372": "92M", "B5049": "98M", "C-1505": "98M", "B5215": "98M", "O3210": "133N", "O1110": "133N", "A-661": "458", "A-660": "458", "A-658": "458", "A-659": "458", "A-652": "458", "A-651": "458", "A-657": "458", "A-656": "458", "B5099": "AVR1", "B5137": "79KM", "A-1059": "401", "A-1056": "401", "A-005": "559C", "A-006": "559C", "A-083": "70KY", "M2600": "11ÇB", "M4718": "11ÇB", "M4745": "11ÇB", "M2577": "11ÇB", "O1120": "AND2Y", "C-081": "122C", "C-079": "122C", "C-083": "122C", "C-139": "122C", "C-080": "122C", "M4719": "122C", "M4736": "122C", "A-985": "90B", "A-980": "90B", "O2036": "131SB", "O4022": "14S", "O4007": "131SB", "B5308": "336H", "M4548": "336H", "B5291": "336H", "M2523": "336H", "M2515": "336H", "M4765": "336H", "B5249": "336H", "B5235": "336H", "B-1809": "89S", "B-1891": "89S", "M2032": "11E", "C-1069": "15TY", "C-1001": "15TY", "D-055": "KM25", "D-053": "KM25", "O2156": "UM74", "O3053": "150", "O3047": "150", "O2281": "150", "O2298": "150", "O3024": "150", "M4573": "78C", "M4504": "78C", "C-249": "121B", "C-250": "121B", "C-248": "121B", "C-1084": "15TY", "M2102": "15TY", "C-1093": "15TY", "C-1012": "15TY", "A-103": "EM1", "A-110": "EM1", "A-108": "EM1", "A-106": "EM1", "A-104": "EM1", "A-102": "EM1", "A-101": "EM1", "A-100": "EM1", "B5248": "36D", "B5348": "36D", "C-056": "14B", "C-046": "14B", "C-146": "14SB", "C-115": "14SB", "C-117": "14SB", "C-076": "14SB", "C-111": "14SB", "B-124": "28", "B-119": "28", "B-123": "28", "B-121": "28", "B-120": "28", "B-118": "28", "M2046": "13Y", "B5340": "MR51", "B5354": "MR51", "B5231": "MR51", "B5115": "MR51", "B-122": "28", "M2179": "15KÇ", "M2169": "15P", "M2100": "15P", "M2088": "15P", "M2044": "15R", "C-1906": "15T", "C-1077": "15T", "C-1094": "15TY", "A-319": "31Y", "B5232": "336G", "B5065": "336G", "B5153": "336G", "B5296": "336G", "B5375": "336G", "B5177": "336G", "B5011": "336G", "A-1564": "62", "A-161": "73", "A-160": "73", "K1731": "19E", "M4675": "19E", "M4678": "19E", "A-880": "303A", "A-883": "303A", "A-944": "303A", "A-965": "303A", "A-876": "303A", "A-940": "303A", "A-956": "303A", "A-910": "303A", "A-932": "303A", "B-302": "50K", "C-851": "132P", "C-848": "132P", "C-843": "132P", "C-854": "132P", "O3168": "132P", "O2196": "132P", "O2033": "132P", "O2118": "132P", "O2157": "132P", "C-910": "133P", "B-1831": "41ST", "B-1542": "41ST", "B-1827": "41ST", "B-1640": "41ST", "B-1807": "41ST", "B-1867": "41ST", "B-1837": "41ST", "B-1792": "41ST", "B-1913": "41ST", "B-1793": "41ST", "B5217": "147", "K1662": "147", "K1534": "147", "M2543": "147", "K1547": "147", "B5292": "147", "K1588": "147", "B5097": "147", "B5057": "147", "M2547": "147", "M2519": "147", "K1527": "147", "M2071": "6", "M2261": "6", "O3149": "UM62", "O3085": "UM62", "O3278": "17", "O3195": "17", "B5272": "89M", "B5027": "89M", "K1110": "26A", "K1198": "26A", "O2076": "18YS", "O1083": "18YS", "K1738": "18K", "K1697": "11", "C-183": "320", "C-211": "320", "C-181": "320", "C-185": "320", "C-200": "320", "C-187": "320", "C-182": "320", "K1592": "79G", "K1663": "79G", "K1572": "79G", "O2266": "36HT", "B4038": "36HT", "O3039": "36HT", "B5364": "36HT", "T1028": "HT12", "M2276": "ER1", "C-1719": "ER1", "O3207": "132T", "O2174": "132T", "O3206": "132T", "C-1533": "KM42", "C-1528": "KM42", "C-1558": "KM42", "M4670": "139T", "M4725": "139T", "A3088": "33", "A-213": "92B", "A-211": "92B", "B5369": "79B", "B5197": "79B", "M2502": "142B", "M2512": "146T", "M2533": "142B", "M2511": "142B", "K1669": "142B", "K1679": "142B", "K1682": "142B", "K1607": "142B", "M2538": "142B", "B-1724": "29S", "B-1611": "29S", "B-1762": "29S", "B-1761": "29S", "B-1656": "29S", "B-1752": "29S", "A-1535": "29S", "B-1643": "29S", "B-1764": "29S", "O1049": "ÇM44", "O1080": "ÇM44", "K1202": "41SM", "C-822": "18K", "K1755": "18K", "C-807": "18K", "C-818": "18K", "C-808": "18K", "C-858": "18K", "O2232": "41SF", "M2166": "15TA", "K1226": "48T", "K1148": "48T", "A-1729": "59RS", "M2092": "15M", "C-1078": "15M", "B5176": "98T", "B-1721": "41AT", "B-1633": "41AT", "C-543": "19F", "C-541": "19F", "C-540": "19F", "C-539": "19F", "C-537": "19F", "C-536": "19F", "C-535": "19F", "C-1750": "19F", "B-1518": "19F", "C-1627": "19F", "C-1700": "19F", "C-1629": "19F", "B-188": "65G", "B-186": "65G", "B-183": "65G", "B-274": "65G", "C-224": "121BS", "M2563": "121BS", "C-512": "8A", "C-1655": "8A", "D-044": "8A", "C-1554": "8A", "C-1520": "8A", "C-1736": "8A", "C-511": "8A", "C-1731": "8A", "C-494": "8A", "C-1934": "8A", "C-492": "8A", "C-495": "8A", "M4723": "11H", "M2578": "11H", "B5298": "336K", "O3029": "336K", "O1191": "336K", "M4559": "MK22", "M2009": "14F", "M2305": "14F", "M2269": "14F", "M2341": "10", "M2074": "10", "B-136": "35", "B-131": "35", "B-135": "35", "B-132": "35", "O1003": "11R", "C-281": "13", "C-290": "13", "C-257": "13", "C-275": "13", "C-279": "13", "C-293": "13", "M2230": "13", "M2226": "13", "C-300": "13", "C-226": "13", "K1031": "50D", "K1096": "50D", "B-1864": "50D", "B-1824": "50D", "K1186": "50D", "B-1805": "50D", "B5198": "MR52", "O2161": "132SB", "O2031": "132SB", "O3222": "132SB", "C-1055": "135G", "C-1051": "135G", "O2119": "132Z", "M4509": "50E", "A-406": "50E", "A-408": "50E", "A-405": "50E", "A-404": "50E", "A-402": "50E", "A-400": "50E", "A-397": "50E", "K1141": "50E", "O2168": "UM73", "O2090": "UM73", "O2188": "19S", "O2014": "UM73", "O2096": "UM73", "O2126": "UM73", "O2075": "UM73", "O3147": "20D", "C-1861": "20D", "C-1783": "20D", "C-1646": "20D", "O1028": "20D", "C-1065": "15S", "A-333": "92S", "A-1812": "97M", "A-296": "97M", "A-294": "97M", "A-292": "97M", "D-165": "E-58", "D-169": "E-58", "D-182": "E-58", "D-174": "E-58", "O3057": "EL2", "O3035": "EL2", "O2270": "EL2", "K1156": "25A", "A-028": "25E", "K1062": "29", "K1070": "29T", "A-902": "303B", "A-901": "303B", "A-905": "303B", "A-904": "303B", "A-903": "303B", "A-1689": "31", "A-1726": "31", "B-1507": "31", "A-1690": "31", "A-1521": "31", "A-1500": "31", "A-1559": "31", "A-1634": "31", "O2040": "KM26", "C-404": "KM29", "C-405": "KM29", "C-402": "KM29", "C-401": "KM29", "C-400": "KM29", "C-403": "KM29", "C-407": "KM29", "C-408": "KM29", "C-406": "KM29", "B5243": "MK31", "B5032": "MK31", "B5166": "MK31", "B5016": "MK31", "B5202": "MK42", "B5066": "MK42", "A-007": "559C", "A-058": "559C", "A-001": "559C", "A-002": "559C", "A-008": "559C", "A-004": "559C", "A-003": "559C", "A3118": "55ET", "K1548": "146T", "B5012": "146T", "K1542": "146T", "B5145": "146T", "B5293": "146T", "A3127": "146T", "A3040": "146T", "A3029": "146T", "A3066": "146T", "A3075": "146T", "M2506": "146T", "B-014": "46Ç", "B-019": "46Ç", "B-020": "46Ç", "B-018": "46Ç", "B5022": "73Y", "B5001": "142F", "A-1208": "418", "A-1210": "418", "M4747": "418", "A-1200": "418", "A-1211": "418", "A-1216": "418", "A-1205": "418", "A-1212": "418", "M4531": "418", "A-1201": "418", "A-1214": "418", "A-717": "418", "M3007": "34AS", "M3111": "34AS", "M3099": "34BZ", "M3250": "34AS", "O5105": "34AS", "M4637": "34G", "A5003": "34G", "M4645": "34AS", "M3121": "34BZ", "O5040": "34BZ", "C-1030": "20", "C-105": "14SB", "C-138": "14SB", "C-110": "14SB", "C-108": "14SB", "C-113": "14SB", "C-078": "14SB", "C-106": "14SB", "C-144": "14SB", "C-109": "14SB", "C-118": "14SB", "C-103": "14SB", "C-135": "14SB", "B5213": "79F", "K1083": "65A", "K1155": "65A", "K1129": "65A", "O3075": "139S", "O1045": "132YM", "O1088": "132YM", "C-1619": "15P", "M2089": "15P", "O3253": "133N", "A-1020": "MK42", "A-1025": "MK42", "A-1024": "MK42", "B3002": "MK42", "M2320": "11D", "M2214": "11D", "K1066": "70KY", "M4738": "11ÇB", "M2596": "11ÇB", "C-803": "134", "C-829": "134", "C-801": "134", "O2080": "134", "O3216": "134", "C-802": "134", "K1238": "41C", "O2244": "36V", "O3051": "36V", "O3015": "36V", "O1297": "36V", "O2208": "36V", "O3008": "36V", "O1209": "36V", "A3062": "36V", "M2546": "HS2", "K1664": "HS2", "K1670": "HS2", "K1667": "HS2", "K1603": "HS2", "M2548": "HS2", "B5208": "HS2", "M2503": "142", "B5085": "HS2", "B5018": "336H", "O1215": "38Z", "O1231": "38Z", "O1255": "38Z", "O2241": "50A", "B-1756": "55T", "B-235": "98B", "B-1500": "DT2", "B-310": "DT2", "B-255": "DT2", "B-312": "DT2", "B-1704": "DT2", "B-311": "DT2", "B-1723": "DT2", "O1258": "150", "E-010": "SG-2", "E-001": "SG-2", "E-022": "SG-2", "E-004": "SG-2", "E-002": "SG-2", "E-027": "SG-2", "E-023": "SG-2", "E-013": "SG-2", "E-016": "SG-2", "E-007": "SG-2", "E-030": "SG-2", "B-1812": "320A", "C-1720": "320A", "C-1874": "320A", "C-1886": "320A", "B4018": "36D", "C-107": "14SB", "C-116": "14SB", "C-114": "14SB", "A-320": "31Y", "T1076": "MR42", "T1069": "MK19", "T1071": "MK19", "T1043": "MK19", "A-318": "31Y", "B5223": "79KM", "B5113": "78G", "B5094": "78G", "C-1054": "15U", "M2190": "15U", "O3260": "16A", "O3294": "16A", "O3155": "16A", "O3194": "16A", "O1141": "16A", "B5158": "336G", "O1185": "36YS", "O3124": "14TM", "O1048": "14TM", "M4697": "15KB", "M2140": "15ÇB", "M2579": "15TA", "A-881": "303A", "A-924": "303A", "A-964": "303A", "A-920": "303A", "A-928": "303A", "A-907": "303A", "A-937": "303A", "A-925": "303A", "A-936": "303A", "A-955": "303A", "A-947": "303A", "A-959": "303A", "A-872": "303A", "A-926": "303A", "A-949": "303A", "A-951": "303A", "A-950": "303A", "A-946": "303A", "A-943": "303A", "A-941": "303A", "A-939": "303A", "A-938": "303A", "A-934": "303A", "K1219": "TM5", "A-253": "TM5", "C-1531": "19EK", "C-1510": "19EK", "C-1521": "19EK", "C-1850": "19EK", "C-1745": "19EK", "C-1536": "19EK", "C-1560": "19EK", "C-1914": "19EK", "C-1713": "19EK", "O1004": "131Y", "C-1844": "19EK", "C-1514": "19EK", "C-1918": "19EK", "C-1501": "19EK", "C-1534": "19EK", "B-1817": "19EK", "C-1947": "19EK", "B-116": "93T", "A-1613": "93T", "B-108": "93T", "B-111": "93T", "B-113": "93T", "B-115": "93T", "B-107": "93T", "A-1606": "93T", "A-1713": "93T", "A-1823": "93T", "B-109": "93T", "B-110": "93T", "B-114": "93T", "B-106": "93T", "A-1727": "93T", "B-1823": "41ST", "K1581": "147", "K1558": "147", "K1575": "147", "K1671": "147", "K1584": "147", "M4009": "147", "M2520": "147", "K1159": "64Ç", "K1124": "64Ç", "K1201": "64Ç", "B5255": "79C", "B5129": "79C", "O4008": "11", "K1789": "11", "K1503": "11", "K1713": "11", "B-1818": "40B", "A-1622": "40B", "B-1601": "40B", "A-1732": "40B", "B-1786": "40B", "C-179": "320", "B-1758": "29C", "B-1737": "29C", "B-1884": "29C", "B-1709": "29C", "B-1657": "29C", "B-1905": "29C", "B-1886": "29C", "B-1889": "29C", "B-1900": "29C", "B-1532": "29C", "B-1635": "29C", "B-1899": "29C", "B-1863": "29C", "B5205": "142E", "B5106": "HT20", "B5029": "HT20", "B5167": "HT20", "B5120": "HT20", "K1606": "HT20", "B5357": "HT20", "C-1740": "2", "C-1519": "129T", "M2364": "11BE", "M2374": "11BE", "O1092": "11T", "O1024": "11T", "A-1218": "418", "A-718": "418", "A-731": "418", "A-724": "418", "A-719": "418", "O3241": "KM42", "O3252": "KM42", "O3179": "KM42", "O3156": "KM42", "O3192": "KM42", "C-1931": "11ÜS", "O2032": "132A", "K1024": "62G", "K1185": "62G", "K1112": "62G", "C-789": "132C", "C-813": "132C", "T1044": "79B", "B5025": "79B", "K1236": "42", "C-395": "133K", "C-396": "133K", "C-394": "133K", "M2550": "142B", "M2501": "142B", "B5139": "142B", "K1630": "142B", "M2508": "142B", "M2509": "142B", "M2507": "142B", "M2504": "142B", "M2117": "135", "M2171": "135", "K1509": "18K", "K1719": "18K", "K1712": "11ÜS", "C-815": "18K", "K1516": "18K", "K1803": "KM24", "K1781": "KM27", "K1706": "18K", "K1515": "19E", "K1206": "48T", "K1118": "48T", "K1064": "48T", "K1033": "48T", "O2155": "133M", "O2084": "133M", "O2018": "133M", "O2231": "38H", "B-1760": "41AT", "B-1772": "41AT", "B-1893": "41AT", "B-1796": "41AT", "B-1791": "41AT", "B-1531": "41AT", "B-1775": "41AT", "B-1606": "41AT", "B-1773": "41AT", "B-1774": "41AT", "B-1625": "41AT", "B-185": "65G", "B-272": "65G", "B-273": "65G", "B-271": "65G", "B-187": "65G", "B-190": "65G", "C-1927": "8A", "M2272": "8A", "M4513": "MK22", "M4759": "MK22", "T1015": "MK22", "K1524": "MK22", "B-1780": "35", "B-1521": "35", "B-1505": "35", "B-134": "35", "B-133": "35", "A5026": "34AS", "A-308": "91E", "B5133": "MR50", "A-1022": "MR50", "B5031": "31Y", "B5279": "31Y", "B5280": "31Y", "B5010": "31Y", "A3046": "146M", "C-755": "UM73", "A3058": "32A", "A-151": "92T", "C-1926": "14ES", "C-1546": "14ES", "C-491": "14ES", "C-490": "14ES", "C-513": "14ES", "C-506": "14ES", "C-498": "14ES", "C-502": "14ES", "C-500": "14ES", "C-509": "14ES", "C-508": "14ES", "C-505": "14ES", "O1075": "14ES", "O1047": "14ES", "C-1757": "14ES", "C-1561": "14ES", "C-1541": "14ES", "C-1935": "14ES", "C-1928": "14ES", "C-1500": "14ES", "C-1793": "14ES", "C-051": "14B", "C-038": "14B", "C-037": "14B", "C-036": "14B", "C-035": "14B", "C-034": "14B", "C-052": "14B", "B-277": "97T", "B-1523": "97T", "A-1735": "97T", "B-278": "97T", "B-276": "97T", "B-237": "98B", "A-1604": "98B", "A-1623": "98B", "B-233": "98B", "B5338": "98B", "A-113": "EM2", "K1049": "EM2", "A3100": "EM2", "A-1643": "31", "A-1660": "31", "A-1529": "31", "A-1714": "31", "A3112": "32", "A3080": "32", "A3098": "32", "A3005": "32", "B5178": "MK42", "B5147": "142B", "A-1811": "MR20", "A-1525": "MR20", "M2338": "UM11", "O1090": "UM40", "O1026": "UM40", "O1021": "UM40", "C-1883": "15SD", "M2174": "15SD", "C-1530": "15SD", "M2180": "15SD", "M2156": "15SD", "C-1856": "15SD", "B-016": "46Ç", "B-017": "46Ç", "B-015": "46Ç", "A-729": "418", "A-1203": "418", "A-710": "418", "A-1202": "418", "A-730": "418", "A-1206": "418", "A-727": "418", "A-722": "418", "A-1207": "418", "A-720": "418", "C-112": "14SB", "C-091": "14SB", "O2205": "25A", "B-1631": "29C", "B-1711": "29C", "B-1726": "29C", "B-078": "28T", "B-075": "28T", "B-077": "28T", "B-079": "28T", "B-076": "28T", "O3106": "132N", "O1127": "132T", "M2111": "15P", "O3251": "132", "C-1050": "136B", "C-1035": "136B", "C-1042": "136B", "M2128": "136B", "C-1032": "136B", "C-1036": "136B", "M2099": "136B", "M2082": "136B", "A-1008": "MK42", "T1003": "MK42", "M2588": "121A", "M2566": "121A", "O1193": "88", "O3028": "88", "O1271": "88", "O1234": "88", "O1273": "88", "O2237": "88", "O3013": "88", "O1283": "88", "C-1923": "11ÜS", "C-765": "11ÜS", "C-761": "11ÜS", "C-762": "11ÜS", "C-1603": "11ÜS", "C-1842": "11ÜS", "A-1832": "11ÜS", "C-767": "11ÜS", "C-766": "11ÜS", "B5021": "78E", "B5171": "78E", "T1039": "78E", "B5040": "78E", "B5283": "78E", "O3247": "KM45", "O1151": "134YK", "O1156": "KM45", "O1146": "KM45", "O1155": "KM45", "O2112": "134", "M2013": "15Y", "M2055": "15Y", "M2025": "15Y", "M2244": "15Y", "M2343": "15Y", "B-1613": "58N", "B-1614": "58N", "B-1615": "58N", "B-1612": "58N", "B-1626": "58N", "B-1749": "58N", "B-1627": "58N", "A5080": "34C", "B-1516": "98B", "A-1647": "98B", "B-236": "98B", "B-254": "DT2", "B-1790": "DT2", "B-258": "DT2", "B-256": "DT2", "B-1607": "DT2", "B-1720": "DT2", "E-003": "SG-2", "E-009": "SG-2", "O1135": "133A", "O3269": "133A", "M2075": "11L", "C-1922": "320A", "C-1812": "320A", "C-1913": "320A", "C-1894": "320A", "C-1929": "320A", "C-1875": "320A", "C-1809": "320A", "C-1707": "320A", "C-1522": "320A", "C-1807": "132S", "C-1864": "132S", "C-1932": "132S", "B-1830": "132S", "A-1601": "132S", "C-1823": "132S", "O3176": "132S", "C-1819": "132S", "C-1605": "132S", "C-1841": "132S", "C-1879": "132S", "C-1912": "132S", "A-1671": "89A", "B-1735": "89A", "A-1508": "89A", "A-1513": "89A", "A-1716": "89A", "A-1717": "89A", "A-1503": "89A", "A-1545": "89A", "A-1600": "89A", "B5116": "79K", "B5190": "79K", "B5162": "79K", "B5214": "79K", "K1688": "79F", "A-933": "303A", "A-930": "303A", "A-929": "303A", "A-927": "303A", "A-882": "303A", "A-878": "303A", "A-877": "303A", "A-875": "303A", "A-874": "303A", "A-873": "303A", "A-923": "303A", "A-921": "303A", "A-919": "303A", "A-918": "303A", "A-917": "303A", "A-916": "303A", "M2194": "KM44", "M2270": "KM44", "B5005": "98MB", "B5330": "98MB", "M2326": "11Y", "M2388": "11Y", "C-1670": "11Y", "C-1669": "11Y", "C-1653": "19EK", "C-1512": "19EK", "C-1917": "19EK", "B-112": "93T", "O3229": "133T", "M4742": "19YK", "K1735": "19YK", "M2525": "147", "M2536": "147", "C-278": "121A", "C-1003": "15N", "C-1080": "15N", "T1066": "89F", "T1053": "89F", "T1065": "89F", "T1054": "89F", "T1094": "89F", "O2239": "48K", "K1647": "142", "B-1637": "40B", "B-1710": "40B", "A-1805": "29C", "B5086": "HT20", "B-268": "59R", "B-269": "59R", "B-270": "59R", "A-1204": "418", "A-728": "418", "M2062": "11BE", "M4006": "79KM", "B5023": "79KM", "C-780": "132C", "C-810": "132C", "C-783": "132C", "C-785": "132C", "O2015": "132C", "C-781": "132C", "C-786": "132C", "C-782": "132C", "C-788": "132C", "C-784": "132C", "C-787": "132C", "O2143": "133K", "O2102": "133K", "O1053": "9ÇN", "B-1885": "HM4", "K1164": "59K", "A3049": "33TM", "O1027": "14YE", "O1043": "9ÇN", "O3104": "9ÇN", "O2170": "KM28", "K1707": "18K", "K1759": "KM28", "A-1150": "80T", "A-1140": "80T", "A-981": "80T", "A-1130": "80T", "A-1142": "80T", "B-1713": "41AT", "B-1722": "41AT", "C-933": "131YS", "C-872": "131YS", "C-756": "131YS", "C-932": "131YS", "C-938": "131YS", "C-936": "131YS", "C-937": "131YS", "C-771": "131YS", "C-992": "131YS", "C-841": "131YS", "C-939": "131YS", "C-842": "131YS", "C-850": "131YS", "C-990": "131YS", "C-277": "131YS", "C-930": "131YS", "B-184": "65G", "K1553": "79F", "O1220": "41C", "B-1634": "41C", "O2002": "41C", "O3041": "41C", "O2286": "41C", "M2211": "10A", "M3025": "34G", "B-052": "50L", "B-050": "50L", "B-048": "50L", "B-047": "50L", "B-046": "50L", "B-045": "50L", "B-051": "50L", "B-049": "50L", "K1577": "146M", "T1031": "146M", "T1074": "146M", "A3053": "146M", "A3139": "146M", "O4012": "KM18", "O2115": "KM18", "C-1702": "14R", "C-1549": "14R", "A-1566": "14R", "C-137": "13", "C-276": "13", "M2259": "133F", "M2246": "AND1A", "M2376": "AND1A", "C-050": "14B", "C-049": "14B", "C-048": "14B", "C-047": "14B", "C-043": "14B", "C-042": "14B", "C-041": "14B", "C-040": "14B", "C-039": "14B", "O1002": "122ÇK", "O1038": "122ÇK", "A-1836": "98D", "B-1806": "98D", "B-1512": "98D", "A-1863": "98D", "A-1824": "98D", "A-1825": "98D", "A-111": "EM2", "B-1644": "EM2", "B-1645": "EM2", "A-112": "EM2", "B-1641": "EM2", "A-1560": "EM2", "A3070": "32", "A3043": "32", "B5053": "79S", "B5110": "79S", "C-1658": "14R", "A-363": "33Y", "O1183": "17S", "O3256": "KM33", "O3281": "KM33", "O1111": "KM33", "O1134": "KM33", "O3228": "KM33", "O3127": "UM40", "O3112": "UM40", "O3131": "UM40", "O3141": "UM60", "O1079": "UM60", "O1072": "UM60", "O1041": "UM60", "O1055": "UM60", "O3074": "UM60", "O1001": "UM60", "O1042": "UM60", "O2252": "48KA", "O1196": "59A", "O3044": "59A", "O1301": "59A", "O2009": "59A", "O3017": "59A", "O3064": "59A", "O1101": "KM45", "O1166": "KM72", "O1109": "KM72", "B5203": "HT29", "A-1209": "418", "A5092": "34B", "M4604": "34Z", "M4602": "34AS", "M4888": "34C", "A-816": "400A", "A-770": "400A", "A-815": "400A", "A-803": "400A", "A-761": "400A", "A-962": "400A", "A-945": "400A", "A-931": "400A", "A-884": "400A", "A-817": "400A", "A-811": "400A", "A-818": "400A", "A-958": "400A", "A-870": "400A", "A-812": "400A", "A-788": "400A", "A-787": "400A", "A-786": "400A", "M2587": "121A", "A-094": "77", "A-091": "77", "A-089": "77", "A-088": "77", "A-095": "77", "C-289": "121A", "C-245": "15B", "C-258": "15B", "C-271": "15B", "C-252": "15B", "C-236": "15B", "C-262": "15B", "C-1099": "136B", "M2108": "136B", "O3058": "88", "O1275": "59RK", "B4034": "336M", "B4033": "336M", "M4528": "336M", "C-266": "121A", "C-285": "121A", "M2581": "121A", "C-292": "121A", "C-267": "121A", "C-237": "121A", "C-240": "121A", "C-272": "121A", "B5285": "78E", "B5128": "78E", "B5061": "78E", "O1169": "KM45", "K1099": "HM2", "B-1731": "HM2", "C-1911": "58N", "C-238": "15B", "C-295": "10", "C-303": "10", "C-228": "10", "C-242": "10", "C-298": "10", "C-296": "10", "C-497": "10", "C-503": "10", "C-302": "10", "M3217": "34G", "M3169": "34G", "A-1659": "98B", "B-1536": "98B", "B5234": "MK14", "B5008": "MK14", "B-1767": "DT2", "B-257": "DT2", "K1570": "146T", "B5295": "36AY", "A3090": "36AY", "K1545": "36AY", "A3037": "36AY", "A3067": "36AY", "B5216": "36AY", "C-1909": "320A", "B5346": "142T", "B4015": "142T", "B5321": "142T", "B4016": "142T", "B4039": "142T", "C-1836": "132S", "C-1835": "132S", "O1050": "132S", "O3299": "132S", "O3280": "132S", "O1062": "132S", "C-1925": "132S", "C-1862": "132S", "B-1666": "29S", "B-166": "30D", "B-171": "30D", "B-169": "30D", "B-168": "30D", "B-167": "30D", "B-170": "30D", "C-864": "522ST", "C-869": "522ST", "C-772": "522ST", "O2163": "522ST", "C-140": "522ST", "C-870": "522ST", "C-868": "522ST", "B5013": "89A", "A-1739": "98", "A-1737": "98", "M4760": "336", "D-157": "E-57", "D-133": "E-57", "D-162": "E-57", "D-156": "E-57", "D-150": "E-57", "A3130": "97BT", "C-1723": "18UK", "C-1941": "18UK", "O4009": "18UK", "O2020": "18UK", "M2001": "11CÜ", "A-915": "303A", "A-914": "303A", "A-913": "303A", "A-871": "303A", "A-961": "303A", "A-960": "303A", "A-953": "303A", "A-952": "303A", "A-912": "303A", "A-911": "303A", "A-908": "303A", "O1085": "ÇM44", "C-013": "ÇM44", "C-016": "ÇM44", "O3091": "ÇM44", "M2355": "11Y", "M2056": "11Y", "C-222": "319", "C-189": "319", "C-1729": "19EK", "O2077": "19EK", "O2201": "336H", "O3054": "57UL", "K1796": "19YK", "K1701": "19S", "K1751": "19YK", "M4679": "19YK", "K1748": "19YK", "M4673": "19YK", "K1778": "19YK", "A3107": "92C", "A3054": "92C", "A3032": "92C", "B5227": "36AS", "C-816": "KM32", "C-814": "KM32", "M4839": "34AS", "O2124": "133Ü", "M2043": "15Y", "M2215": "15E", "M2011": "15E", "C-1056": "135K", "C-1004": "135K", "O2262": "22RE", "K1160": "22RE", "O3036": "38B", "O1247": "38B", "B-011": "38B", "B-009": "38B", "B-007": "38B", "O2133": "132C", "O4011": "14S", "O2141": "132C", "O2083": "132C", "O2016": "132C", "O2283": "59RK", "O3067": "59RK", "O3060": "59RK", "B-144": "35C", "B-140": "35C", "B-141": "35C", "B-148": "35C", "B-1715": "35C", "A-1524": "35C", "B-1600": "35C", "B-1502": "35C", "B-1739": "35C", "B-147": "35C", "B-146": "35C", "B-145": "35C", "B-143": "35C", "B-142": "35C", "B-139": "35C", "B-138": "35C", "B-137": "35C", "B-1896": "35C", "C-331": "133T", "O3110": "122Y", "O3081": "122Y", "O3113": "122Y", "A-1855": "141M", "A-1724": "141M", "A-1830": "141M", "A-1802": "141M", "A-1801": "141M", "A-1719": "141M", "A-1826": "141M", "A-1715": "141M", "C-1013": "11H", "C-1020": "11H", "C-1026": "11H", "C-1015": "11H", "C-1016": "11H", "C-1006": "11H", "C-1021": "11H", "C-1039": "11H", "A-181": "78", "A-175": "78", "A-232": "78", "A-183": "78", "A-233": "78", "A-180": "78", "A-185": "78", "A-182": "78", "A-179": "78", "A-177": "78", "A-176": "78", "C-501": "131YS", "C-991": "131YS", "C-935": "131YS", "C-934": "131YS", "B-1868": "41C", "O1257": "41C", "O2288": "41C", "O1184": "41C", "O3066": "41C", "O3056": "41C", "A3111": "33TE", "A-234": "36KE", "A-238": "36KE", "A-237": "36KE", "A-236": "36KE", "A-235": "36KE", "O2268": "36KE", "A5004": "34AS", "A-1669": "153", "B-1619": "153", "B-053": "50L", "K1025": "50L", "B-1856": "TM10", "B-1883": "TM10", "B-1857": "TM10", "B-1912": "TM10", "K1165": "TM10", "B-1840": "TM10", "B-1841": "TM10", "A-795": "50S", "M4511": "78C", "B5180": "78G", "B5189": "78G", "C-1529": "15BK", "C-1502": "15BK", "C-1507": "15BK", "O3227": "KM36", "C-828": "KM36", "O3196": "KM36", "A-014": "22", "A-020": "22", "A-022": "22", "A-023": "22", "B5092": "98E", "M2224": "14K", "M2273": "14K", "O3092": "11P", "A-059": "EM2", "C-1022": "139A", "O1150": "KM31", "O3223": "KM33", "O3240": "KM44", "O3199": "KM44", "O3136": "UM61", "O1023": "UM61", "C-1880": "UM74", "C-1706": "UM74", "C-1728": "UM74", "O2122": "UM74", "A-1853": "79FY", "B5169": "79FY", "T1019": "79FY", "A-1854": "79FY", "A-1850": "79FY", "O3101": "ÇM41", "O3018": "58A", "O1293": "58A", "O1270": "58A", "O2275": "58A", "O2209": "58A", "O1251": "58A", "O2222": "58A", "O2248": "58A", "O2225": "58A", "O2008": "58A", "A-009": "58S", "A-712": "418", "M3226": "34AS", "M4848": "34C", "A-784": "400A", "A-809": "400A", "A-820": "400A", "C-239": "15B", "C-256": "15B", "C-260": "15B", "C-299": "15B", "C-254": "15B", "C-231": "15B", "C-244": "15B", "C-259": "15B", "C-270": "15B", "C-251": "15B", "C-235": "15B", "C-234": "15B", "C-232": "15B", "M2191": "3B", "M4662": "14BK", "C-044": "14B", "A-671": "429A", "A-704": "429A", "A-673": "429A", "A-682": "429A", "A-699": "429A", "A-1215": "429A", "A-677": "429A", "A-697": "429A", "A-676": "429A", "A-692": "429A", "A-680": "429A", "A-684": "429A", "A-672": "429A", "A-683": "429A", "A-693": "429A", "C-265": "121A", "C-264": "121A", "A-1541": "131Y", "O1025": "131Y", "O3178": "131Y", "C-120": "131Y", "A-1538": "131Y", "O2046": "131Y", "C-119": "131Y", "O3167": "131Y", "A-1859": "78ZB", "B5080": "78ZB", "A3064": "78ZB", "O1104": "KM45", "B5141": "MR40", "B5244": "141A", "O1011": "9KS", "A-109": "EM2", "A-107": "EM2", "M2105": "136R", "M2221": "10", "C-287": "10", "C-227": "10", "M2297": "10", "C-493": "10", "C-241": "10", "O5051": "34G", "M4653": "34G", "B5045": "MK14", "B5163": "MK14", "O1077": "11G", "M2127": "136R", "B5192": "76V", "M2066": "15U", "M4004": "MK13", "B-1836": "98AB", "A-1858": "98AB", "A-1806": "98AB", "T1077": "98AB", "A-1502": "98AB", "A-1509": "98AB", "B-1915": "98AB", "O1264": "HT5", "O1222": "HT5", "O2236": "HT5", "O2272": "42KT", "C-141": "522ST", "O2021": "522ST", "C-763": "522ST", "C-145": "522ST", "C-073": "522ST", "C-865": "522ST", "C-142": "522ST", "C-147": "522ST", "C-136": "522ST", "C-075": "522ST", "A-1755": "93", "A-1617": "93", "B-105": "93", "M4698": "122C", "O3109": "122M", "O3088": "122M", "C-193": "19T", "C-191": "19T", "C-192": "19T", "C-184": "19T", "C-208": "19T", "C-190": "19T", "M2348": "19T", "C-1772": "19T", "C-1769": "19T", "B5060": "78S", "O1112": "16U", "O3232": "16U", "O3189": "16U", "O3212": "16U", "M4701": "19E", "A3060": "HT13", "O1259": "48G", "O2012": "48G", "O2303": "48KA", "B5353": "76G", "B-1501": "TM4", "O1245": "TM4", "C-159": "319", "B-1877": "50V", "C-1857": "50V", "A-1756": "50V", "A-1815": "50V", "B-1876": "50V", "B-1862": "50V", "B-1879": "50V", "B-1860": "50V", "B-1859": "50V", "K1061": "30A", "O3184": "132", "O2164": "132", "O2186": "132", "O2107": "E-10", "O4013": "132", "O3274": "132", "B-006": "38B", "B-013": "38B", "B-012": "38B", "B-010": "38B", "M4599": "34Z", "A-1701": "142", "M4684": "10A", "M4655": "10A", "O3107": "19Y", "C-1920": "622", "C-1840": "622", "O2179": "622", "C-1834": "622", "C-1939": "622", "K1134": "54K", "M2195": "11Ü", "O1153": "KM31", "C-199": "19K", "C-197": "19K", "M2232": "19K", "O3289": "KM43", "O3283": "KM43", "O2287": "38B", "O3001": "38B", "O2300": "38B", "O2001": "38B", "O2292": "38B", "O2223": "59RK", "O3215": "132E", "M2350": "11C", "M2205": "11C", "M2200": "11C", "M2373": "11C", "M2288": "11C", "M2365": "11C", "C-015": "11ST", "M2375": "15S", "B-1799": "141M", "A-1857": "141M", "C-1890": "141M", "A-1828": "141M", "A-1547": "141M", "A-1810": "141M", "C-1010": "11H", "C-1008": "11H", "B5095": "92", "B5277": "92", "B5188": "92", "A-231": "78", "A-230": "78", "A-228": "78", "A-227": "78", "A-226": "78", "A-184": "78", "A-178": "78", "C-773": "131YS", "C-931": "131YS", "O2257": "41C", "B5173": "89YB", "M2382": "15C", "M2202": "15Z", "T1010": "78H", "C-840": "131V", "C-757": "131V", "C-759": "131V", "C-753": "131V", "C-758": "131V", "C-754": "131V", "A5108": "34B", "M3192": "34C", "K1709": "KM28", "K1798": "19E", "K1740": "KM28", "A3105": "33TE", "C-1086": "15TY", "C-1005": "15TY", "C-1095": "15TY", "C-1023": "15TY", "C-1002": "15TY", "C-1044": "15TY", "M4510": "50L", "C-1650": "TM10", "A-780": "50S", "A-800": "50S", "A-798": "50S", "A-791": "50S", "A-781": "50S", "A-779": "50S", "A-783": "50S", "K1006": "50S", "A-789": "50S", "A-777": "50S", "K1045": "50S", "O1284": "88A", "O1243": "88A", "O1249": "88A", "O2219": "88A", "O2011": "40", "O2306": "88A", "O2263": "88A", "B5229": "89", "A-018": "22", "A-011": "22", "A-016": "22", "A-019": "22", "A-017": "22", "A-012": "22", "A-021": "22", "A-015": "22", "A-013": "22", "B5335": "ES1", "B5365": "ES1", "C-1609": "GZ1", "A3116": "HT10", "A3078": "HT10", "T1020": "HT11", "T1005": "HT11", "T1024": "HT11", "T1022": "HT11", "A3050": "HT11", "A-281": "336E", "A-267": "336E", "A-268": "336E", "A-286": "336E", "A-263": "336E", "A-273": "336E", "A-274": "336E", "A-278": "336E", "A-280": "336E", "A-272": "336E", "A-266": "336E", "B5225": "144M", "B5347": "144M", "B5314": "144M", "B5246": "144M", "O1173": "KM34", "O3226": "KM34", "O1157": "KM34", "O3249": "KM34", "O3275": "KM34", "O3217": "KM34", "O3279": "KM34", "O3295": "KM34", "O3161": "KM34", "O3200": "KM34", "O1161": "KM34", "O1105": "KM34", "K1167": "59RH", "K1077": "59RH", "K1089": "59RH", "B-1909": "62", "B-181": "62", "B-173": "62", "B-176": "62", "B-172": "62", "C-1895": "62", "B-1784": "62", "B-180": "62", "B-178": "62", "B-177": "62", "M4577": "418", "A5119": "34AS", "M3224": "34C", "M3059": "34G", "C-209": "12", "O1181": "132B", "A3019": "HT6", "C-894": "133AK", "A-679": "429A", "A-700": "429A", "A-674": "429A", "A-689": "429A", "A-688": "429A", "A-681": "429A", "A-678": "429A", "A-701": "429A", "O2091": "132D", "O1074": "131Y", "O3103": "131Y", "O1143": "131Y", "O3288": "131Y", "O1067": "131Y", "B-1522": "98", "A-1731": "98", "C-1623": "98", "B-1639": "98", "B5156": "98", "A-1837": "98", "A-1738": "98", "A-1736": "98", "B-1519": "98", "C-1648": "98S", "A-1540": "98S", "A-1876": "98S", "C-284": "10", "C-274": "10", "M2309": "10", "M2220": "10", "C-515": "10", "C-516": "10", "A-1834": "98AB", "T1105": "89C", "A-1808": "98AB", "O1279": "HT5", "O1248": "HT5", "B-1630": "29D", "A-092": "77", "A-090": "77", "C-867": "522ST", "C-866": "522ST", "C-853": "522ST", "C-132": "522ST", "O2176": "522ST", "O2190": "522ST", "T1099": "98H", "B5185": "98H", "B5030": "98H", "T1058": "98H", "B5337": "76TM", "O1102": "KM47", "B5055": "146A", "A-377": "97G", "A-382": "97G", "A-380": "97G", "A-376": "97G", "A-379": "97G", "A-374": "97G", "A-381": "97G", "A-362": "97G", "A-375": "97G", "B-1728": "TM4", "B-1741": "TM4", "B-1747": "TM4", "B-1602": "TM4", "O3225": "132", "B5175": "141A", "A-051": "43R", "A-053": "43R", "A-052": "43R", "B5076": "73F", "A-778": "89B", "A-782": "89B", "A-1163": "89B", "A-767": "89B", "A-772": "89B", "A-766": "89B", "A-792": "89B", "A-773": "89B", "A-1164": "89B", "O2221": "38B", "O2302": "38B", "C-1762": "14R", "C-1733": "14R", "A-1557": "142", "A-1030": "MR50", "A-1032": "MR50", "M2186": "15ÇB", "C-1815": "622", "C-1858": "622", "C-134": "622", "C-1806": "622", "C-1814": "622", "C-1813": "622", "C-1046": "622", "C-130": "622", "C-129": "622", "C-128": "622", "C-127": "622", "C-126": "622", "K1753": "622", "B-1730": "29E", "B-1734": "29E", "M2302": "19K", "A-1101": "MR40", "A-741": "MR40", "A-1180": "MR40", "O2264": "38B", "A-804": "146B", "A-802": "146B", "A-797": "146B", "A-796": "146B", "K1214": "70FE", "M2340": "11ST", "C-341": "133KT", "C-353": "133KT", "C-345": "133KT", "C-347": "133KT", "C-349": "133KT", "C-348": "133KT", "C-343": "133KT", "C-350": "133KT", "C-344": "133KT", "C-355": "133KT", "C-354": "133KT", "C-342": "133KT", "A-1712": "141M", "K1074": "48H", "K1188": "48H", "K1192": "48H", "T1029": "89C", "T1091": "89C", "T1078": "89C", "T1093": "89C", "T1095": "89C", "T1059": "89C", "T1107": "89C", "T1100": "89C", "T1102": "89C", "T1079": "89C", "B5220": "89C", "T1032": "89C", "A3048": "32M", "A3008": "32M", "A3146": "32M", "A3073": "32M", "A3051": "32M", "A-328": "31Y", "A-325": "31Y", "A-327": "31Y", "A-326": "31Y", "A-324": "31Y", "A-323": "31Y", "A-321": "31Y", "A-329": "31Y", "O3048": "25", "O2267": "25", "O2213": "25", "O2056": "131V", "C-764": "131V", "K1035": "59CH", "M4901": "34AS", "C-1000": "15TY", "M4502": "50N", "A-785": "50N", "A-771": "50N", "A-775": "50N", "A-807": "50N", "M4574": "50N", "A3092": "50N", "A3104": "50N", "A-774": "50N", "A-769": "50N", "K1152": "TM10", "K1032": "TM3", "O1261": "TM10", "K1107": "TM10", "M4529": "50S", "K1043": "50S", "K1017": "50S", "K1038": "50S", "K1166": "50S", "B5159": "89", "B5093": "89", "T1001": "HT11", "B5149": "HT11", "T1008": "HT11", "T1023": "HT11", "A3150": "HT11", "T1034": "HT11", "A3009": "HT11", "M4893": "34BZ", "A-285": "336E", "A-270": "336E", "A-271": "336E", "A-264": "336E", "A-283": "336E", "A-262": "336E", "A-288": "336E", "A-282": "336E", "A-279": "336E", "A-277": "336E", "A-276": "336E", "A-1114": "35D", "A-984": "35D", "A-1104": "35D", "A-1107": "35D", "A-1105": "35D", "A-1102": "35D", "A-1106": "35D", "A-1112": "35D", "A-1711": "62", "B-1759": "62", "B-1894": "62", "B-1779": "62", "A-1706": "62", "B-1833": "63", "B-1821": "63", "B-1801": "63", "A-1626": "63", "A-1641": "63", "B-1533": "63", "B-1814": "63", "O2229": "59HS", "M3014": "34BZ", "O5091": "34BZ", "A-763": "400A", "B5144": "78S", "K1215": "26", "K1173": "26", "C-904": "133AK", "A-695": "429A", "A-694": "429A", "A-691": "429A", "A-675": "429A", "O1121": "131Y", "B4012": "143", "B5284": "143", "B5143": "143", "T1048": "143", "B4029": "143", "C-1764": "14Y", "C-1919": "14Y", "C-1784": "14Y", "C-1756": "14Y", "A-1682": "98", "A-1740": "98", "A-1710": "98S", "O3042": "MK53", "B5260": "76A", "O2101": "AND2Y", "O2003": "TM6", "C-820": "134CK", "C-821": "134CK", "C-499": "10", "M4518": "36C", "B5247": "36C", "M4553": "36C", "O3062": "36C", "B4037": "36C", "B4035": "36C", "M4537": "36C", "B5109": "36C", "B5281": "36F", "B4032": "36F", "B5033": "36C", "M4643": "34G", "A3025": "EM2", "A-337": "141K", "A-289": "141K", "O3111": "ÇM42", "C-1946": "14KS", "C-1801": "14KS", "C-1802": "14KS", "C-1944": "14KS", "C-1898": "14KS", "C-1901": "14KS", "C-1885": "14KS", "O1082": "132YB", "O3146": "132YB", "A-254": "77Ç", "A-255": "77Ç", "A-1517": "98T", "A-1864": "98T", "A-096": "77", "O2154": "132A", "O2074": "132A", "O2127": "132A", "O2172": "132A", "M4545": "76O", "A-370": "76O", "A-1816": "76O", "A-1871": "76O", "A-371": "76O", "A-1879": "76O", "A-369": "76O", "M4534": "76O", "A-1819": "76O", "B5195": "98H", "A-1527": "98H", "A-1624": "98H", "B5179": "98H", "B5165": "98H", "A-1625": "98H", "A-1548": "98H", "A-1543": "98H", "A-1534": "98H", "A-1565": "98H", "A-1747": "98H", "O2019": "132K", "O2128": "132K", "O2098": "132K", "O2050": "132K", "O2136": "132K", "O3292": "KM48", "O1265": "MK50", "A3027": "73B", "A-361": "97G", "A-360": "97G", "A-378": "97G", "M2068": "3A", "A3101": "50A", "K1115": "99A", "O1274": "336Y", "O1287": "336Y", "B4022": "78S", "B4020": "36D", "B4009": "78S", "B4021": "78S", "B4019": "78S", "B5233": "78S", "C-089": "14BK", "C-088": "14BK", "C-143": "14BK", "C-102": "14BK", "C-1082": "139", "C-1763": "14R", "C-1881": "14R", "C-1737": "14R", "C-1754": "14R", "C-1882": "14R", "C-1751": "14R", "C-444": "500T", "C-474": "500T", "C-472": "500T", "C-471": "500T", "C-470": "500T", "C-457": "500T", "C-461": "500T", "O2086": "132H", "C-1830": "622", "C-1820": "622", "A-1002": "MR40", "A-1000": "MR40", "A-1026": "MR40", "A-1166": "MR40", "A-1185": "MR40", "M2342": "133F", "E1008": "BU-1", "E1025": "BU-1", "O2059": "132F", "O1068": "11P", "D-105": "145T", "A3109": "79E", "B5182": "79E", "B5064": "79E", "B5117": "79E", "B5132": "79E", "B5154": "79E", "C-356": "133KT", "C-351": "133KT", "M2285": "13M", "O1128": "KM24", "C-375": "KM24", "C-374": "KM24", "C-372": "KM24", "C-377": "KM24", "C-283": "13", "M2319": "10A", "C-1940": "15BK", "B-280": "U1", "B-279": "U1", "M3101": "34C", "C-1611": "16F", "C-1538": "16F", "C-1766": "16F", "C-1622": "16F", "C-1548": "16F", "K1011": "48L", "K1029": "48L", "A-764": "50N", "A-801": "50N", "A-821": "50N", "K1101": "TM10", "O1188": "TM10", "A-1005": "TM12", "K1225": "TM12", "O2027": "KM70", "O2051": "KM70", "O2184": "KM70", "A-210": "48N", "A-204": "48N", "A-208": "48N", "A-203": "48N", "A-191": "48N", "O2130": "132Y", "O3160": "132Y", "T1007": "HT11", "B5269": "HT12", "B5042": "HT12", "M3142": "34G", "A-269": "336E", "A-265": "336E", "A-1111": "35D", "A-1110": "35D", "A-1108": "35D", "A-1103": "35D", "O2081": "KM37", "O2039": "KM37", "C-1747": "4", "C-1509": "4", "C-1503": "4", "C-1722": "4", "C-1742": "4", "C-1552": "4", "B-1906": "63", "B-1816": "63", "B-1702": "63", "B-1907": "63", "M3164": "34C", "A5020": "34C", "C-1845": "19S", "C-1644": "19S", "C-1652": "19S", "C-1645": "19S", "C-1855": "19S", "C-1662": "19S", "C-1668": "19S", "C-1776": "19S", "C-1782": "19S", "C-1651": "19S", "C-1863": "19S", "C-1602": "19S", "B5297": "36D", "B5263": "H-3", "B5380": "H-3", "O2099": "130H", "O3261": "130H", "T1012": "98G", "C-212": "12", "A-670": "429A", "A-687": "429A", "A-686": "429A", "C-1774": "14Y", "M4737": "14Y", "M4708": "14Y", "O3303": "KM41", "O3174": "KM41", "A-806": "146B", "A-793": "146B", "C-1900": "14R", "M4761": "36C", "M4575": "36C", "B4036": "36C", "M4884": "34C", "B4013": "141K", "O3093": "138B", "O1076": "138B", "C-086": "14BK", "C-095": "14BK", "C-097": "14BK", "C-098": "14BK", "C-1937": "14KS", "C-1899": "14KS", "C-1904": "14KS", "B5230": "HT13", "K1678": "MK13", "A-1840": "76O", "A-1862": "76O", "A-1817": "76O", "A-1555": "76O", "A-1679": "76O", "A-1631": "76O", "A-1618": "76O", "A3144": "76O", "B5072": "89YB", "M4720": "10A", "M4683": "10A", "M4656": "10A", "M4685": "10A", "O2146": "132K", "O3273": "133GP", "O2150": "133GP", "O1177": "KM48", "C-951": "131T", "C-956": "131T", "C-954": "131T", "C-966": "131T", "C-959": "131T", "C-962": "131T", "C-967": "131T", "C-958": "131T", "C-955": "131T", "C-963": "131T", "C-965": "131T", "C-974": "131T", "C-972": "131T", "C-969": "131T", "B4030": "36F", "B4006": "36F", "B4041": "36F", "O2242": "36F", "B4027": "36F", "C-094": "14BK", "C-099": "14BK", "C-101": "14BK", "K1615": "MK13", "K1559": "MK13", "K1628": "MK13", "K1540": "MK13", "B5050": "MK13", "C-468": "500T", "C-479": "500T", "C-442": "500T", "C-449": "500T", "C-462": "500T", "C-466": "500T", "C-478": "500T", "C-469": "500T", "C-451": "500T", "C-445": "500T", "C-456": "500T", "C-452": "500T", "C-305": "500T", "C-458": "500T", "C-453": "500T", "C-463": "500T", "C-460": "500T", "C-459": "500T", "C-465": "500T", "B5209": "HT18", "A-1160": "MR40", "A-1100": "MR40", "A-1226": "MR40", "A3106": "79E", "A3117": "79E", "T1047": "79E", "B5256": "79E", "B5043": "79K", "B5238": "79K", "E1026": "BA-5", "O2169": "KM24", "C-370": "KM24", "K1745": "KM24", "C-373": "KM24", "C-371": "KM24", "C-1539": "15BK", "C-1739": "15BK", "C-1704": "15BK", "C-1903": "15BK", "B-1902": "15BK", "A-1607": "15BK", "C-1910": "15BK", "C-1710": "15BK", "C-1540": "15BK", "C-1615": "15BK", "C-1504": "15BK", "C-1674": "15BK", "B-1795": "15BK", "C-1551": "15BK", "C-1897": "15BK", "B-1539": "29S", "B-1738": "29S", "A-1733": "29S", "C-1810": "16F", "C-1701": "16F", "C-1671": "16F", "C-1705": "16F", "C-1905": "16F", "C-1556": "16F", "K1146": "48L", "K1196": "48L", "K1004": "48L", "K1054": "48L", "O3234": "133F", "C-546": "133F", "O3208": "133F", "C-1557": "133F", "A-963": "50N", "B-1855": "TM12", "K1060": "TM12", "B-1509": "TM12", "C-1607": "FB1", "M4681": "15H", "C-1067": "15H", "A-346": "38E", "A-347": "38E", "A-345": "38E", "A-349": "38E", "C-827": "134GK", "K1147": "26B", "A-1514": "98E", "B5259": "98E", "T1014": "98G", "T1016": "98G", "A3102": "98G", "O3052": "98G", "C-362": "KM11", "C-363": "KM11", "K1710": "KM11", "C-361": "KM11", "C-365": "KM11", "C-360": "KM11", "C-358": "KM11", "C-364": "KM11", "C-368": "KM11", "C-366": "KM11", "C-367": "KM11", "O3231": "KM11", "O1103": "KM11", "A-367": "36", "A-365": "36", "A-368": "36", "A-366": "36", "C-1716": "4", "C-1749": "4", "C-1508": "4", "C-1748": "4", "B-1782": "63", "A-1809": "63", "A-1807": "63", "O1203": "42Z", "D-110": "76D", "D-119": "76D", "D-114": "76D", "D-109": "76D", "D-118": "76D", "D-117": "76D", "D-116": "76D", "D-115": "76D", "D-113": "76D", "D-112": "76D", "D-111": "76D", "D-108": "76D", "A5091": "34AS", "C-1600": "19S", "C-1604": "19S", "C-1867": "19S", "C-1865": "19S", "C-1643": "19S", "C-1777": "19S", "A-1813": "89S", "A-1877": "89S", "A-1751": "89S", "A-1821": "89S", "C-214": "12", "A-685": "429A", "A-698": "429A", "A-696": "429A", "M2123": "15YK", "O1106": "KM41", "O3152": "KM41", "B4011": "144H", "B4004": "144H", "C-398": "KM27", "O1216": "88A", "O1250": "38Z", "O1199": "36C", "A-316": "HT1", "A3131": "HT1", "A3077": "HT1", "T1030": "HT1", "B5059": "HT1", "A-313": "HT1", "A-1688": "HT1", "A3018": "HT1", "T1090": "HT1", "A-317": "HT1", "M4699": "14BK", "K1641": "98KM", "K1686": "98KM", "A-1838": "98KM", "K1546": "98KM", "K1560": "98KM", "K1683": "98KM", "K1608": "98KM", "M2110": "15P", "O1154": "KM11", "O3263": "AND2Y", "M4717": "10A", "M4703": "10A", "M4686": "10A", "M4689": "10A", "M4661": "10A", "M4663": "10A", "M4724": "10A", "C-964": "131T", "C-953": "131T", "C-961": "131T", "C-960": "131T", "C-957": "131T", "A-1648": "29D", "B-1800": "29D", "B-1608": "29D", "B-1826": "29D", "A-1629": "29D", "C-026": "20K", "C-007": "20K", "C-003": "20K", "A-1009": "MK49", "O1236": "MK49", "O3016": "MK49", "A-1109": "MK49", "B5058": "141M", "A-348": "38E", "A-344": "38E", "K1643": "142F", "K1645": "142F", "B5009": "142F", "B5100": "MK13", "O3266": "132D", "O2138": "132D", "K1768": "KM27", "K1722": "KM27", "C-397": "KM27", "O3277": "AND2Y", "C-455": "500T", "C-454": "500T", "C-450": "500T", "C-448": "500T", "C-447": "500T", "C-443": "500T", "C-473": "500T", "O2048": "KM15", "K1533": "97", "B-204": "97", "B-200": "97", "K1530": "97", "K1612": "97", "B-205": "97", "B-202": "97", "K1531": "97", "B-203": "97", "K1771": "14YK", "C-1027": "15SK", "C-1061": "15SK", "C-1066": "15SK", "C-1024": "15SK", "M2336": "15SK", "M2213": "15S", "M2263": "15SK", "O3076": "ÇM43", "O3072": "ÇM43", "A-1839": "98KM", "C-1513": "129T", "C-1666": "129T", "C-1660": "129T", "M2053": "11Ü", "M2022": "11Ü", "M2007": "11Ü", "A3135": "33B", "A3122": "33B", "A3123": "33B", "B5075": "79T", "O3224": "132F", "O1133": "132F", "O2037": "132F", "B5070": "143", "M4522": "336", "M4757": "336", "M4525": "336", "M4507": "336", "M4521": "336", "M4571": "336", "K1764": "KM24", "K1788": "KM24", "K1743": "KM24", "K1699": "KM24", "C-1726": "15BK", "C-1852": "15BK", "A-1709": "15BK", "A-1518": "15BK", "K1085": "25S1", "C-514": "13B", "M2033": "13B", "C-1708": "16F", "C-1544": "16F", "O1148": "133F", "O3271": "133F", "M2076": "133F", "M2227": "133F", "O1174": "133F", "M2303": "133F", "C-1727": "133F", "C-1511": "133F", "B-1854": "TM12", "A3036": "50Y", "K1076": "50Y", "K1108": "50Y", "A-794": "50Y", "A-776": "50Y", "K1191": "50Y", "O3073": "19M", "M2052": "19M", "M2209": "19M", "O1015": "19M", "K1582": "78F", "B5127": "78F", "M4540": "78F", "B5019": "78F", "B5081": "78F", "K1616": "78F", "A3007": "92T", "A3017": "92T", "A-148": "92T", "A-149": "92T", "A-152": "92T", "A-150": "92T", "A-147": "92T", "A3022": "92T", "B5140": "98MB", "C-1647": "98S", "A-1753": "98S", "A3056": "98Y", "A3052": "98Y", "M3092": "34BZ", "O3055": "336K", "M4762": "336K", "O2276": "336K", "O2265": "336K", "O2230": "336K", "B5068": "36Y", "B5103": "36Y", "O1190": "38", "O1303": "38", "O3022": "38", "O1246": "38", "O1232": "152", "C-1780": "19S", "O2060": "19S", "A-1510": "89S", "B5078": "429A", "B5325": "MK15", "B5002": "MK15", "K1157": "29GM", "B-152": "54Ç", "B-150": "54Ç", "B-149": "54Ç", "B-153": "54Ç", "B-151": "54Ç", "A-315": "HT1", "A-314": "HT1", "T1088": "HT1", "B5286": "HT1", "T1089": "HT1", "B5082": "HT1", "A3072": "33B", "C-1038": "15CA", "O2261": "48D", "O1280": "48D", "B5349": "146F", "C-952": "131T", "C-973": "131T", "C-971": "131T", "C-970": "131T", "O1061": "14T", "O1060": "14T", "O3120": "14T", "O2207": "H-8", "M2196": "13B", "M2268": "13H", "M2304": "13H", "M2073": "13H", "M2281": "13H", "O1219": "MK49", "O1262": "MK49", "B5037": "142F", "K1657": "142F", "B5324": "142F", "K1756": "KM27", "K1518": "KM27", "K1728": "19E", "O1164": "11SA", "O3165": "11SA", "O1040": "122M", "O1078": "122M", "C-1765": "2", "C-467": "500T", "C-306": "500T", "C-477": "500T", "C-476": "500T", "C-475": "500T", "D-049": "18D", "D-047": "18D", "D-041": "18D", "D-040": "18D", "D-035": "18D", "D-048": "18D", "D-020": "18D", "D-038": "18D", "D-050": "18D", "D-034": "18D", "M2255": "19F", "D-129": "76D", "D-120": "76D", "D-061": "76D", "D-130": "76D", "D-124": "76D", "D-122": "76D", "D-128": "76D", "D-123": "76D", "D-100": "76D", "D-126": "76D", "D-127": "76D", "C-386": "KM23", "C-379": "KM23", "C-385": "KM23", "C-382": "KM23", "C-387": "KM23", "C-378": "KM23", "C-388": "KM23", "C-384": "KM23", "C-389": "KM23", "C-380": "KM23", "C-381": "KM23", "C-391": "KM23", "M2023": "11Ü", "M2010": "15KÇ", "M2162": "15KÇ", "O3126": "132ÇK", "O1095": "132ÇK", "C-297": "13", "C-269": "13", "C-280": "13", "C-253": "13", "A-171": "82", "A-172": "82", "A-173": "82", "A-119": "82", "A-117": "82", "A-114": "82", "A-116": "82", "A-118": "82", "A-115": "82", "M4503": "336", "M4530": "336", "M4752": "336", "M4554": "336", "M4748": "336", "C-1741": "2", "M2225": "2", "A3115": "98Y", "O3065": "152", "O3033": "152", "A-1609": "14M", "C-1524": "14M", "C-547": "133F", "C-545": "133F", "M2067": "133F", "M2386": "133F", "O1176": "133F", "B5130": "79T", "B5257": "79T", "B5199": "79T", "A3149": "EM2", "A-1866": "BN1", "B-1808": "BN1", "A-1865": "BN1", "A-1620": "BN1", "A-1814": "BN1", "B-1895": "BN1", "A-1734": "BN1", "A-1820": "BN1", "A-1818": "BN1", "B-1847": "BN1", "A-1542": "BN1", "A-1869": "BN1", "A-1558": "BN1", "B-1797": "BN1", "B-1918": "BN1", "K1232": "50Y", "M4551": "78F", "M4562": "78F", "A-121": "93M", "A-125": "93M", "A-123": "93M", "A-134": "93M", "A-124": "93M", "A-126": "93M", "A-122": "93M", "A-131": "93M", "A-137": "93M", "A-120": "93M", "A-130": "93M", "A-129": "93M", "A-127": "93M", "O3099": "9ÇN", "O1097": "9H", "O3100": "9H", "B-1849": "BN1", "B-1843": "BN1", "C-357": "KM11", "K1807": "KM11", "C-369": "KM11", "A3097": "33B", "A3081": "33ES", "O2284": "38", "B5015": "76V", "B5368": "76V", "M3011": "34AS", "O5067": "34AS", "C-053": "14B", "O2255": "151", "C-054": "14B", "C-055": "14B", "A3125": "32A", "A3016": "32A", "A3030": "32A", "K1172": "30M", "A-143": "30M", "B-003": "30M", "K1237": "30M", "A-144": "30M", "B-004": "30M", "B-164": "30M", "A-145": "30M", "B-001": "30M", "A3013": "97E", "T1006": "97E", "T1025": "97E", "M2204": "15C", "A-1007": "MK49", "K1668": "142F", "B5351": "142F", "B4023": "142K", "C-1092": "139A", "C-1019": "139A", "K1136": "TM10", "D-021": "18D", "D-052": "18D", "M2041": "14C", "O3297": "KM35", "D-121": "76D", "D-102": "76D", "D-101": "76D", "O1168": "134YK", "C-804": "134YK", "O1180": "134YK", "O1131": "134YK", "C-1052": "134YK", "C-383": "KM23", "C-320": "129L", "A3035": "33B", "C-294": "13", "O2295": "152", "O2299": "152", "O1197": "H-6", "O3027": "152", "O2215": "152", "O3070": "152", "O1240": "152", "M4730": "139T", "A-030": "25C", "E1045": "HA-2", "M2086": "15KÇ", "D-178": "36Z", "D-163": "36Z", "D-168": "36Z", "D-155": "36Z", "D-177": "36Z", "D-132": "36Z", "D-154": "36Z", "D-167": "36Z", "D-181": "36Z", "A-1616": "BN1", "K1130": "TM3", "B-1850": "TM11", "A-1741": "TM11", "K1153": "TM11", "B-1852": "TM11", "B-1853": "TM11", "A-1827": "TM11", "O3010": "TM11", "A-138": "93M", "A-136": "93M", "A-135": "93M", "B-294": "DT1", "B-296": "DT1", "B-297": "DT1", "B-295": "DT1", "B-289": "DT1", "B-292": "DT1", "B-291": "DT1", "B-290": "DT1", "B-1873": "DT1", "B-293": "DT1", "B-1609": "DT1", "B-1660": "DT1", "K1739": "KM11", "K1703": "KM11", "C-327": "KM13", "C-328": "KM13", "C-329": "KM13", "C-325": "KM13", "C-326": "KM13", "C-330": "KM13", "M3100": "34C", "O5031": "34G", "M3170": "34AS", "B5164": "MK13", "B4001": "458", "B-1897": "29D", "B-1610": "29D", "B-1620": "29D", "B-1865": "29D", "B-1920": "29D", "A-039": "40T", "A-038": "40T", "A-037": "40T", "A-035": "40T", "A-034": "40T", "A-033": "40T", "A-032": "40T", "A-031": "40T", "A-044": "40T", "A-042": "40T", "A-040": "40T", "C-1014": "15", "B-1778": "54K", "K1105": "54K", "B-082": "30M", "B-005": "30M", "B-081": "30M", "A-142": "30M", "B-002": "30M", "A-146": "30M", "T1042": "89F", "B3001": "89F", "M4003": "89F", "T1106": "89F", "M2359": "14K", "C-1624": "19F", "C-534": "19F", "M2064": "19F", "K1776": "132M", "A-1027": "MK50", "A-1028": "MK50", "B5079": "AVR1", "B5073": "AVR1", "M2148": "15A", "M2160": "15A", "O3169": "KM35", "O1118": "KM35", "O3262": "KM35", "D-125": "76D", "C-1822": "19E", "K1773": "19E", "C-1833": "19E", "C-1804": "19E", "K1757": "19E", "O4003": "19E", "C-1818": "19E", "O3293": "134YK", "C-809": "134YK", "O3190": "134YK", "O3246": "134YK", "C-811": "134YK", "C-805": "134YK", "C-318": "129L", "C-319": "129L", "C-1506": "42HM", "B-1628": "42HM", "C-1924": "42HM", "B-1603": "42HM", "O1189": "152", "O3009": "152", "C-824": "134UK", "T1051": "98AB", "B5184": "98AB", "C-1076": "15", "D-179": "36Z", "D-161": "36Z", "D-159": "36Z", "K1016": "TM11", "A-889": "300C", "A-888": "300C", "B5004": "79F", "B5211": "79Y", "B5174": "79Y", "B5358": "79Y", "B5028": "79Y", "B5131": "79Y", "A-1141": "90", "A-1222": "90", "A-1131": "90", "A-1229": "90", "A-989": "90", "A-132": "93M", "O3242": "KM13", "O3258": "KM13", "D-010": "KM21", "D-019": "KM21", "D-046": "KM21", "M3127": "34C", "K1132": "48", "O2103": "132Z", "O2173": "132Z", "O2088": "132Z", "O2054": "132Z", "O1007": "122V", "O1099": "122V", "D-032": "251", "D-030": "251", "D-022": "251", "A-1705": "29D", "B-1604": "29D", "A-1530": "29D", "A-1630": "29D", "A-1852": "29D", "M2144": "15SN", "M2182": "15SN", "M2129": "15SN", "M2095": "15SN", "M2085": "15SN", "O1051": "19Y", "O3137": "19Y", "K1022": "EM2", "M2050": "11M", "M2358": "11M", "K1620": "MK13", "B5151": "146F", "O1089": "138B", "O1182": "132M", "K1724": "132M", "K1705": "132M", "K1794": "132M", "K1772": "132M", "K1716": "132M", "K1737": "132M", "K1802": "132M", "O2113": "18YS", "O2100": "18YS", "A-1023": "MK50", "B5301": "ES4", "B4044": "144A", "M4007": "144A", "C-1936": "19E", "K1698": "19E", "C-1744": "ER2", "C-826": "134YK", "A-1668": "MR11", "O3173": "AND2Y", "M2170": "20", "M2093": "20", "M2153": "20", "M2122": "20", "A-322": "31Y", "O2249": "48KA", "O3031": "48KA", "O3068": "48KA", "O1294": "48KA", "C-1057": "136Z", "D-158": "36Z", "K1770": "11", "B-057": "50C", "B-056": "50C", "B-055": "50C", "B-054": "50C", "K1019": "50C", "M4002": "144", "A-886": "300C", "A-890": "300", "K1036": "48", "K1071": "48", "D-025": "251", "D-029": "251", "D-018": "251", "C-900": "133P", "O2023": "133P", "C-913": "133P", "A-1833": "14M", "C-1868": "14M", "A-1608": "14M", "C-1515": "14M", "A-1605": "14M", "A-1849": "98KM", "A-1847": "98KM", "A-1846": "98KM", "A-1845": "98KM", "A-1844": "98KM", "T1073": "98KM", "K1614": "98KM", "C-001": "20K", "C-002": "20K", "C-071": "20K", "C-009": "20K", "C-072": "20K", "C-004": "20K", "C-069": "20K", "C-012": "20K", "C-011": "20K", "C-005": "20K", "C-014": "20K", "K1631": "HT29", "T1086": "HT29", "B4042": "HT29", "A-338": "36ES", "A-343": "36ES", "A-339": "36ES", "A-359": "36ES", "A-358": "36ES", "A-357": "36ES", "A-356": "36ES", "M2293": "9A", "K1093": "55Y", "B-1858": "41E", "B-1658": "41E", "B-1517": "41E", "B-1919": "41E", "B-1622": "41E", "B-1914": "41E", "B-1911": "41E", "B-1727": "41E", "B-1534": "41E", "B4005": "144A", "M4001": "144A", "O3164": "132T", "B5288": "H-1", "B5381": "H-1", "O3276": "AND2Y", "B-1621": "MR11", "A-190": "48N", "K1211": "41A", "K1047": "41", "O1018": "KM71", "O2026": "KM71", "C-1730": "14M", "C-1760": "14M", "C-1738": "14M", "K1078": "50C", "A3110": "33M", "A-765": "89B", "A-790": "89B", "B5150": "AVR1", "O1086": "19M", "M2367": "19M", "O2185": "KM70", "E-020": "SG-1", "E-012": "SG-1", "E-026": "SG-1", "E-025": "SG-1", "E-019": "SG-1", "E-011": "SG-1", "B-206": "97", "C-1892": "97GE", "A-1848": "97GE", "A-1523": "97GE", "A-1526": "97GE", "O1277": "336A", "A-174": "48N", "O1113": "KM17", "O3180": "KM17", "O1172": "KM17", "O2198": "HM1", "A-189": "71T", "A-186": "71T", "A-188": "71T", "O1124": "17S", "O3244": "17S", "O3272": "17S", "O1122": "17S", "M2024": "12C", "M2383": "11ES", "M4566": "98KM", "A-1841": "98KM", "K1590": "98KM", "A-353": "36ES", "C-010": "20K", "C-068": "20K", "O1186": "151", "A-351": "36ES", "O3158": "132M", "O3191": "132M", "O3238": "132M", "O1052": "138", "C-1074": "15", "C-1087": "15", "B-074": "99A", "B-072": "99A", "B-070": "99A", "B-073": "99A", "B-1746": "99A", "B-071": "99A", "A-1725": "97GE", "A-1831": "97GE", "A-1722": "97GE", "C-1028": "15S", "O1063": "19Y", "C-216": "19Y", "O3132": "19Y", "A-1800": "98S", "A-1619": "98S", "O3220": "132G", "T1080": "89C", "M2185": "136R", "O1006": "UM60", "O2072": "11A", "O2187": "11A", "O3108": "11A", "B5289": "48M", "A-225": "72T", "A-217": "72T", "A-221": "72T", "A-223": "72T", "A-219": "72T", "A-220": "72T", "A-422": "50P", "A-421": "50P", "A-420": "50P", "A-418": "50P", "A-417": "50P", "A-416": "50P", "A-415": "50P", "A-414": "50P", "A-249": "50P", "A-248": "50P", "A-413": "50P", "A-412": "50P", "A-411": "50P", "K1053": "50P", "A-419": "50P", "A-383": "50P", "A-025": "25E", "A-027": "25E", "A-029": "25E", "A-026": "25E", "A-024": "25E", "O3248": "KM2", "M4523": "336M", "B-252": "U2", "B-251": "U2", "B-250": "U2", "B-253": "U2", "C-1877": "132M", "C-1827": "132M", "C-1800": "132M", "C-1805": "132M", "C-1873": "132M", "C-1907": "132M", "C-1888": "132M", "C-1948": "132M", "C-1734": "132M", "C-1945": "132M", "C-1816": "132M", "C-1891": "132M", "C-1889": "132M", "C-1837": "132M", "C-1866": "132M", "C-1872": "132M", "C-1828": "132M", "C-1893": "132M", "C-1887": "132M", "C-1817": "132M", "C-1942": "132M", "C-1825": "132M", "C-1824": "132M", "C-1908": "132M", "C-1758": "132M", "C-1938": "132M", "C-1709": "132M", "A3002": "33M", "A3033": "33M", "A3023": "33M", "A3045": "33M", "T1049": "98AB", "B5121": "98AB", "T1045": "98AB", "B-1898": "59N", "D-146": "76", "D-139": "76", "D-147": "76", "B-1832": "29B", "B-1815": "29B", "D-175": "E-59", "D-149": "E-59", "D-141": "E-59", "D-131": "E-59", "D-031": "E-59", "D-171": "E-59", "D-164": "E-59", "D-153": "E-59", "D-152": "E-59", "D-151": "E-59", "A-197": "89K", "A-196": "89K", "A-195": "89K", "O1221": "48U", "C-1773": "10EK", "C-1785": "10EK", "C-1786": "13FY", "M2238": "13FY", "D-138": "36L", "D-135": "36L", "D-160": "36L", "D-142": "36L", "D-143": "36L", "O1069": "14CE", "C-1618": "93", "B-102": "93", "A-1822": "93", "B-101": "93", "B-104": "93", "B-103": "93", "A-1113": "TM6", "K1203": "TM7", "K1195": "TM7", "O2105": "130T", "A-893": "300G", "A-897": "300G", "A-899": "300G", "A-898": "300G", "A-896": "300G", "A-895": "300G", "A-1754": "63", "B-1875": "63", "O1035": "KM61", "A-1533": "KM61", "B-1513": "KM61", "A-224": "72T", "A-389": "50A", "A-387": "50A", "A-385": "50A", "A-386": "50A", "A-390": "50A", "A-395": "50A", "A-394": "50A", "K1228": "50P", "A-384": "50P", "K1030": "50A", "K1114": "TM9", "A3020": "TM9", "K1073": "TM9", "K1081": "TM9", "K1001": "TM9", "K1169": "TM3", "K1091": "TM3", "M4722": "15H", "A-055": "43R", "A-054": "43R", "D-180": "36L", "D-134": "36L", "A-392": "50A", "A-388": "50A", "A-393": "50A", "A-391": "50A", "A-396": "50A", "B-031": "TM8", "B-029": "TM8", "A-1651": "TM2", "M2054": "14D", "M2241": "14D", "M2242": "14D", "M2014": "14D", "M2356": "14D", "O1139": "KM72", "A-099": "77", "A-098": "77", "O3115": "11P", "B-1705": "30A", "K1235": "30A", "B-1706": "30A", "K1242": "30A", "B-1624": "30A", "A-141": "30A", "B-1769": "30A", "B-1707": "30A", "B-193": "97", "D-008": "16D", "D-007": "16D", "D-027": "16D", "D-043": "16D", "D-016": "16D", "A-056": "43R", "O2202": "H-6", "O2226": "H-6", "O2200": "H-6", "O2217": "H-6", "M2245": "13M", "C-504": "13M", "M2264": "13M", "M2208": "13M", "D-002": "16D", "D-013": "16D", "D-060": "16D", "D-028": "16D", "D-024": "16D", "D-003": "16D", "D-006": "16D", "D-039": "16D", "D-009": "16D", "D-057": "16D", "D-001": "16D", "D-036": "16D", "D-037": "16D", "D-014": "16D", "A-1504": "98S", "B-1504": "41E", "B-1661": "41E", "B-1511": "41E", "B-1908": "41E", "B5187": "98MB", "D-026": "16D", "D-012": "16D", "D-011": "16D", "D-051": "16D", "D-005": "16D", "D-058": "16D", "B-1605": "41E", "C-165": "12", "C-210": "12", "M2253": "15K", "M2334": "15K", "B-198": "97", "D-017": "16D", "C-1527": "8E", "C-1743": "8E", "C-1543": "8E", "A-894": "300G", "D-136": "E-56", "D-148": "E-56", "D-140": "E-56", "D-137": "E-56", "B5212": "78K", "B-197": "97", "B-196": "97", "B-195": "97", "A-311": "89K", "A-198": "89K", "O2199": "HM1", "O2234": "HM1", "K1190": "41A", "K1052": "41A", "K1102": "41A", "O2006": "36S", "E-015": "SG-1", "M3198": "34C", "M2198": "KM46", "O4106": "DS2", "O4105": "DS1", "A-049": "42T", "A-048": "42T", "A-046": "42T", "A-047": "42T", "A-045": "42T", "A-050": "42T", "B-080": "28T", "A-1515": "73B", "A-1644": "73B"};
@@ -2934,6 +3615,10 @@ export default {
     }
 
     if (path === "/ferries/live") return handleFerriesLive(env);
+    if (path === "/ferries/status") return hubJson(env, "/ferries/status", 120);
+    if (path === "/ferries/timetables") return hubJson(env, "/ferries/timetables", 1800);
+    if (path === "/network/changes") return hubJson(env, "/network/changes", 3600);
+    if (path === "/hub/state") return hubJson(env, "/state", 5);
     if (path === "/buses") return handleBuses(request, env);
     if (path === "/line") return handleLine(env, url);
     if (path === "/line/route") return handleLineRoute(env, url);
@@ -3036,8 +3721,8 @@ export default {
 
     if (path === "/status") {
       const q = await quota(env);
-      const meta = inMemoryMeta || (await env.LIVE.get("meta", { type: "json", cacheTtl: 30 }).catch(() => null));
-      let map = await env.LIVE.get("bus_lines_map", "json").catch(() => null);
+      const meta = (await loadFleet(env)).meta;
+      const map = (await lineMaps(env)).lines;
       const mappedLinesCount = map ? Object.keys(map).length : Object.keys(BUS_LINES_MAP).length;
       const key = resolveCartoKey(env);
       const detectedEnvKeys = [];
@@ -3062,14 +3747,14 @@ export default {
       });
     }
 
-    return json({ error: "Not found", routes: ["/", "/classic", "/ferries/live", "/bootstrap", "/traffic", "/bus/eta?line=15B&id=A-100", "/stop/arrivals?code=100022", "/diag", "/manifest.json", "/sw.js", "/icon.svg", "/buses", "/line?code=15B", "/line/route?code=15B", "/lines", "/lines/map", "/stops", "/disruptions", "/metro/stations", "/metro/colors", "/rail/schedule?line=M2", "/rail/status", "/rail/departures?line=M2&station=TAKSIM", "/status", "/config/carto", "/tile/voyager/{z}/{x}/{y}"] }, 404);
+    return json({ error: "Not found", routes: ["/", "/classic", "/ferries/live", "/ferries/status", "/ferries/timetables", "/network/changes", "/hub/state", "/bootstrap", "/traffic", "/bus/eta?line=15B&id=A-100", "/stop/arrivals?code=100022", "/diag", "/manifest.json", "/sw.js", "/icon.svg", "/buses", "/line?code=15B", "/line/route?code=15B", "/lines", "/lines/map", "/stops", "/disruptions", "/metro/stations", "/metro/colors", "/rail/schedule?line=M2", "/rail/status", "/rail/departures?line=M2&station=TAKSIM", "/status", "/config/carto", "/tile/voyager/{z}/{x}/{y}"] }, 404);
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(refreshFleet(env).catch(e => console.error("Cron refresh failed:", String(e))));
-    ctx.waitUntil(prewarmRail(env).catch(e => console.error("Rail prewarm failed:", String(e))));
-    if (env.AISSTREAM_API_KEY) {
-      ctx.waitUntil(refreshFerries(env).catch(e => console.error("AIS refresh failed:", String(e))));
-    }
+    // The TransitHub runs on its own alarm (fleet ~37 s, timetables, cancellations, network);
+    // the cron only makes sure that clock is ticking. No KV writes here.
+    const hub = hubStub(env);
+    if (hub) ctx.waitUntil(hub.fetch("https://hub/kick").catch(e => console.error("Hub kick failed:", String(e))));
+    else ctx.waitUntil(loadFleet(env).catch(e => console.error("Fleet refresh failed:", String(e))));
   }
 };

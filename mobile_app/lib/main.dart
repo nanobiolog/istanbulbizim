@@ -1,3 +1,5 @@
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +10,13 @@ import 'theme/app_theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // A failed network request or a location error (Safari: kCLErrorLocationUnknown) must not
+  // surface as an uncaught error; log it once and carry on.
+  PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('Unhandled: $error');
+    return true;
+  };
 
   // Edge to edge immersive status bar
   SystemChrome.setSystemUIOverlayStyle(
@@ -31,14 +40,16 @@ class IstanbulBizimApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => TransitProvider()),
       ],
-      child: Consumer<TransitProvider>(
-        builder: (context, provider, _) {
+      // only the theme comes from the provider: don't rebuild the whole app on every data tick
+      child: Selector<TransitProvider, ThemeMode>(
+        selector: (_, p) => p.themeMode,
+        builder: (context, themeMode, _) {
           return MaterialApp(
             title: 'İstanbul Bizim',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
-            themeMode: provider.themeMode,
+            themeMode: themeMode,
             home: const MapScreen(),
           );
         },

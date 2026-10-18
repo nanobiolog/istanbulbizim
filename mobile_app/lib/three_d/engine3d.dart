@@ -137,6 +137,14 @@ class Mesh {
   }
 }
 
+/// Frame-rate budget shared by the 3D views (set to lite when the browser renders on the CPU).
+class Render3DQuality {
+  static bool lite = false;
+
+  /// Frames per second to render at: smooth while something moves, near-idle otherwise.
+  static double fps({required bool active}) => lite ? (active ? 15 : 4) : (active ? 40 : 6);
+}
+
 /// A floating screen label anchored to a 3D point.
 class Label3D {
   final double x, y, z;

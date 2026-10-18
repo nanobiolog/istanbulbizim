@@ -24,7 +24,8 @@ class TransitApiService {
     if (kIsWeb) {
       final b = Uri.base;
       final local = b.host == 'localhost' || b.host == '127.0.0.1' || b.host.isEmpty;
-      if (!local && (b.scheme == 'https' || b.scheme == 'http')) return b.origin;
+      final wranglerDev = local && b.port >= 8787 && b.port <= 8799; // `wrangler dev` serving the site + API
+      if ((!local || wranglerDev) && (b.scheme == 'https' || b.scheme == 'http')) return b.origin;
     }
     return defaultWorkerUrl;
   }
@@ -90,6 +91,30 @@ class TransitApiService {
         if (data is Map) traffic = TrafficSummary.fromJson(data['city']) ?? traffic;
       }
     } catch (_) {}
+  }
+
+  /// JSON document from the Worker's TransitHub (/ferries/status, /ferries/timetables,
+  /// /network/changes). The last good copy is kept on the device for offline starts.
+  Future<Map<String, dynamic>?> fetchHubDoc(String path, {bool allowCached = true}) async {
+    final key = 'hub:$path';
+    try {
+      final res = await _client.get(Uri.parse('$baseUrl$path')).timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data is Map<String, dynamic> && data['error'] == null) {
+          try {
+            await _prefs?.setString(key, res.body);
+          } catch (_) {}
+          return data;
+        }
+      }
+    } catch (_) {}
+    if (!allowCached) return null;
+    try {
+      final raw = _prefs?.getString(key);
+      if (raw != null) return jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {}
+    return null;
   }
 
   /// Live ferry positions from AIS. Returns (aisConfigured, vessels); null when unreachable.

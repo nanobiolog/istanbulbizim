@@ -70,19 +70,54 @@ async function safeKvPut(env, key, value, options) {
   }
 }
 
+// Light per-isolate guard for occasional extra IETT calls (lines list, per-line fallback).
+// The fleet itself is refreshed only by the TransitHub Durable Object, so no global KV counter.
+const quotaMem = { hour: 0, n: 0 };
 async function quota(env) {
-  const key = "q:" + Math.floor(Date.now() / 3600000);
-  try {
-    const n = parseInt((await env.LIVE.get(key)) || "0", 10);
-    return { key, n };
-  } catch (e) {
-    return { key, n: 0 };
-  }
+  const hour = Math.floor(Date.now() / 3600000);
+  if (quotaMem.hour !== hour) { quotaMem.hour = hour; quotaMem.n = 0; }
+  return { key: "q:" + hour, n: quotaMem.n };
 }
 
 async function spend(env, q) {
-  q.n += 1;
-  await safeKvPut(env, q.key, String(q.n), { expirationTtl: 7200 });
+  quotaMem.n += 1;
+}
+
+// ── Tiered cache (isolate memory → Cloudflare edge Cache API). Free and unmetered, unlike KV,
+// which is kept for slow-changing shared data only (daily rail timetables, line maps).
+const EDGE_BASE = "https://cache.istanbulbizim.internal/v2/";
+const memCache = new Map();
+
+async function edgeGetJson(key) {
+  const hit = memCache.get(key);
+  if (hit && hit.exp > Date.now()) return hit.val;
+  try {
+    const res = await caches.default.match(new Request(EDGE_BASE + encodeURIComponent(key)));
+    if (res) {
+      const exp = Number(res.headers.get("x-exp")) || Date.now() + 60000;
+      if (exp > Date.now()) {
+        const val = await res.json();
+        memCache.set(key, { val, exp });
+        return val;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function edgePutJson(key, val, ttlSec) {
+  const exp = Date.now() + ttlSec * 1000;
+  memCache.set(key, { val, exp });
+  if (memCache.size > 400) memCache.delete(memCache.keys().next().value);
+  try {
+    await caches.default.put(new Request(EDGE_BASE + encodeURIComponent(key)), new Response(JSON.stringify(val), {
+      headers: { "content-type": "application/json", "cache-control": `public, max-age=${ttlSec}`, "x-exp": String(exp) }
+    }));
+  } catch (e) {}
+}
+
+function hubStub(env) {
+  return env && env.HUB ? env.HUB.get(env.HUB.idFromName("hub")) : null;
 }
 
 // SOAP caller with rate-limit retry & auth headers
@@ -145,14 +180,14 @@ const MIN_REFRESH_INTERVAL_MS = 36364; // 3600s / 99 = ~36.36s
 const FLEET_CACHE_URL = "https://cache.istanbulbizim.internal/fleet/buses";
 const META_CACHE_URL = "https://cache.istanbulbizim.internal/fleet/meta";
 
-async function putEdgeCache(urlStr, data) {
+async function putEdgeCache(urlStr, data, ttlSec = 600) {
   try {
     const cache = caches.default;
     const req = new Request(urlStr, { method: "GET" });
     const res = new Response(data, {
       headers: {
         "content-type": "application/json",
-        "cache-control": "public, max-age=600"
+        "cache-control": `public, max-age=${ttlSec}`
       }
     });
     await cache.put(req, res);
@@ -169,119 +204,96 @@ async function getEdgeCache(urlStr) {
   return null;
 }
 
-async function refreshFleet(env) {
-  const meta = inMemoryMeta || (await env.LIVE.get("meta", { type: "json", cacheTtl: 30 }).catch(() => null));
-  if (meta && (Date.now() - meta.t < MIN_REFRESH_INTERVAL_MS)) {
-    return meta;
+// One İETT fleet download, annotated against the previous snapshot. No storage side effects:
+// the TransitHub Durable Object calls this on its own timer and keeps the result.
+async function fetchIettFleet(env, prevRaw) {
+  const rows = await soapWithRetry(IETT, "GetFiloAracKonum_json", null, env);
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const out = [];
+  for (const r of rows) {
+    const lon = num(r.Boylam);
+    const lat = num(r.Enlem);
+    if (lon === null || lat === null || lat < 40.5 || lat > 41.6 || lon < 27.8 || lon > 29.8) continue;
+    out.push({
+      id: r.KapiNo,
+      lat: Math.round(lat * 1e5) / 1e5,
+      lon: Math.round(lon * 1e5) / 1e5,
+      s: Math.round(num(r.Hiz) || 0),
+      t: r.Saat,
+      a: ageSec(r.Saat),
+      op: r.Operator || "",
+      p: r.Plaka || ""
+    });
   }
+  await annotateFleet(out, prevRaw, env);
+  return { raw: JSON.stringify(out), meta: { t: Date.now(), count: out.length } };
+}
 
-  // Prevent concurrent duplicate fetches
-  const lockTime = parseInt((await env.LIVE.get("lock").catch(() => null)) || "0", 10);
-  if (lockTime && (Date.now() - lockTime < 30000)) {
-    return meta;
+let fleetFetchedAt = 0;
+
+// Latest fleet snapshot: isolate memory (12 s) → edge cache (12 s) → TransitHub.
+async function loadFleet(env) {
+  if (inMemoryMeta && inMemoryBusesRaw && Date.now() - fleetFetchedAt < 12000) {
+    return { meta: inMemoryMeta, raw: inMemoryBusesRaw };
   }
-
-  const q = await quota(env);
-  if (q.n >= 99) {
-    console.warn(`Hourly IETT quota reached (${q.n}/100), serving cached fleet.`);
-    return meta;
-  }
-
-  await safeKvPut(env, "lock", String(Date.now()), { expirationTtl: 60 });
-
   try {
-    const rows = await soapWithRetry(IETT, "GetFiloAracKonum_json", null, env);
-    if (!Array.isArray(rows) || rows.length === 0) {
-      return meta;
+    const metaStr = await getEdgeCache(META_CACHE_URL);
+    if (metaStr) {
+      const m = JSON.parse(metaStr);
+      if (m.fetched && Date.now() - m.fetched < 12000 && (!inMemoryMeta || m.t >= inMemoryMeta.t)) {
+        const raw = await getEdgeCache(FLEET_CACHE_URL);
+        if (raw) {
+          inMemoryMeta = { t: m.t, count: m.count };
+          inMemoryBusesRaw = raw;
+          fleetFetchedAt = m.fetched;
+          return { meta: inMemoryMeta, raw };
+        }
+      }
     }
-
-    const out = [];
-    for (const r of rows) {
-      const lon = num(r.Boylam);
-      const lat = num(r.Enlem);
-      if (lon === null || lat === null || lat < 40.5 || lat > 41.6 || lon < 27.8 || lon > 29.8) continue;
-      out.push({
-        id: r.KapiNo,
-        lat: Math.round(lat * 1e5) / 1e5,
-        lon: Math.round(lon * 1e5) / 1e5,
-        s: Math.round(num(r.Hiz) || 0),
-        t: r.Saat,
-        a: ageSec(r.Saat),
-        op: r.Operator || "",
-        p: r.Plaka || ""
-      });
+  } catch (e) {}
+  const hub = hubStub(env);
+  if (hub) {
+    try {
+      const res = await hub.fetch("https://hub/fleet");
+      if (res.ok) {
+        const raw = await res.text();
+        const meta = JSON.parse(res.headers.get("x-meta") || "null");
+        if (raw && meta) {
+          inMemoryMeta = meta;
+          inMemoryBusesRaw = raw;
+          fleetFetchedAt = Date.now();
+          await putEdgeCache(META_CACHE_URL, JSON.stringify(Object.assign({ fetched: fleetFetchedAt }, meta)), 12);
+          await putEdgeCache(FLEET_CACHE_URL, raw, 12);
+        }
+      }
+    } catch (e) {
+      console.warn("hub fleet fetch failed:", String(e));
     }
-
-    await annotateFleet(out, inMemoryBusesRaw, env);
-    const m = { t: Date.now(), count: out.length };
-    const raw = JSON.stringify(out);
-    inMemoryBusesRaw = raw;
-    inMemoryMeta = m;
-
-    await putEdgeCache(META_CACHE_URL, JSON.stringify(m));
-    await putEdgeCache(FLEET_CACHE_URL, raw);
-
-    await safeKvPut(env, "buses", raw);
-    await safeKvPut(env, "meta", JSON.stringify(m));
-    // Increment quota counter ONLY upon successful IETT fetch
-    await spend(env, q);
-    return m;
-  } catch (err) {
-    console.error("refreshFleet error:", String(err));
-    return meta;
-  } finally {
-    try { await env.LIVE.delete("lock"); } catch (e) {}
+  } else if (!inMemoryMeta || Date.now() - inMemoryMeta.t > 40000) {
+    // No Durable Object binding (e.g. a minimal local dev setup): refresh in this isolate.
+    try {
+      const f = await fetchIettFleet(env, inMemoryBusesRaw);
+      if (f) {
+        inMemoryMeta = f.meta;
+        inMemoryBusesRaw = f.raw;
+        fleetFetchedAt = Date.now();
+      }
+    } catch (e) {}
   }
+  return { meta: inMemoryMeta, raw: inMemoryBusesRaw };
+}
+
+// Kept for older call sites: the hub decides whether İETT is due.
+async function refreshFleet(env) {
+  const hub = hubStub(env);
+  if (hub) {
+    try { await hub.fetch("https://hub/kick"); } catch (e) {}
+  }
+  return (await loadFleet(env)).meta;
 }
 
 async function handleBuses(request, env) {
-  let meta = inMemoryMeta;
-  let raw = inMemoryBusesRaw;
-
-  // 1. If memory empty or older than 30s, check edge Cache API first, then KV
-  if (!meta || !raw || (Date.now() - meta.t >= 30000)) {
-    try {
-      const cachedMetaStr = await getEdgeCache(META_CACHE_URL);
-      if (cachedMetaStr) {
-        const cachedMeta = JSON.parse(cachedMetaStr);
-        if (!meta || cachedMeta.t > meta.t) {
-          const cachedRaw = await getEdgeCache(FLEET_CACHE_URL);
-          if (cachedRaw) {
-            meta = cachedMeta;
-            raw = cachedRaw;
-            inMemoryMeta = meta;
-            inMemoryBusesRaw = raw;
-          }
-        }
-      }
-    } catch (e) {}
-
-    if (!meta || !raw || (Date.now() - meta.t >= 30000)) {
-      try {
-        const kvMeta = await env.LIVE.get("meta", { type: "json", cacheTtl: 30 });
-        if (kvMeta && (!meta || kvMeta.t > meta.t)) {
-          meta = kvMeta;
-          raw = await env.LIVE.get("buses", { cacheTtl: 30 });
-          inMemoryMeta = meta;
-          inMemoryBusesRaw = raw;
-        }
-      } catch (e) {
-        console.warn("KV read error:", String(e));
-      }
-    }
-  }
-
-  // 2. Direct IETT fetch ONLY if no feeder pushed data for 75+ seconds
-  if (!meta || (Date.now() - meta.t >= 75000)) {
-    try {
-      meta = (await refreshFleet(env)) || meta;
-      if (meta) {
-        raw = inMemoryBusesRaw || (await env.LIVE.get("buses", { cacheTtl: 30 }).catch(() => null));
-      }
-    } catch (e) {
-      console.error("Fleet refresh error:", String(e));
-    }
-  }
+  const { meta, raw } = await loadFleet(env);
 
   if (!raw || !meta) {
     return json({ error: "İETT verisi henüz yükleniyor, lütfen birkaç saniye sonra tekrar deneyin." }, 503);
@@ -487,7 +499,7 @@ async function fetchLineRoute(code, env, opts = {}) {
   }
 
   const key = (opts.fast ? "route_fast_v1:" : "route_v4:") + code;
-  let cached = await env.LIVE.get(key, "json");
+  let cached = await edgeGetJson(key);
   if (cached && cached.directions) return cached;
 
   const url = "https://api.ibb.gov.tr/iett/ibb/ibb.asmx";
@@ -591,7 +603,7 @@ async function fetchLineRoute(code, env, opts = {}) {
   };
 
   if (Object.keys(directions).length > 0) {
-    await env.LIVE.put(key, JSON.stringify(routeData), { expirationTtl: 86400 }).catch(() => {});
+    await edgePutJson(key, routeData, 86400);
   }
   return routeData;
 }
@@ -677,6 +689,24 @@ function matchBusDirection(bus, directions, lineCode = "") {
   }
 }
 
+let lineMapsMem = { at: 0, lines: null, doors: null };
+async function lineMaps(env) {
+  if (Date.now() - lineMapsMem.at < 600000 && lineMapsMem.lines) return lineMapsMem;
+  let lines = null, doors = null;
+  try {
+    [lines, doors] = await Promise.all([
+      env.LIVE.get("bus_lines_map", { type: "json", cacheTtl: 3600 }),
+      env.LIVE.get("door_lines_map", { type: "json", cacheTtl: 3600 })
+    ]);
+  } catch (e) {}
+  lineMapsMem = {
+    at: Date.now(),
+    lines: lines || (typeof BUS_LINES_MAP !== "undefined" ? BUS_LINES_MAP : {}),
+    doors: doors || (typeof DOOR_LINES_MAP !== "undefined" ? DOOR_LINES_MAP : {})
+  };
+  return lineMapsMem;
+}
+
 async function handleLine(env, url) {
   const code = norm(url.searchParams.get("code"));
   if (!code || code.length > 12) return json({ error: "Lütfen bir hat kodu girin (örn. 15B, 500T, 14BK)" }, 400);
@@ -685,23 +715,15 @@ async function handleLine(env, url) {
   const routeData = await fetchLineRoute(code, env);
 
   // 2. Load door number mapping
-  let map = await env.LIVE.get("bus_lines_map", "json");
-  if (!map && typeof BUS_LINES_MAP !== "undefined") {
-    map = BUS_LINES_MAP;
-  }
+  const map = (await lineMaps(env)).lines;
   const assignedDoors = (map && map[code]) || [];
   const doorSet = new Set(assignedDoors);
 
-  // 3. Load fleet directly from fast in-memory or KV cache
+  // 3. Latest fleet snapshot (memory → edge → TransitHub)
   let fleet = null;
-  if (inMemoryBusesRaw) {
-    try { fleet = JSON.parse(inMemoryBusesRaw); } catch (e) {}
-  }
-  if (!fleet) {
-    const raw = await env.LIVE.get("buses", { cacheTtl: 30 });
-    if (raw) {
-      try { fleet = JSON.parse(raw); } catch (e) {}
-    }
+  const snap = await loadFleet(env);
+  if (snap.raw) {
+    try { fleet = JSON.parse(snap.raw); } catch (e) {}
   }
   fleet = fleet || [];
 
@@ -710,7 +732,7 @@ async function handleLine(env, url) {
   // 4. Fallback: ONLY query slow SOAP GetHatOtoKonum if line has NO mapped doors in bus_lines_map
   if (assignedDoors.length === 0) {
     const otoKey = "line_oto:" + code;
-    let otoData = await env.LIVE.get(otoKey, "json");
+    let otoData = await edgeGetJson(otoKey);
 
     if (!otoData) {
       const q = await quota(env);
@@ -722,7 +744,7 @@ async function handleLine(env, url) {
           const rows = await Promise.race([soap(IETT, "GetHatOtoKonum_json", { HatKodu: code }, env), timeoutPromise]);
           if (Array.isArray(rows)) {
             otoData = rows;
-            await env.LIVE.put(otoKey, JSON.stringify(otoData), { expirationTtl: 25 }).catch(() => {});
+            await edgePutJson(otoKey, otoData, 30);
           }
         } catch (e) {
           // Graceful fallback to fleet
@@ -853,7 +875,7 @@ async function handleLine(env, url) {
     }
   }
   for (const b of buses) { if (typeof b.h === "number") b.bearing = b.h; }
-  const meta = inMemoryMeta || (await env.LIVE.get("meta", { type: "json", cacheTtl: 30 })) || { t: Date.now() };
+  const meta = inMemoryMeta || { t: Date.now() };
 
   return json({
     code,
@@ -877,23 +899,15 @@ async function handleLineRoute(env, url) {
 }
 
 async function handleLinesMap(env) {
-  let map = await env.LIVE.get("bus_lines_map", "json");
-  if (!map && typeof BUS_LINES_MAP !== "undefined") {
-    map = BUS_LINES_MAP;
-  }
-  return json(map || {}, 200, { "cache-control": "public, max-age=3600" });
+  return json((await lineMaps(env)).lines || {}, 200, { "cache-control": "public, max-age=3600" });
 }
 
 async function handleDoorsMap(env) {
-  let map = await env.LIVE.get("door_lines_map", "json");
-  if (!map && typeof DOOR_LINES_MAP !== "undefined") {
-    map = DOOR_LINES_MAP;
-  }
-  return json(map || {}, 200, { "cache-control": "public, max-age=3600" });
+  return json((await lineMaps(env)).doors || {}, 200, { "cache-control": "public, max-age=3600" });
 }
 
 async function handleLines(env) {
-  let c = await env.LIVE.get("lines", "json");
+  let c = await edgeGetJson("lines");
   if (!c) {
     c = [];
     try {
@@ -909,7 +923,7 @@ async function handleLines(env) {
     } catch (e) {
       console.error("Lines list error:", String(e));
     }
-    await env.LIVE.put("lines", JSON.stringify(c), { expirationTtl: c.length ? 86400 : 1800 });
+    await edgePutJson("lines", c, c.length ? 86400 : 1800);
   }
   return json({ lines: c }, 200, { "cache-control": "public, max-age=3600" });
 }
@@ -1044,7 +1058,7 @@ async function handleTimetable(env, url) {
   // 2. Check KV cache for bus line timetable (TTL: 12 hours)
   const cacheKey = "timetable_v1:" + lineCode;
   try {
-    const cached = await env.LIVE.get(cacheKey, { type: "json", cacheTtl: 3600 });
+    const cached = await edgeGetJson(cacheKey);
     if (cached && Array.isArray(cached.entries) && cached.entries.length > 0) {
       return json(cached, 200, { "cache-control": "public, max-age=43200, stale-while-revalidate=86400" });
     }
@@ -1095,7 +1109,7 @@ async function handleTimetable(env, url) {
             updated_at: Date.now()
           };
 
-          await env.LIVE.put(cacheKey, JSON.stringify(result), { expirationTtl: 43200 }).catch(() => {});
+          await edgePutJson(cacheKey, result, 43200);
           return json(result, 200, { "cache-control": "public, max-age=43200, stale-while-revalidate=86400" });
         }
       }
@@ -1120,18 +1134,17 @@ async function handleFeed(request, env) {
     const data = await request.json();
     if (!Array.isArray(data.buses)) return json({ error: "Invalid payload: buses array required" }, 400);
 
-    await annotateFleet(data.buses, inMemoryBusesRaw, env);
+    const hub = hubStub(env);
     const now = (typeof data.pushed_at === "number" && data.pushed_at > 0) ? data.pushed_at : Date.now();
     const m = { t: now, count: data.buses.length };
-    const raw = JSON.stringify(data.buses);
-    inMemoryBusesRaw = raw;
-    inMemoryMeta = m;
-
-    await putEdgeCache(META_CACHE_URL, JSON.stringify(m));
-    await putEdgeCache(FLEET_CACHE_URL, raw);
-
-    await safeKvPut(env, "buses", raw);
-    await safeKvPut(env, "meta", JSON.stringify(m));
+    if (hub) {
+      const res = await hub.fetch("https://hub/push", { method: "POST", body: JSON.stringify({ buses: data.buses, t: now }) });
+      if (!res.ok) return json({ error: "hub push failed" }, 502);
+    } else {
+      await annotateFleet(data.buses, inMemoryBusesRaw, env);
+      inMemoryBusesRaw = JSON.stringify(data.buses);
+      inMemoryMeta = m;
+    }
     return json({ success: true, count: m.count, updated_at: m.t });
   } catch (err) {
     return json({ error: String(err) }, 400);
@@ -1171,7 +1184,7 @@ async function fetchDisruptions(env) {
 
   // Check KV cache
   try {
-    const cached = await env.LIVE.get("disruptions", { type: "json", cacheTtl: 60 });
+    const cached = await edgeGetJson("disruptions");
     if (cached && (now - cached.updated_at < 90000)) {
       inMemoryDisruptions = cached;
       inMemoryDisruptionsTime = cached.updated_at;
@@ -1221,7 +1234,7 @@ async function fetchDisruptions(env) {
 
       inMemoryDisruptions = result;
       inMemoryDisruptionsTime = now;
-      await env.LIVE.put("disruptions", JSON.stringify(result), { expirationTtl: 300 }).catch(() => {});
+      await edgePutJson("disruptions", result, 300);
       return result;
     }
   } catch (e) {
@@ -1236,6 +1249,7 @@ async function handleFeedMapping(request, env) {
   try {
     const data = await request.json();
     if (!data || typeof data !== "object") return json({ error: "Invalid payload: mapping object required" }, 400);
+    lineMapsMem = { at: 0, lines: null, doors: null };
     if (data.lines && data.doors) {
       await safeKvPut(env, "bus_lines_map", JSON.stringify(data.lines));
       await safeKvPut(env, "door_lines_map", JSON.stringify(data.doors));
@@ -1273,10 +1287,6 @@ async function handleDisruptions(env, url) {
 // Without a key /ferries/live answers { configured: false } and the app sails ferries by timetable.
 
 const AIS_BBOX = [[40.80, 28.55], [41.26, 29.42]]; // [[lat, lon], [lat, lon]]
-const FERRY_CACHE_URL = "https://cache.istanbulbizim.internal/ferries/live";
-const FERRY_KV_EVERY_MS = 180000; // KV write at most every 3 min (free-tier write quota)
-let inMemoryFerries = null;
-let lastFerryKvWrite = 0;
 
 function ferryOperatorOf(name) {
   const n = String(name || "").toUpperCase();
@@ -1287,21 +1297,10 @@ function ferryOperatorOf(name) {
   return "";
 }
 
-async function loadFerries(env) {
-  if (inMemoryFerries && Date.now() - inMemoryFerries.updated_at < 90000) return inMemoryFerries;
-  const edge = await getEdgeCache(FERRY_CACHE_URL);
-  if (edge) {
-    try { inMemoryFerries = JSON.parse(edge); return inMemoryFerries; } catch (e) {}
-  }
-  const kv = env.LIVE ? await env.LIVE.get("ferries_live", { type: "json", cacheTtl: 60 }).catch(() => null) : null;
-  if (kv) inMemoryFerries = kv;
-  return kv;
-}
-
-async function refreshFerries(env, listenMs = 12000) {
+async function refreshFerries(env, listenMs = 12000, prevData = null) {
   const key = env.AISSTREAM_API_KEY;
   if (!key) return null;
-  const prev = (await loadFerries(env)) || { vessels: [] };
+  const prev = prevData || { vessels: [] };
   const byMmsi = new Map(prev.vessels.map((v) => [v.mmsi, v]));
   const res = await fetch("https://stream.aisstream.io/v0/stream", { headers: { Upgrade: "websocket" } });
   const ws = res.webSocket;
@@ -1352,26 +1351,29 @@ async function refreshFerries(env, listenMs = 12000) {
     if (v.sog > 40) continue;
     vessels.push({ mmsi: v.mmsi, name: v.name, type: v.type, lat: +(+v.lat).toFixed(5), lon: +(+v.lon).toFixed(5), sog: v.sog || 0, cog: v.cog || 0, op, t: v.t });
   }
-  const out = { configured: true, updated_at: now, vessels };
-  inMemoryFerries = out;
-  const body = JSON.stringify(out);
-  await putEdgeCache(FERRY_CACHE_URL, body);
-  if (now - lastFerryKvWrite > FERRY_KV_EVERY_MS) {
-    lastFerryKvWrite = now;
-    await safeKvPut(env, "ferries_live", body, { expirationTtl: 1800 });
-  }
-  return out;
+  return { configured: true, updated_at: now, vessels };
 }
 
 async function handleFerriesLive(env) {
   if (!env.AISSTREAM_API_KEY) {
     return json({ configured: false, vessels: [], note: "Set the AISSTREAM_API_KEY secret to enable live AIS ferry positions." }, 200, { "cache-control": "public, max-age=300" });
   }
-  let data = await loadFerries(env);
-  if (!data || Date.now() - data.updated_at > 5 * 60000) {
-    data = await refreshFerries(env, 6000).catch((e) => ({ configured: true, error: String(e), vessels: [] }));
+  return hubJson(env, "/ferries/live", 15);
+}
+
+// JSON from the TransitHub, edge-cached for [ttl] seconds.
+async function hubJson(env, path, ttl) {
+  const key = "hub:" + path;
+  const cached = await edgeGetJson(key);
+  if (cached) return json(cached, 200, { "cache-control": `public, max-age=${ttl}` });
+  const hub = hubStub(env);
+  if (!hub) return json({ error: "hub unavailable" }, 503);
+  try {
+    const res = await hub.fetch("https://hub" + path);
+    const body = await res.json();
+    if (res.ok) await edgePutJson(key, body, ttl);
+    return json(body, res.status, { "cache-control": `public, max-age=${ttl}` });
+  } catch (e) {
+    return json({ error: String(e) }, 502);
   }
-  const now = Date.now();
-  const vessels = (data.vessels || []).map((v) => Object.assign({}, v, { age: Math.round((now - v.t) / 1000) }));
-  return json({ configured: true, updated_at: data.updated_at, vessels }, 200, { "cache-control": "public, max-age=15" });
 }

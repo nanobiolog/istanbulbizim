@@ -46,6 +46,16 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   void _handleDeepLink(TransitProvider provider) {
     if (_deepLinkDone || !provider.network.loaded) return;
     _deepLinkDone = true;
+    if (provider.liteMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          duration: Duration(seconds: 8),
+          content: Text('Hafif mod: tarayıcıda donanım hızlandırma (WebGL) kapalı, harita daha seyrek güncelleniyor. '
+              'Daha akıcı kullanım için tarayıcı ayarlarından “donanım hızlandırma”yı açın.'),
+        ));
+      });
+    }
     final q = Uri.base.queryParameters;
     AppClock.pinTimeOfDay(q['saat'] ?? q['time']);
     String fold(String s) => s
@@ -319,7 +329,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 userAgentPackageName: 'com.istanbulbizim.mobile_app',
                 maxZoom: 19,
               ),
-              if (provider.showFerries) PolylineLayer(polylines: _ferryPolylines(provider)),
+              if (provider.showFerries && (!provider.liteMode || _currentZoom >= 12)) PolylineLayer(polylines: _ferryPolylines(provider)),
               if (provider.showProjects) PolylineLayer(polylines: _projectPolylines(provider)),
               if (provider.showMetroLines) PolylineLayer(polylines: _railPolylines(provider)),
               if (provider.selectedLineRoute != null) PolylineLayer(polylines: _buildLineRoutePolylines(provider)),
@@ -329,8 +339,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               if (provider.showFerries && _currentZoom >= 12.3) MarkerLayer(markers: _pierMarkers(provider)),
               if (provider.showMetroLines && _currentZoom >= 11) MarkerLayer(markers: _stationMarkers(provider)),
               if (provider.showEntrances && _currentZoom >= 16) MarkerLayer(markers: _entranceMarkers(provider)),
-              if (provider.showMetroLines && provider.showMetroTrains && _currentZoom >= 11.3) MarkerLayer(markers: _trainMarkers(provider)),
-              if (provider.showFerries && _currentZoom >= 10.5) MarkerLayer(markers: _vesselMarkers(provider)),
+              // Moving vehicles repaint on their own tick; nothing else rebuilds when they move.
+              ValueListenableBuilder<int>(
+                valueListenable: provider.vehicleTick,
+                builder: (context, _, _) => MarkerLayer(markers: [
+                  if (provider.showMetroLines && provider.showMetroTrains && _currentZoom >= 11.3) ..._trainMarkers(provider),
+                  if (provider.showFerries && _currentZoom >= 10.5) ..._vesselMarkers(provider),
+                ]),
+              ),
               if (provider.showBuses) MarkerLayer(markers: _buildBusMarkers(provider)),
               if (provider.userLocation != null)
                 MarkerLayer(markers: [
@@ -429,7 +445,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     position: Tween(begin: const Offset(0, 0.08), end: Offset.zero).animate(anim),
                     child: FadeTransition(opacity: anim, child: child),
                   ),
-                  child: KeyedSubtree(key: ValueKey(_sheetKey(provider)), child: _bottomSheet(provider)),
+                  child: KeyedSubtree(
+                    key: ValueKey(_sheetKey(provider)),
+                    child: ValueListenableBuilder<int>(
+                      valueListenable: provider.clock,
+                      builder: (context, _, _) => _bottomSheet(provider),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -578,8 +600,24 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     return p.latitude >= b.south - dLat && p.latitude <= b.north + dLat && p.longitude >= b.west - dLon && p.longitude <= b.east + dLon;
   }
 
+  // Polylines change only with zoom bucket / selection / theme: cache them so flutter_map gets the
+  // same objects between rebuilds instead of re-creating hundreds of thousands of points.
+  final Map<String, List<Polyline>> _polyCache = {};
+  List<Polyline> _cachedPolys(String key, List<Polyline> Function() build) {
+    final hit = _polyCache[key];
+    if (hit != null) return hit;
+    if (_polyCache.length > 24) _polyCache.clear();
+    return _polyCache[key] = build();
+  }
+
+  String get _zoomBucket => _currentZoom < 11 ? 'a' : (_currentZoom < 12 ? 'b' : (_currentZoom < 13 ? 'c' : (_currentZoom < 15 ? 'd' : 'e')));
+
   // ─── RAIL ───
-  List<Polyline> _railPolylines(TransitProvider provider) {
+  List<Polyline> _railPolylines(TransitProvider provider) => _cachedPolys(
+      'rail|$_zoomBucket|${provider.selectedRailLine?.code}|${provider.selectedStation?.id}|${provider.isNightMode}|${provider.network.lines.length}',
+      () => _buildRailPolylines(provider));
+
+  List<Polyline> _buildRailPolylines(TransitProvider provider) {
     final out = <Polyline>[];
     final z = _currentZoom;
     final hl = provider.selectedRailLine?.code;
@@ -615,7 +653,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     final z = _currentZoom;
     final net = provider.network;
     final hl = provider.selectedRailLine?.code;
-    final showLabel = z >= 14.2;
+    final showLabel = z >= (provider.liteMode ? 15.0 : 14.2);
     for (final st in net.stations.values) {
       if (!_inView(st.pos)) continue;
       if (hl != null && !st.lines.contains(hl) && z < 14) continue;
@@ -631,7 +669,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           color: Colors.white,
           borderRadius: BorderRadius.circular(size),
           border: Border.all(color: selected ? AppTheme.accentBlack : (interchange ? AppTheme.accentBlack : colors.first), width: selected ? 3 : 2.4),
-          boxShadow: const [BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 1))],
+          boxShadow: selected ? const [BoxShadow(color: Color(0x40000000), blurRadius: 4, offset: Offset(0, 1))] : null,
         ),
         child: interchange && size >= 14
             ? Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -726,7 +764,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       if (!_inView(t.pos, pad: 0.05)) continue;
       if (hl != null && t.line.code != hl) continue;
       final sel = t.id == selId;
-      if (z < 13.4 && !sel) {
+      if (z < (provider.liteMode ? 14.5 : 13.4) && !sel) {
         out.add(Marker(
           point: t.pos,
           width: 18,
@@ -745,7 +783,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   color: t.line.color,
                   shape: BoxShape.circle,
                   border: Border.all(color: Colors.white, width: 1.8),
-                  boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 3)],
                 ),
               ),
             ),
@@ -773,7 +810,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 color: t.line.color,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: sel ? const Color(0xFFFDE047) : Colors.white, width: sel ? 2.4 : 1.6),
-                boxShadow: [BoxShadow(color: t.line.color.withValues(alpha: 0.45), blurRadius: sel ? 12 : 5, offset: const Offset(0, 2))],
+                boxShadow: sel ? [BoxShadow(color: t.line.color.withValues(alpha: 0.45), blurRadius: 12, offset: const Offset(0, 2))] : null,
               ),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 Transform.rotate(
@@ -796,7 +833,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   // ─── FERRIES ───
-  List<Polyline> _ferryPolylines(TransitProvider provider) {
+  List<Polyline> _ferryPolylines(TransitProvider provider) => _cachedPolys(
+      'ferry|${_currentZoom < 12}|${provider.selectedPier?.id}|${provider.selectedVessel?.trip.hashCode}',
+      () => _buildFerryPolylines(provider));
+
+  List<Polyline> _buildFerryPolylines(TransitProvider provider) {
     final out = <Polyline>[];
     final net = provider.network;
     final sel = provider.selectedVessel;
@@ -853,7 +894,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 color: color,
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 2),
-                boxShadow: const [BoxShadow(color: Color(0x40000000), blurRadius: 4)],
               ),
               child: Icon(Icons.anchor_rounded, size: selected ? 15 : 12, color: Colors.white),
             ),
@@ -891,7 +931,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             color: color,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: sel ? const Color(0xFFFDE047) : Colors.white, width: sel ? 2.4 : 1.6),
-            boxShadow: [BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 6, offset: const Offset(0, 2))],
+            boxShadow: sel ? [BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 6, offset: const Offset(0, 2))] : null,
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             Transform.rotate(
@@ -983,7 +1023,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   // ─── PROJECTS (rail under construction) ───
-  List<Polyline> _projectPolylines(TransitProvider provider) => [
+  List<Polyline> _projectPolylines(TransitProvider provider) =>
+      _cachedPolys('proj|${_currentZoom < 12}', () => _buildProjectPolylines(provider));
+
+  List<Polyline> _buildProjectPolylines(TransitProvider provider) => [
         for (final p in provider.network.projects)
           for (final seg in p.segments)
             Polyline(
