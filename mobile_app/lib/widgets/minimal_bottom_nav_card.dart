@@ -21,6 +21,7 @@ class MinimalBottomNavCard extends StatefulWidget {
   final Function(String) onDirectionChanged;
   final VoidCallback onClearSelection;
   final VoidCallback onSearchTap;
+  final VoidCallback? onRoutePlanTap;
 
   /// Photo / 3D card of the vehicle type, shown under a selected bus.
   final Widget? vehicleMedia;
@@ -43,6 +44,7 @@ class MinimalBottomNavCard extends StatefulWidget {
     required this.onDirectionChanged,
     required this.onClearSelection,
     required this.onSearchTap,
+    this.onRoutePlanTap,
     this.vehicleMedia,
   });
 
@@ -1410,7 +1412,7 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
           child: GestureDetector(
             onTap: onSearchTap,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
               decoration: BoxDecoration(
                 color: isNightMode ? Colors.white : AppTheme.accentBlack,
                 borderRadius: BorderRadius.circular(18),
@@ -1428,15 +1430,19 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
                   Icon(
                     Icons.directions_bus_filled_rounded,
                     color: isNightMode ? AppTheme.surfaceDark : Colors.white,
-                    size: 20,
+                    size: 19,
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Hat Seç veya Ara',
-                    style: TextStyle(
-                      color: isNightMode ? AppTheme.surfaceDark : Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      'Hat Seç / Ara',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isNightMode ? AppTheme.surfaceDark : Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                 ],
@@ -1444,7 +1450,48 @@ class _MinimalBottomNavCardState extends State<MinimalBottomNavCard> {
             ),
           ),
         ),
-        const SizedBox(width: 10),
+        if (widget.onRoutePlanTap != null) ...[
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: widget.onRoutePlanTap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF0EA5E9), Color(0xFF2563EB)],
+                ),
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0EA5E9).withValues(alpha: 0.28),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.alt_route_rounded,
+                    color: Colors.white,
+                    size: 19,
+                  ),
+                  SizedBox(width: 6),
+                  Text(
+                    'Yol Tarifi',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(width: 8),
 
         // Live Fleet Counter Pill with 5km proximity info & Last update
         Container(

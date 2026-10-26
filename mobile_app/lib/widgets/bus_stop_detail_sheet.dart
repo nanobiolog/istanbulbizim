@@ -15,6 +15,8 @@ class BusStopDetailSheet extends StatefulWidget {
   final VoidCallback onClose;
   final Function(String) onSelectLine;
   final VoidCallback? onOpenAr;
+  final VoidCallback? onPlanFromHere;
+  final VoidCallback? onPlanToHere;
 
   const BusStopDetailSheet({
     super.key,
@@ -23,6 +25,8 @@ class BusStopDetailSheet extends StatefulWidget {
     required this.onClose,
     required this.onSelectLine,
     this.onOpenAr,
+    this.onPlanFromHere,
+    this.onPlanToHere,
   });
 
   @override
@@ -328,35 +332,92 @@ class _BusStopDetailSheetState extends State<BusStopDetailSheet> {
     );
   }
 
-  /// Action buttons: Directions & AR navigation
+  /// Action buttons: Route Planner (Buradan / Buraya Git), Directions & AR navigation
   Widget _buildActionRow() {
     return Row(
       children: [
-        Expanded(
-          child: ElevatedButton.icon(
-            onPressed: _openDirections,
-            icon: const Icon(Icons.near_me_rounded, size: 15, color: Colors.white),
-            label: const Text(
-              'Yol Tarifi Al',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: 12.5,
+        if (widget.onPlanToHere != null) ...[
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                widget.onPlanToHere!();
+              },
+              icon: const Icon(Icons.flag_rounded, size: 15, color: Colors.white),
+              label: const Text(
+                'Buraya Git',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12.5,
+                ),
               ),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF0284C7),
-              foregroundColor: Colors.white,
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(vertical: 9),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0EA5E9),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 9),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
             ),
           ),
-        ),
-        if (widget.onOpenAr != null) ...[
           const SizedBox(width: 8),
+        ],
+        if (widget.onPlanFromHere != null) ...[
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                widget.onPlanFromHere!();
+              },
+              icon: const Icon(Icons.trip_origin_rounded, size: 14, color: Color(0xFF34D399)),
+              label: const Text(
+                'Buradan Git',
+                style: TextStyle(
+                  color: Color(0xFF34D399),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12.5,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF34D399),
+                side: BorderSide(color: const Color(0xFF34D399).withValues(alpha: 0.4)),
+                padding: const EdgeInsets.symmetric(vertical: 9),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
+        if (widget.onPlanToHere == null)
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: _openDirections,
+              icon: const Icon(Icons.near_me_rounded, size: 15, color: Colors.white),
+              label: const Text(
+                'Yol Tarifi Al',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12.5,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0284C7),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 9),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+        if (widget.onOpenAr != null) ...[
           OutlinedButton.icon(
             onPressed: () {
               HapticFeedback.lightImpact();
@@ -364,7 +425,7 @@ class _BusStopDetailSheetState extends State<BusStopDetailSheet> {
             },
             icon: const Icon(Icons.view_in_ar_rounded, size: 15, color: Color(0xFF38BDF8)),
             label: const Text(
-              'AR Yön',
+              'AR',
               style: TextStyle(
                 color: Color(0xFF38BDF8),
                 fontWeight: FontWeight.w700,
@@ -374,7 +435,7 @@ class _BusStopDetailSheetState extends State<BusStopDetailSheet> {
             style: OutlinedButton.styleFrom(
               foregroundColor: const Color(0xFF38BDF8),
               side: BorderSide(color: const Color(0xFF38BDF8).withValues(alpha: 0.35)),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
               ),

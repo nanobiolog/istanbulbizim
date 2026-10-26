@@ -8,6 +8,7 @@ class QuickActionPills extends StatelessWidget {
   final Function(String) onSelectLine;
   final VoidCallback onClearLine;
   final VoidCallback onSearchTap;
+  final VoidCallback? onRoutePlanTap;
   final bool showMetro;
   final VoidCallback onToggleMetro;
   final bool showTrains;
@@ -27,6 +28,7 @@ class QuickActionPills extends StatelessWidget {
     required this.onSelectLine,
     required this.onClearLine,
     required this.onSearchTap,
+    this.onRoutePlanTap,
     required this.showMetro,
     required this.onToggleMetro,
     required this.showTrains,
@@ -61,6 +63,10 @@ class QuickActionPills extends StatelessWidget {
             physics: const BouncingScrollPhysics(),
             children: [
               _buildSearchButton(),
+              if (onRoutePlanTap != null) ...[
+                const SizedBox(width: 7),
+                _buildRoutePlanButton(),
+              ],
               const SizedBox(width: 7),
               if (selectedLine != null) ...[
                 _buildClearFilterButton(),
@@ -188,6 +194,44 @@ class QuickActionPills extends StatelessWidget {
               'Hat / İstasyon Ara',
               style: TextStyle(
                 color: isNightMode ? Colors.white : AppTheme.textPrimary,
+                fontWeight: FontWeight.w800,
+                fontSize: 12.5,
+                letterSpacing: -0.2,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRoutePlanButton() {
+    return GestureDetector(
+      onTap: onRoutePlanTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF0EA5E9), Color(0xFF2563EB)],
+          ),
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: const [
+            BoxShadow(color: Color(0x380EA5E9), blurRadius: 10, offset: Offset(0, 3)),
+          ],
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.alt_route_rounded,
+              size: 16,
+              color: Colors.white,
+            ),
+            SizedBox(width: 5),
+            Text(
+              'Yol Tarifi',
+              style: TextStyle(
+                color: Colors.white,
                 fontWeight: FontWeight.w800,
                 fontSize: 12.5,
                 letterSpacing: -0.2,

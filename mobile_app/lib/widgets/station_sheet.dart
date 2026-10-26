@@ -16,8 +16,18 @@ class StationSheet extends StatelessWidget {
 
   /// Opens the station view (walking route from your location, 3D route, AR).
   final VoidCallback? onOpenStationView;
+  final VoidCallback? onPlanFromHere;
+  final VoidCallback? onPlanToHere;
 
-  const StationSheet({super.key, required this.provider, required this.onClose, required this.onFocusMap, this.onOpenStationView});
+  const StationSheet({
+    super.key,
+    required this.provider,
+    required this.onClose,
+    required this.onFocusMap,
+    this.onOpenStationView,
+    this.onPlanFromHere,
+    this.onPlanToHere,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -98,6 +108,30 @@ class StationSheet extends StatelessWidget {
                 ),
               ),
             ]),
+            if (onPlanFromHere != null || onPlanToHere != null) ...[
+              const SizedBox(height: 8),
+              Row(children: [
+                if (onPlanToHere != null)
+                  Expanded(
+                    child: _button(
+                      icon: Icons.flag_rounded,
+                      label: 'Buraya Rota Çiz',
+                      primary: true,
+                      onTap: onPlanToHere,
+                    ),
+                  ),
+                if (onPlanToHere != null && onPlanFromHere != null) const SizedBox(width: 10),
+                if (onPlanFromHere != null)
+                  Expanded(
+                    child: _button(
+                      icon: Icons.trip_origin_rounded,
+                      label: 'Buradan Rota Çiz',
+                      primary: false,
+                      onTap: onPlanFromHere,
+                    ),
+                  ),
+              ]),
+            ],
             if (onOpenStationView != null) ...[
               const SizedBox(height: 8),
               _button(icon: Icons.near_me_rounded, label: 'Yol tarifi · AR · resmi saatler', primary: false, onTap: onOpenStationView),

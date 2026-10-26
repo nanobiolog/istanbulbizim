@@ -92,6 +92,14 @@ def main():
         with open(line_routes_path, "r", encoding="utf-8") as f:
             line_routes_map = json.load(f)
 
+    ferry_network = {"operators": {}, "piers": {}, "lines": [], "legs": {}}
+    ferry_net_path = os.path.join(SRC_DIR, "ferry_network.json")
+    if not os.path.exists(ferry_net_path):
+        ferry_net_path = os.path.join(BASE_DIR, "mobile_app", "assets", "data", "ferry_network.json")
+    if os.path.exists(ferry_net_path):
+        with open(ferry_net_path, "r", encoding="utf-8") as f:
+            ferry_network = json.load(f)
+
     with open(os.path.join(SRC_DIR, "index.html"), "r", encoding="utf-8") as f:
         html_page = f.read()
 
@@ -174,9 +182,11 @@ export default {
       });
     }
 
+    if (path === "/ferries/network") return staticJson("ferry_network", FERRY_NETWORK, "public, max-age=86400, stale-while-revalidate=604800");
     if (path === "/ferries/live") return handleFerriesLive(env);
     if (path === "/ferries/status") return hubJson(env, "/ferries/status", 120);
     if (path === "/ferries/timetables") return hubJson(env, "/ferries/timetables", 1800);
+    if (path === "/route/plan") return handleRoutePlan(env, url);
     if (path === "/network/changes") return hubJson(env, "/network/changes", 3600);
     if (path === "/hub/state") return hubJson(env, "/state", 5);
     if (path === "/buses") return handleBuses(request, env);
@@ -345,6 +355,7 @@ export default {
         f"const METRO_STATIONS = {json.dumps(metro_stations, ensure_ascii=False)};\n",
         f"const METRO_COLORS = {json.dumps(metro_colors, ensure_ascii=False)};\n",
         f"const METROBUS_CORRIDOR = {json.dumps(metrobus_corridor, ensure_ascii=False)};\n",
+        f"const FERRY_NETWORK = {json.dumps(ferry_network, ensure_ascii=False, separators=(',', ':'))};\n",
         f"const HTML_PAGE = {json.dumps(html_page, ensure_ascii=False)};\n",
         f"const MANIFEST_JSON = {json.dumps(manifest_json, ensure_ascii=False)};\n",
         f"const SW_CODE = {json.dumps(sw_code, ensure_ascii=False)};\n",

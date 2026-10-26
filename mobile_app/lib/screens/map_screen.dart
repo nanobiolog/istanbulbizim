@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../models/network_models.dart';
 import '../models/transit_models.dart';
 import '../services/app_clock.dart';
+import '../services/route_planner_service.dart';
 import '../services/schedule_engine.dart';
 import '../services/transit_provider.dart';
 import '../theme/app_theme.dart';
@@ -21,6 +22,7 @@ import '../widgets/layers_bottom_sheet.dart';
 import '../widgets/line_search_modal.dart';
 import '../widgets/minimal_bottom_nav_card.dart';
 import '../widgets/quick_action_pills.dart';
+import '../widgets/route_planner_sheet.dart';
 import '../widgets/settings_bottom_sheet.dart';
 import '../widgets/station_sheet.dart';
 import '../widgets/transit_sheets.dart';
@@ -43,6 +45,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   bool _deepLinkDone = false;
   bool _isProgrammaticMove = false;
   AnimationController? _activeMoveAnim;
+
+  // Multi-modal route planner state
+  PlannedItinerary? _activeItinerary;
+  PlannedPoint? _plannedOrigin;
+  PlannedPoint? _plannedDestination;
+  bool? _pickingMapForOrigin; // true = picking origin, false = picking destination, null = inactive
 
   /// ?istasyon=Yenikapı&hat=B1&gorunum=kesit|yuru  ·  ?iskele=Kadıköy  ·  ?saat=08:30
   void _handleDeepLink(TransitProvider provider) {
@@ -183,6 +191,46 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       builder: (_) => LineSearchModal(
         popularLines: provider.popularLines,
         onSelectLine: (line) => _onPickLine(provider, line),
+      ),
+    );
+  }
+
+  void _openRoutePlanner(
+    TransitProvider provider, {
+    PlannedPoint? origin,
+    PlannedPoint? destination,
+  }) {
+    if (origin != null) _plannedOrigin = origin;
+    if (destination != null) _plannedDestination = destination;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => RoutePlannerSheet(
+        provider: provider,
+        initialOrigin: _plannedOrigin,
+        initialDestination: _plannedDestination,
+        onSelectItineraryOnMap: (itinerary, orig, dest) {
+          Navigator.of(ctx).pop();
+          provider.clearAllSelections();
+          setState(() {
+            _activeItinerary = itinerary;
+            _plannedOrigin = orig;
+            _plannedDestination = dest;
+          });
+          final allPts = <LatLng>[orig.latLng, dest.latLng];
+          for (final leg in itinerary.legs) {
+            allPts.addAll(leg.coords);
+          }
+          _fitPoints(allPts, bottomPad: 220);
+        },
+        onPickFromMap: (isOrigin, curOrigin, curDest) {
+          setState(() {
+            _plannedOrigin = curOrigin;
+            _plannedDestination = curDest;
+            _pickingMapForOrigin = isOrigin;
+          });
+        },
       ),
     );
   }
@@ -375,7 +423,27 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   _currentZoom = camera.zoom;
                   provider.updateCameraPosition(camera.center, camera.zoom);
                 },
-                onTap: (_, _) {
+                onTap: (_, latlng) {
+                  if (_pickingMapForOrigin != null) {
+                    final isOrig = _pickingMapForOrigin!;
+                    final pt = PlannedPoint(
+                      name: 'Harita (${latlng.latitude.toStringAsFixed(4)}, ${latlng.longitude.toStringAsFixed(4)})',
+                      lat: latlng.latitude,
+                      lon: latlng.longitude,
+                      subtitle: 'Haritadan seçilen nokta',
+                      kind: 'map',
+                    );
+                    setState(() {
+                      if (isOrig) {
+                        _plannedOrigin = pt;
+                      } else {
+                        _plannedDestination = pt;
+                      }
+                      _pickingMapForOrigin = null;
+                    });
+                    _openRoutePlanner(provider);
+                    return;
+                  }
                   if (provider.hasDetailSelection) {
                     provider.clearAllSelections();
                   } else if (provider.selectedRailLine != null) {
@@ -394,12 +462,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 if (provider.showProjects) PolylineLayer(polylines: _projectPolylines(provider)),
                 if (provider.showMetroLines) PolylineLayer(polylines: _railPolylines(provider)),
                 if (provider.selectedLineRoute != null) PolylineLayer(polylines: _buildLineRoutePolylines(provider)),
+                if (_activeItinerary != null) PolylineLayer(polylines: _buildPlannedRoutePolylines()),
                 if (provider.showBusStops && provider.selectedLineRoute == null) MarkerLayer(markers: _buildGeneralBusStopMarkers(provider)),
                 if (provider.selectedLineRoute != null) MarkerLayer(markers: _buildLineBusStopMarkers(provider)),
                 if (provider.showProjects && _currentZoom >= 11.5) MarkerLayer(markers: _projectStationMarkers(provider)),
                 if (provider.showFerries && _currentZoom >= 12.3) MarkerLayer(markers: _pierMarkers(provider)),
                 if (provider.showMetroLines && _currentZoom >= 11) MarkerLayer(markers: _stationMarkers(provider)),
                 if (provider.showEntrances && _currentZoom >= 16) MarkerLayer(markers: _entranceMarkers(provider)),
+                if (_activeItinerary != null) MarkerLayer(markers: _buildPlannedRouteMarkers()),
                 // Articulated multi-car train bodies curving along the real rail track geometry
                 if (provider.showMetroLines && provider.showMetroTrains && _currentZoom >= 12.0)
                   ValueListenableBuilder<int>(
@@ -460,6 +530,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   provider.selectLine(null);
                 },
                 onSearchTap: () => _openSearch(provider),
+                onRoutePlanTap: () => _openRoutePlanner(provider),
                 showMetro: provider.showMetroLines,
                 onToggleMetro: () => provider.toggleMetroLines(),
                 showTrains: provider.showMetroTrains,
@@ -480,6 +551,17 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               top: MediaQuery.of(context).padding.top + (provider.isOffline ? 142 : 98),
               left: 14,
               child: _followVehiclePill(provider),
+            ),
+
+          // ─── 4C. ROUTE PLANNER ACTIVE BANNER / MAP PICK BANNER ───
+          if (!reveal && (_pickingMapForOrigin != null || _activeItinerary != null))
+            Positioned(
+              top: MediaQuery.of(context).padding.top +
+                  (provider.isOffline ? 142 : 98) +
+                  (provider.hasFollowedVehicle ? 42 : 0),
+              left: 14,
+              right: 72,
+              child: _buildRoutePlannerBanner(provider),
             ),
 
           // ─── 5. RIGHT CONTROL RAIL ───
@@ -618,6 +700,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   Widget _bottomSheet(TransitProvider provider) {
     if (provider.selectedStation != null && provider.selectedStationPlan != null) {
+      final st = provider.selectedStation!;
       return StationSheet(
         provider: provider,
         onClose: () => provider.selectStation(null),
@@ -626,12 +709,70 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           _focusAbove(LatLng(p.lat, p.lon), 17.2, sheetFraction: 0.6);
         },
         onOpenStationView: () {
-          final ms = _metroStationFor(provider, provider.selectedStation!, provider.selectedStationLine?.code);
+          final ms = _metroStationFor(provider, st, provider.selectedStationLine?.code);
           if (ms != null) _openStationView(ms);
+        },
+        onPlanFromHere: () {
+          provider.selectStation(null);
+          _openRoutePlanner(
+            provider,
+            origin: PlannedPoint(
+              name: st.name,
+              lat: st.pos.latitude,
+              lon: st.pos.longitude,
+              subtitle: 'Raylı Sistem İstasyonu',
+              kind: 'station',
+            ),
+          );
+        },
+        onPlanToHere: () {
+          provider.selectStation(null);
+          _openRoutePlanner(
+            provider,
+            destination: PlannedPoint(
+              name: st.name,
+              lat: st.pos.latitude,
+              lon: st.pos.longitude,
+              subtitle: 'Raylı Sistem İstasyonu',
+              kind: 'station',
+            ),
+          );
         },
       );
     }
-    if (provider.selectedPier != null) return PierSheet(provider: provider, onClose: () => provider.selectPier(null));
+    if (provider.selectedPier != null) {
+      final pier = provider.selectedPier!;
+      return PierSheet(
+        provider: provider,
+        onClose: () => provider.selectPier(null),
+        onPlanFromHere: () {
+          provider.selectPier(null);
+          _openRoutePlanner(
+            provider,
+            origin: PlannedPoint(
+              name: '${pier.name} İskelesi',
+              lat: pier.pos.latitude,
+              lon: pier.pos.longitude,
+              subtitle: 'Vapur İskelesi',
+              kind: 'pier',
+            ),
+          );
+        },
+        onPlanToHere: () {
+          provider.selectPier(null);
+          _openRoutePlanner(
+            provider,
+            destination: PlannedPoint(
+              name: '${pier.name} İskelesi',
+              lat: pier.pos.latitude,
+              lon: pier.pos.longitude,
+              subtitle: 'Vapur İskelesi',
+              kind: 'pier',
+            ),
+          );
+        },
+      );
+    }
     if (provider.selectedLiveVessel != null) {
       return LiveVesselSheet(
         vessel: provider.selectedLiveVessel!,
@@ -658,14 +799,41 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       );
     }
     if (provider.selectedStop != null) {
+      final stop = provider.selectedStop!;
       return BusStopDetailSheet(
-        stop: provider.selectedStop!,
+        stop: stop,
         provider: provider,
         onClose: () => provider.selectBusStop(null),
         onOpenAr: () => _openAr(provider),
         onSelectLine: (line) {
           provider.selectBusStop(null);
           _onPickLine(provider, line);
+        },
+        onPlanFromHere: () {
+          provider.selectBusStop(null);
+          _openRoutePlanner(
+            provider,
+            origin: PlannedPoint(
+              name: stop.name,
+              lat: stop.lat,
+              lon: stop.lon,
+              subtitle: 'Otobüs Durağı (${stop.code})',
+              kind: 'bus_stop',
+            ),
+          );
+        },
+        onPlanToHere: () {
+          provider.selectBusStop(null);
+          _openRoutePlanner(
+            provider,
+            destination: PlannedPoint(
+              name: stop.name,
+              lat: stop.lat,
+              lon: stop.lon,
+              subtitle: 'Otobüs Durağı (${stop.code})',
+              kind: 'bus_stop',
+            ),
+          );
         },
       );
     }
@@ -707,6 +875,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         }
       },
       onSearchTap: () => _openSearch(provider),
+      onRoutePlanTap: () => _openRoutePlanner(provider),
       vehicleMedia: provider.selectedBus == null
           ? null
           : VehicleShowcase(
@@ -1576,6 +1745,237 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       }
     });
     return markers;
+  }
+
+  Widget _buildRoutePlannerBanner(TransitProvider provider) {
+    if (_pickingMapForOrigin != null) {
+      final isOrig = _pickingMapForOrigin!;
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F172A).withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: isOrig ? const Color(0xFF10B981) : const Color(0xFFF43F5E),
+            width: 1.5,
+          ),
+          boxShadow: const [
+            BoxShadow(color: Color(0x45000000), blurRadius: 12, offset: Offset(0, 4)),
+          ],
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.touch_app_rounded,
+              color: isOrig ? const Color(0xFF34D399) : const Color(0xFFFB7185),
+              size: 18,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                isOrig
+                    ? 'Haritadan kalkış noktasını seçmek için dokunun'
+                    : 'Haritadan varış noktasını seçmek için dokunun',
+                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800),
+              ),
+            ),
+            GestureDetector(
+              onTap: () {
+                setState(() => _pickingMapForOrigin = null);
+                _openRoutePlanner(provider);
+              },
+              child: const Padding(
+                padding: EdgeInsets.only(left: 8),
+                child: Text(
+                  'İptal',
+                  style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final it = _activeItinerary!;
+    return GestureDetector(
+      onTap: () => _openRoutePlanner(provider),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F172A).withValues(alpha: 0.95),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFF0EA5E9), width: 1.4),
+          boxShadow: const [
+            BoxShadow(color: Color(0x45000000), blurRadius: 12, offset: Offset(0, 4)),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0EA5E9),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '${it.totalMinutes} dk',
+                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w900),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${_plannedOrigin?.name ?? "Kalkış"} ➔ ${_plannedDestination?.name ?? "Varış"}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800),
+                  ),
+                  Text(
+                    '${it.depTime} ➔ ${it.arrTime} · ${it.tag} · Detaylar için dokunun',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 10.5, fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ),
+            GestureDetector(
+              onTap: () => setState(() => _activeItinerary = null),
+              child: Container(
+                width: 26,
+                height: 26,
+                margin: const EdgeInsets.only(left: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close_rounded, color: Colors.white, size: 15),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Polyline> _buildPlannedRoutePolylines() {
+    final it = _activeItinerary;
+    if (it == null) return const [];
+    final out = <Polyline>[];
+    for (final leg in it.legs) {
+      if (leg.coords.length < 2) continue;
+      final isWalk = leg.type == 'walk';
+      final color = isWalk ? const Color(0xFF94A3B8) : leg.color;
+      if (isWalk) {
+        out.add(Polyline(
+          points: leg.coords,
+          strokeWidth: 4.0,
+          color: color.withValues(alpha: 0.9),
+          pattern: StrokePattern.dashed(segments: const [6, 6]),
+        ));
+      } else {
+        out.add(Polyline(
+          points: leg.coords,
+          strokeWidth: 9.0,
+          color: Colors.black.withValues(alpha: 0.45),
+        ));
+        out.add(Polyline(
+          points: leg.coords,
+          strokeWidth: 5.5,
+          color: color,
+        ));
+      }
+    }
+    return out;
+  }
+
+  List<Marker> _buildPlannedRouteMarkers() {
+    final it = _activeItinerary;
+    if (it == null) return const [];
+    final out = <Marker>[];
+
+    // Transfer / Boarding / Alighting markers per transit leg
+    for (final leg in it.legs) {
+      if (leg.type == 'walk') continue;
+      final c = leg.color;
+      if (leg.fromLat != 0 && leg.fromLon != 0) {
+        out.add(Marker(
+          point: LatLng(leg.fromLat, leg.fromLon),
+          width: 110,
+          height: 32,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+              decoration: BoxDecoration(
+                color: c,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white, width: 1.8),
+                boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 6)],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(leg.icon, color: Colors.white, size: 11),
+                  const SizedBox(width: 3),
+                  Flexible(
+                    child: Text(
+                      '${leg.lineCode.isNotEmpty ? leg.lineCode : leg.modeLabel} · ${leg.depTime}',
+                      maxLines: 1,
+                      overflow: TextOverflow.clip,
+                      style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ));
+      }
+    }
+
+    // Origin & Destination Pin Markers
+    if (_plannedOrigin != null) {
+      out.add(Marker(
+        point: _plannedOrigin!.latLng,
+        width: 32,
+        height: 32,
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF10B981),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2.5),
+            boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 8)],
+          ),
+          child: const Center(
+            child: Text('A', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w900)),
+          ),
+        ),
+      ));
+    }
+    if (_plannedDestination != null) {
+      out.add(Marker(
+        point: _plannedDestination!.latLng,
+        width: 32,
+        height: 32,
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFFF43F5E),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2.5),
+            boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 8)],
+          ),
+          child: const Center(
+            child: Text('B', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w900)),
+          ),
+        ),
+      ));
+    }
+    return out;
   }
 }
 

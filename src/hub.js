@@ -191,6 +191,10 @@ export class TransitHub {
   // ── reference data bundled with the website ──
   async asset(name) {
     if (this.ref[name]) return this.ref[name];
+    if (name === "ferry_network.json" && typeof FERRY_NETWORK !== "undefined" && FERRY_NETWORK) {
+      this.ref[name] = FERRY_NETWORK;
+      return FERRY_NETWORK;
+    }
     const path = `/assets/assets/data/${name}`;
     let res = null;
     try {

@@ -167,6 +167,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
+      flex-shrink: 0;
     }
     .brand {
       display: flex;
@@ -233,6 +234,7 @@
       position: relative;
       display: flex;
       align-items: center;
+      flex-shrink: 0;
     }
     .search-icon {
       position: absolute;
@@ -368,8 +370,11 @@
       align-items: center;
       gap: 6px;
       overflow-x: auto;
-      padding-bottom: 4px;
+      overflow-y: hidden;
+      min-height: 34px;
+      padding: 2px 0 4px 0;
       scrollbar-width: none;
+      flex-shrink: 0;
     }
     .quick-chips-wrapper::-webkit-scrollbar { display: none; }
     
@@ -412,40 +417,46 @@
     /* Stats Grid */
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 8px;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      flex-shrink: 0;
     }
     .stat-card {
       background: rgba(30, 41, 59, 0.6);
       border: 1px solid var(--card-border);
       border-radius: 12px;
-      padding: 10px 12px;
+      padding: 8px 10px;
       display: flex;
       flex-direction: column;
       gap: 2px;
       transition: transform 0.15s, background 0.15s;
+      min-width: 0;
     }
     .stat-card:hover {
       background: rgba(30, 41, 59, 0.85);
     }
     .stat-val {
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 800;
       letter-spacing: -0.02em;
       color: #38bdf8;
       display: flex;
       align-items: baseline;
-      gap: 4px;
+      gap: 3px;
+      white-space: nowrap;
     }
     .stat-val small {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 500;
       color: var(--text-dim);
     }
     .stat-lbl {
-      font-size: 11px;
+      font-size: 10.5px;
       color: var(--text-muted);
       font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     /* Selected Line Active Banner */
@@ -458,6 +469,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 10px;
+      flex-shrink: 0;
     }
     .line-banner-info {
       display: flex;
@@ -543,32 +555,35 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      margin-top: 6px;
+      margin-top: 2px;
+      min-height: 38px;
+      padding: 2px 0 4px 0;
       overflow-x: auto;
-      padding-bottom: 4px;
+      overflow-y: hidden;
       scrollbar-width: none;
       -webkit-overflow-scrolling: touch;
+      flex-shrink: 0;
     }
     .dir-tabs-wrapper::-webkit-scrollbar {
       display: none;
     }
     .dir-tab {
-      flex: 1 0 auto;
+      flex: 0 0 auto;
       min-width: max-content;
       max-width: 280px;
-      min-height: 32px;
-      padding: 0 12px;
+      min-height: 34px;
+      padding: 6px 12px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      border-radius: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      background: rgba(255, 255, 255, 0.05);
+      border-radius: 9px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.06);
       color: var(--text-muted);
       font-family: inherit;
-      font-size: 11px;
+      font-size: 11.5px;
       font-weight: 700;
-      line-height: 1;
+      line-height: 1.25;
       cursor: pointer;
       text-align: center;
       white-space: nowrap;
@@ -577,6 +592,7 @@
       touch-action: manipulation;
       transition: all 0.15s;
       box-shadow: none !important;
+      flex-shrink: 0;
     }
     .dir-tab:hover {
       background: rgba(255, 255, 255, 0.12);
@@ -689,9 +705,9 @@
 
     /* Direction Group Headers in Bus List */
     .dir-group-header {
-      padding: 6px 10px;
-      margin-top: 6px;
-      border-radius: 8px;
+      padding: 7px 11px;
+      margin-top: 4px;
+      border-radius: 9px;
       font-size: 11px;
       font-weight: 800;
       letter-spacing: 0.02em;
@@ -699,14 +715,15 @@
       align-items: center;
       justify-content: space-between;
       color: #ffffff;
+      flex-shrink: 0;
     }
     .dir-group-header.dir-d {
-      background: rgba(6, 182, 212, 0.18);
+      background: rgba(6, 182, 212, 0.16);
       border: 1px solid rgba(6, 182, 212, 0.35);
       color: #22d3ee;
     }
     .dir-group-header.dir-g {
-      background: rgba(168, 85, 247, 0.18);
+      background: rgba(168, 85, 247, 0.16);
       border: 1px solid rgba(168, 85, 247, 0.35);
       color: #c084fc;
     }
@@ -717,7 +734,8 @@
       padding-top: 10px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 7px;
+      flex-shrink: 0;
     }
     .toggle-row {
       display: flex;
@@ -776,64 +794,94 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: rgba(15, 23, 42, 0.5);
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.07);
       border-radius: 10px;
-      padding: 6px 12px;
+      padding: 7px 12px;
+      min-height: 32px;
       font-size: 11px;
+      line-height: 1.3;
       color: var(--text-muted);
+      flex-shrink: 0;
     }
     .legend-item {
       display: flex;
       align-items: center;
       gap: 5px;
+      white-space: nowrap;
     }
     .legend-dot {
       width: 8px;
       height: 8px;
       border-radius: 50%;
+      flex-shrink: 0;
     }
 
     /* Vehicle List Container */
     #bus-results-list {
-      max-height: 220px;
+      flex: 1 1 auto;
+      min-height: 175px;
+      max-height: 310px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 4px;
-      padding-right: 2px;
+      gap: 6px;
+      padding: 2px 3px 8px 0;
     }
     #bus-results-list::-webkit-scrollbar {
       width: 4px;
     }
     #bus-results-list::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.18);
       border-radius: 4px;
     }
     .bus-card {
-      padding: 9px 12px;
-      border-radius: 10px;
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.045);
+      border: 1px solid rgba(255, 255, 255, 0.09);
       display: flex;
-      align-items: center;
-      justify-content: space-between;
+      flex-direction: column;
+      gap: 6px;
       cursor: pointer;
+      flex-shrink: 0;
       transition: background 0.15s, border-color 0.15s, transform 0.1s;
     }
     .bus-card:hover {
-      background: rgba(255, 255, 255, 0.08);
-      border-color: rgba(255, 255, 255, 0.2);
-      transform: translateX(2px);
+      background: rgba(255, 255, 255, 0.09);
+      border-color: rgba(255, 255, 255, 0.22);
+      transform: translateY(-1px);
+    }
+    .bus-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
     }
     .bus-card-left {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
+      min-width: 0;
+      flex-wrap: wrap;
     }
     .bus-id {
       font-weight: 800;
       font-size: 13px;
       color: #ffffff;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+    .bus-plate-pill {
+      font-size: 10.5px;
+      font-weight: 600;
+      color: #a1a1aa;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 1px 6px;
+      border-radius: 5px;
+      white-space: nowrap;
     }
     .bus-plate {
       font-size: 11px;
@@ -845,7 +893,37 @@
       color: #ffffff;
       display: flex;
       align-items: center;
-      gap: 4px;
+      gap: 6px;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+    .bus-card-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11.5px;
+      color: #cbd5e1;
+      min-width: 0;
+    }
+    .bus-next-stop {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-weight: 600;
+      color: #e2e8f0;
+    }
+    .bus-meta-right {
+      font-size: 10.5px;
+      color: #94a3b8;
+      white-space: nowrap;
+      flex-shrink: 0;
+      font-variant-numeric: tabular-nums;
     }
 
     /* Footer Status Bar */
@@ -857,6 +935,7 @@
       color: var(--text-muted);
       border-top: 1px solid rgba(255, 255, 255, 0.06);
       padding-top: 8px;
+      flex-shrink: 0;
     }
     .sync-indicator {
       display: flex;
@@ -2218,8 +2297,8 @@
     .traffic-pill.cok_yogun .tp-dot { background:#ef4444; animation:etaBeat 1s infinite; }
     .traffic-pill .tp-sub { color:#a1a1aa; font-weight:600; }
     @media (max-width:768px) { .traffic-pill .tp-sub { display:none; } }
-    .timetable-wrapper { padding:0 12px 8px; }
-    .tt-toggle { width:100%; display:flex; justify-content:space-between; align-items:center; padding:8px 12px; border-radius:10px; background:#18181b; color:#fafafa; border:1px solid #3f3f46; font-size:12px; font-weight:700; cursor:pointer; }
+    .timetable-wrapper { padding:0; flex-shrink:0; }
+    .tt-toggle { width:100%; display:flex; justify-content:space-between; align-items:center; padding:9px 12px; min-height:36px; border-radius:10px; background:#18181b; color:#fafafa; border:1px solid #3f3f46; font-size:12px; font-weight:700; cursor:pointer; }
     .tt-toggle.open .tt-chev { transform:rotate(180deg); }
     .timetable-panel { margin-top:6px; padding:10px; border-radius:10px; background:#09090b; border:1px solid #27272a; color:#fafafa; }
     .tt-head { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
@@ -2242,6 +2321,467 @@
     .mtt-label { font-size:11px; font-weight:700; margin-bottom:4px; }
     .mtt-times { display:flex; flex-wrap:wrap; gap:4px; }
     .mtt-times .tt-time small { margin-left:4px; font-size:9px; }
+
+    /* ── Mode Switcher (Keşfet | Rota Planla) ── */
+    .mode-switcher {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      padding: 4px;
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      flex-shrink: 0;
+    }
+    .mode-switch-btn {
+      height: 34px;
+      border-radius: 9px;
+      border: 0;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.18s ease;
+    }
+    .mode-switch-btn:hover {
+      color: #ffffff;
+    }
+    .mode-switch-btn.active {
+      background: #ffffff;
+      color: #09090b;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    }
+
+    /* ── Minimalist Multi-Modal Route Planner Panel ── */
+    #route-planner-panel {
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+    #sidebar.route-mode #explore-panel {
+      display: none !important;
+    }
+    #sidebar.route-mode #route-planner-panel {
+      display: flex !important;
+    }
+    .rp-inputs-box {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 14px;
+      padding: 10px;
+      flex-shrink: 0;
+    }
+    .rp-field-row {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .rp-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-left: 2px;
+    }
+    .rp-dot.origin {
+      background: #10b981;
+      box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+    }
+    .rp-dot.dest {
+      background: #f43f5e;
+      box-shadow: 0 0 8px rgba(244, 63, 94, 0.6);
+    }
+    .rp-input {
+      flex: 1;
+      height: 36px;
+      padding: 0 30px 0 10px;
+      border-radius: 9px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(9, 9, 11, 0.85);
+      color: #ffffff;
+      font-size: 12.5px;
+      font-weight: 600;
+      outline: none;
+      min-width: 0;
+      transition: border-color 0.15s;
+    }
+    .rp-input:focus {
+      border-color: rgba(255, 255, 255, 0.45);
+    }
+    .rp-input::placeholder {
+      color: #71717a;
+      font-weight: 500;
+    }
+    .rp-icon-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.06);
+      color: #e2e8f0;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: all 0.15s;
+    }
+    .rp-icon-btn:hover, .rp-icon-btn.picking {
+      background: #ffffff;
+      color: #09090b;
+      border-color: #ffffff;
+    }
+    .rp-suggest-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: 210px;
+      overflow-y: auto;
+      background: rgba(12, 12, 16, 0.98);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-radius: 11px;
+      z-index: 1500;
+      display: none;
+      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.8);
+    }
+    .rp-time-box {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      background: rgba(15, 23, 42, 0.55);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 8px 10px;
+      flex-shrink: 0;
+    }
+    .rp-mode-pills {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+    }
+    .rp-mode-pill {
+      height: 28px;
+      border-radius: 7px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      color: #a1a1aa;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .rp-mode-pill.active {
+      background: #ffffff;
+      color: #09090b;
+      border-color: #ffffff;
+    }
+    .rp-datetime-row {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      padding-top: 4px;
+    }
+    .rp-datetime-row.show {
+      display: flex;
+    }
+    .rp-date-input, .rp-time-input {
+      height: 32px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: #09090b;
+      color: #ffffff;
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 0 8px;
+      outline: none;
+      color-scheme: dark;
+    }
+    .rp-date-input { flex: 1.2; min-width: 0; }
+    .rp-time-input { flex: 0.9; min-width: 0; }
+    .rp-quick-day-row {
+      display: none;
+      align-items: center;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+    .rp-quick-day-row.show {
+      display: flex;
+    }
+    .rp-day-chip {
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.05);
+      color: #cbd5e1;
+      font-size: 10.5px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .rp-day-chip:hover {
+      background: rgba(255, 255, 255, 0.14);
+      color: #ffffff;
+    }
+    .rp-calc-btn {
+      height: 38px;
+      border-radius: 10px;
+      border: 0;
+      background: #ffffff;
+      color: #09090b;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      flex-shrink: 0;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .rp-calc-btn:hover { background: #e4e4e7; }
+    .rp-calc-btn:active { transform: scale(0.99); }
+
+    #rp-results-list {
+      flex: 1 1 auto;
+      min-height: 180px;
+      max-height: 380px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-right: 2px;
+    }
+    .rp-itin-card {
+      background: rgba(24, 24, 28, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      border-radius: 13px;
+      padding: 11px 12px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+    }
+    .rp-itin-card:hover {
+      border-color: rgba(255, 255, 255, 0.28);
+      background: rgba(30, 30, 36, 0.95);
+    }
+    .rp-itin-card.active {
+      border-color: #ffffff;
+      box-shadow: 0 0 0 1px #ffffff;
+      background: rgba(24, 24, 30, 0.98);
+    }
+    .rp-itin-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .rp-itin-times {
+      font-size: 14px;
+      font-weight: 800;
+      color: #ffffff;
+      font-variant-numeric: tabular-nums;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .rp-itin-tag {
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.12);
+      color: #fafafa;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .rp-itin-dur {
+      font-size: 14px;
+      font-weight: 800;
+      color: #38bdf8;
+      white-space: nowrap;
+    }
+    .rp-chain {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .rp-chain-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 7px;
+      font-size: 11px;
+      font-weight: 800;
+      color: #ffffff;
+      white-space: nowrap;
+    }
+    .rp-chain-sep {
+      font-size: 10px;
+      color: #71717a;
+      font-weight: 700;
+    }
+    .rp-itin-sub {
+      font-size: 11px;
+      color: #a1a1aa;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .rp-timeline {
+      display: none;
+      flex-direction: column;
+      gap: 0;
+      margin-top: 6px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .rp-itin-card.active .rp-timeline {
+      display: flex;
+    }
+    .rp-step {
+      display: flex;
+      gap: 10px;
+      position: relative;
+      padding-bottom: 10px;
+    }
+    .rp-step:last-child {
+      padding-bottom: 2px;
+    }
+    .rp-step-time {
+      width: 38px;
+      font-size: 11px;
+      font-weight: 800;
+      color: #e2e8f0;
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+      padding-top: 1px;
+    }
+    .rp-step-line {
+      width: 3px;
+      border-radius: 3px;
+      background: #52525b;
+      flex-shrink: 0;
+      margin: 2px 0;
+    }
+    .rp-step-body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .rp-step-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #ffffff;
+      line-height: 1.3;
+    }
+    .rp-step-detail {
+      font-size: 11px;
+      color: #a1a1aa;
+      line-height: 1.35;
+    }
+    .rp-step-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 7px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 800;
+      color: #ffffff;
+      width: fit-content;
+    }
+
+    /* ── Ferry Piers & Live / Scheduled Vessels on Map ── */
+    .ferry-pier-div-icon, .ferry-vessel-div-icon {
+      background: transparent !important;
+      border: none !important;
+    }
+    .ferry-pier-marker {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #0b5cad;
+      border: 2px solid #ffffff;
+      color: #ffffff;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.55);
+      cursor: pointer;
+      transition: transform 0.15s ease;
+    }
+    .ferry-pier-marker:hover {
+      transform: scale(1.18);
+    }
+    .ferry-vessel-marker {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: #0b5cad;
+      color: #ffffff;
+      border: 1.5px solid #ffffff;
+      font-size: 10.5px;
+      font-weight: 800;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
+      white-space: nowrap;
+      cursor: pointer;
+      transition: transform 0.15s ease;
+    }
+    .ferry-vessel-marker:hover {
+      transform: scale(1.12);
+    }
+    .popup-route-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .btn-popup-route {
+      height: 30px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(255, 255, 255, 0.08);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      transition: all 0.15s;
+    }
+    .btn-popup-route:hover {
+      background: #ffffff;
+      color: #09090b;
+      border-color: #ffffff;
+    }
 
   </style>
 </head>
@@ -2302,7 +2842,7 @@
         </div>
         <div>
           <h1 class="brand-title">İstanbul Bizim</h1>
-          <div class="brand-sub">İETT & Metro Takip Ağı</div>
+          <div class="brand-sub">İETT, Metro & Vapur Ağı</div>
         </div>
       </div>
       <div class="header-actions" style="display:flex;align-items:center;gap:8px;">
@@ -2318,12 +2858,67 @@
       </div>
     </header>
 
+    <!-- Mode Switcher: Keşfet (Live Map & Lines) vs Rota Planla (Multi-Modal Route Planner) -->
+    <div class="mode-switcher">
+      <button type="button" class="mode-switch-btn active" id="btn-mode-explore">🔍 Hat & Canlı Harita</button>
+      <button type="button" class="mode-switch-btn" id="btn-mode-route">🧭 Yol Tarifi (Rota)</button>
+    </div>
+
+    <!-- Minimalist Multi-Modal Route Planner Panel -->
+    <div id="route-planner-panel">
+      <div class="rp-inputs-box">
+        <div class="rp-field-row">
+          <span class="rp-dot origin"></span>
+          <input id="rp-origin-input" class="rp-input" type="search" placeholder="Kalkış: Durak, İstasyon, İskele veya Konum..." autocomplete="off">
+          <button type="button" class="rp-icon-btn" id="btn-rp-gps" title="Mevcut Konumumu Kullan">📍</button>
+          <button type="button" class="rp-icon-btn" id="btn-rp-pick-orig" title="Haritadan Kalkış Noktası Seç">🎯</button>
+          <div id="rp-origin-suggest" class="rp-suggest-dropdown"></div>
+        </div>
+        <div class="rp-field-row">
+          <span class="rp-dot dest"></span>
+          <input id="rp-dest-input" class="rp-input" type="search" placeholder="Varış: Nereye gitmek istiyorsunuz?" autocomplete="off">
+          <button type="button" class="rp-icon-btn" id="btn-rp-swap" title="Kalkış ve Varışı Değiştir">⇅</button>
+          <button type="button" class="rp-icon-btn" id="btn-rp-pick-dest" title="Haritadan Varış Noktası Seç">🎯</button>
+          <div id="rp-dest-suggest" class="rp-suggest-dropdown"></div>
+        </div>
+      </div>
+
+      <div class="rp-time-box">
+        <div class="rp-mode-pills">
+          <button type="button" class="rp-mode-pill active" data-rp-mode="now">⏱ Şimdi</button>
+          <button type="button" class="rp-mode-pill" data-rp-mode="dep">🛫 Kalkış Zamanı</button>
+          <button type="button" class="rp-mode-pill" data-rp-mode="arr">🏁 Varış Zamanı</button>
+        </div>
+        <div class="rp-datetime-row" id="rp-datetime-row">
+          <input type="date" id="rp-date-input" class="rp-date-input" aria-label="Tarih Seçin">
+          <input type="time" id="rp-time-input" class="rp-time-input" aria-label="Saat Seçin">
+        </div>
+        <div class="rp-quick-day-row" id="rp-quick-day-row">
+          <button type="button" class="rp-day-chip" data-day-offset="0">Bugün</button>
+          <button type="button" class="rp-day-chip" data-day-offset="1">Yarın</button>
+          <button type="button" class="rp-day-chip" data-time-add="30">+30 dk</button>
+          <button type="button" class="rp-day-chip" data-time-add="60">+1 saat</button>
+          <button type="button" class="rp-day-chip" data-time-preset="08:00">Sabah 08:00</button>
+        </div>
+      </div>
+
+      <button type="button" class="rp-calc-btn" id="btn-rp-calc">🧭 En Uygun Aktarma ve Saatleri Hesapla</button>
+
+      <div id="rp-results-list">
+        <div style="padding:14px 10px;text-align:center;color:#94a3b8;font-size:12px;line-height:1.5;">
+          Kalkış ve varış noktasını seçin veya haritadaki herhangi bir durak/iskele/istasyondan <b>"Buradan / Buraya Git"</b> butonuna dokunun.<br>
+          <span style="font-size:11px;color:#71717a;">Otobüs, Metrobüs, Metro, Marmaray ve Vapur aktarmaları saat/tarihe göre hesaplanır.</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="explore-panel" style="display:flex;flex-direction:column;gap:10px;flex:1 1 auto;min-height:0;">
     <!-- Search Input & Autocomplete -->
     <div class="search-wrapper">
       <svg class="search-icon" viewBox="0 0 24 24">
         <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
       </svg>
-      <input id="line-input" type="search" placeholder="Hat Ara: 500T, 15B, 34G, 16D..." autocomplete="off" spellcheck="false" enterkeyhint="search">
+      <input id="line-input" type="search" placeholder="Hat, Durak veya İskele Ara: 500T, 15B, M2, Kadıköy..." autocomplete="off" spellcheck="false" enterkeyhint="search">
       <div class="search-actions-group">
         <button class="search-clear" id="btn-search-clear" title="Temizle" aria-label="Aramayı Temizle">✕</button>
         <button class="btn-search-collapse" id="btn-search-collapse" title="Haritaya Dön" aria-label="Haritaya Dön">
@@ -2336,6 +2931,7 @@
     <!-- Popular Quick Filter Chips -->
     <div class="quick-chips-wrapper">
       <button class="chip active" data-filter="all">Tüm Filo</button>
+      <button class="chip" data-filter="ferries" style="border-color: #38bdf888; color: #7dd3fc;">⛴️ Vapurlar</button>
       <button class="chip metrobus-chip" data-line="34G">⚡ Metrobüs</button>
       <button class="chip marmaray-chip" data-line="B1" style="border-color: #b4192d88; color: #fca5a5;">🚆 Marmaray</button>
       <button class="chip" data-line="500T">500T</button>
@@ -2390,11 +2986,15 @@
     <div class="stats-grid">
       <div class="stat-card">
         <div class="stat-val" id="stat-buses">0 <small>araç</small></div>
-        <div class="stat-lbl">Canlı İETT Otobüsü</div>
+        <div class="stat-lbl">Canlı Otobüs</div>
       </div>
       <div class="stat-card">
         <div class="stat-val" id="stat-trains">0 <small>tren</small></div>
-        <div class="stat-lbl">Canlı Metro / Raylı</div>
+        <div class="stat-lbl">Metro / Raylı</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="stat-ferries">0 <small>vapur</small></div>
+        <div class="stat-lbl">Vapur / Deniz</div>
       </div>
     </div>
 
@@ -2418,6 +3018,13 @@
         <span>🚆 Hareketli Trenler (Tarife / Canlı)</span>
         <div class="switch">
           <input type="checkbox" id="chk-trains" checked>
+          <span class="slider"></span>
+        </div>
+      </label>
+      <label class="toggle-row">
+        <span>⛴️ Vapurlar ve İskeleler (Deniz Hatları)</span>
+        <div class="switch">
+          <input type="checkbox" id="chk-ferries" checked>
           <span class="slider"></span>
         </div>
       </label>
@@ -2446,6 +3053,7 @@
 
     <!-- Active Filtered Buses List -->
     <div id="bus-results-list"></div>
+    </div><!-- /#explore-panel -->
 
     <!-- Footer Status & Synchronization -->
     <footer class="footer-bar">
@@ -2521,6 +3129,13 @@
           <span>🚆 Hareketli Trenler (Tarife / Canlı)</span>
           <div class="switch">
             <input type="checkbox" id="chk-trains-modal" checked>
+            <span class="slider"></span>
+          </div>
+        </label>
+        <label class="toggle-row">
+          <span>⛴️ Vapurlar ve İskeleler (Deniz Hatları)</span>
+          <div class="switch">
+            <input type="checkbox" id="chk-ferries-modal" checked>
             <span class="slider"></span>
           </div>
         </label>
@@ -2736,6 +3351,9 @@
 
       // ─── LAYER GROUPS ───
       const routeLayer = L.layerGroup().addTo(map);
+      const plannerRouteLayer = L.layerGroup().addTo(map);
+      const ferriesLayer = L.layerGroup().addTo(map);
+      const ferryVesselsLayer = L.layerGroup().addTo(map);
       const allStopsLayer = L.layerGroup().addTo(map);
       const busesLayer = L.layerGroup().addTo(map);
       const selectedLineLayer = L.layerGroup().addTo(map);
@@ -3952,6 +4570,10 @@
                   <span>${district || "İstanbul"}</span>
                 </div>
                 ${direction ? `<div class="stop-direction-badge"><span>➔</span><span>${direction} Yönü</span></div>` : ""}
+                <div class="popup-route-actions">
+                  <button type="button" class="btn-popup-route" onclick="window.setRoutePoint('orig', ${lat}, ${lon}, '${String(stopName).replace(/'/g, "\\'")}')">🛫 Buradan Git</button>
+                  <button type="button" class="btn-popup-route" onclick="window.setRoutePoint('dest', ${lat}, ${lon}, '${String(stopName).replace(/'/g, "\\'")}')">🏁 Buraya Git</button>
+                </div>
                 ${oppositeHtml}
               </div>
               <div class="stop-popup-body">
@@ -4613,21 +5235,28 @@
           groupBuses.forEach(b => {
             const isWaiting = b.waiting_at_stop || ((b.s || 0) <= 6 && (b.stop_dist_m || Infinity) <= 65);
             const waitBadge = isWaiting
-              ? `<span style="display:inline-flex;align-items:center;gap:3px;padding:1px 5px;background:rgba(245,158,11,0.2);border:1px solid #f59e0b;color:#fbbf24;border-radius:4px;font-size:9px;font-weight:700">⏸️ Durakta Bekliyor</span>`
+              ? `<span style="display:inline-flex;align-items:center;gap:2px;padding:1px 6px;background:rgba(245,158,11,0.18);border:1px solid rgba(245,158,11,0.5);color:#fbbf24;border-radius:5px;font-size:9.5px;font-weight:800;white-space:nowrap">⏸ Durakta</span>`
               : "";
+            const nextStopText = (b.next_stop || b.stop) ? `🚏 ${b.next_stop || b.stop}` : `🚌 ${b.op || "İETT"}`;
+            const stopsLeftText = b.stops_left ? `${b.stops_left} durak · ` : "";
 
             h += `
               <div class="bus-card" onclick="window.panToBus(${b.lat}, ${b.lon}, '${b.id}')">
-                <div class="bus-card-left">
-                  <span class="legend-dot" style="background:${col}"></span>
-                  <div>
-                    <div class="bus-id">${b.id} ${b.p ? `<span class="bus-plate">(${b.p})</span>` : ""} ${waitBadge}</div>
-                    <div class="bus-plate">${(b.next_stop || b.stop) ? `🚏 ${b.next_stop || b.stop}` : (b.op || "İETT")} • <span class="bus-card-age" data-bus-time="${b.t || b.time || ''}">${formatBusAge(b.t || b.time, b.a)}</span>${b.stops_left ? ` • ${b.stops_left} durak kaldı` : ""}</div>
+                <div class="bus-card-top">
+                  <div class="bus-card-left">
+                    <span class="legend-dot" style="background:${col}"></span>
+                    <span class="bus-id">${b.id}</span>
+                    ${b.p ? `<span class="bus-plate-pill">${b.p}</span>` : ""}
+                    ${waitBadge}
+                  </div>
+                  <div class="bus-speed-badge">
+                    ${etaChipHtml(b)}
+                    <span>${b.s || 0} <small style="font-size:10px;color:#94a3b8;font-weight:600">km/s</small></span>
                   </div>
                 </div>
-                <div class="bus-speed-badge">
-                  ${etaChipHtml(b)}
-                  <span>${b.s || 0}</span> <small style="font-size:10px;color:#94a3b8">km/s</small>
+                <div class="bus-card-bottom">
+                  <div class="bus-next-stop" title="${nextStopText}">${nextStopText}</div>
+                  <div class="bus-meta-right">${stopsLeftText}<span class="bus-card-age" data-bus-time="${b.t || b.time || ''}">${formatBusAge(b.t || b.time, b.a)}</span></div>
                 </div>
               </div>
             `;
@@ -6503,13 +7132,21 @@
         if (!show) { ttState.open = false; const p = el("timetable-panel"); if (p) p.style.display = "none"; }
       }
 
-      async function openMetroTimetablePopup(lineCode, latlng) {
+      async function openMetroTimetablePopup(lineCode, latlng, stnName) {
         const isMarmaray = lineCode === "B1" || lineCode === "MARMARAY";
         const color = (metroColors && metroColors[lineCode]) || (isMarmaray ? "#B4192D" : "#e4e4e7");
         const titleIcon = isMarmaray ? "🚆" : "🚇";
         const titleName = isMarmaray ? "Marmaray (B1)" : lineCode;
+        const lat = latlng.lat || (Array.isArray(latlng) ? latlng[0] : 41.01);
+        const lon = latlng.lng || (Array.isArray(latlng) ? latlng[1] : 28.98);
+        const labelForRoute = stnName ? `${stnName} (${titleName})` : `${titleName} İstasyonu`;
+        const routeBtns = `
+          <div class="popup-route-actions">
+            <button type="button" class="btn-popup-route" onclick="window.setRoutePoint('orig', ${lat}, ${lon}, '${String(labelForRoute).replace(/'/g, "\\'")}')">🛫 Buradan Git</button>
+            <button type="button" class="btn-popup-route" onclick="window.setRoutePoint('dest', ${lat}, ${lon}, '${String(labelForRoute).replace(/'/g, "\\'")}')">🏁 Buraya Git</button>
+          </div>`;
         const popup = L.popup({ maxWidth: 320, minWidth: 250 }).setLatLng(latlng)
-          .setContent(`<div class="popup-box"><div class="popup-header"><span style="color:${color}">${titleIcon} ${titleName}</span></div><div class="tt-loading">Sefer saatleri yükleniyor…</div></div>`)
+          .setContent(`<div class="popup-box"><div class="popup-header"><span style="color:${color}">${titleIcon} ${titleName}</span></div><div class="tt-loading">Sefer saatleri yükleniyor…</div>${routeBtns}</div>`)
           .openOn(map);
         try {
           const data = await getTimetable(lineCode);
@@ -6523,9 +7160,9 @@
             return `<div class="mtt-dir"><div class="mtt-label">➔ ${label}</div><div class="mtt-times">${ups.length ? ups.map(u => `<span class="tt-time ${u.estimated ? "est" : ""}">${u.time}<small class="eta-chip" data-eta-at="${u.at}">${fmtEta(u.at - Date.now())}</small></span>`).join("") : "<span class='tt-loading'>Bugün kalan sefer yok</span>"}</div></div>`;
           }).join("");
           const badgeText = data.official ? (isMarmaray ? "TCDD Resmî" : "Resmî tarife") : "Tahmini";
-          popup.setContent(`<div class="popup-box"><div class="popup-header"><span style="color:${color}">${titleIcon} ${titleName}</span><span class="tt-badge ${data.official ? "official" : "est"}">${badgeText}</span></div>${rows}</div>`);
+          popup.setContent(`<div class="popup-box"><div class="popup-header"><span style="color:${color}">${titleIcon} ${titleName}</span><span class="tt-badge ${data.official ? "official" : "est"}">${badgeText}</span></div>${rows}${routeBtns}</div>`);
         } catch (e) {
-          popup.setContent(`<div class="popup-box"><div class="popup-header"><span>${titleIcon} ${titleName}</span></div><div class="tt-loading">Sefer saatleri alınamadı.</div></div>`);
+          popup.setContent(`<div class="popup-box"><div class="popup-header"><span>${titleIcon} ${titleName}</span></div><div class="tt-loading">Sefer saatleri alınamadı.</div>${routeBtns}</div>`);
         }
       }
 
@@ -6541,6 +7178,896 @@
           if (ttState.open) { ttState.day = null; renderTimetablePanel(); }
         });
       })();
+
+      // ─── FERRIES (VAPURLAR & İSKELELER) MODULE ───
+      let ferryNetwork = null;
+      let ferryStatus = { active: false, cancelled_line_ids: [], overrides: {}, message: "" };
+      let ferryLiveVessels = [];
+      const ferryLegsDecoded = new Map();
+      const ferryVesselMarkers = new Map();
+      const chkFerries = el("chk-ferries");
+      const chkFerriesModal = el("chk-ferries-modal");
+      const statFerries = el("stat-ferries");
+
+      function decodePolylineClient(str) {
+        if (!str || typeof str !== "string") return [];
+        let idx = 0, lat = 0, lng = 0;
+        const out = [];
+        while (idx < str.length) {
+          let b, shift = 0, result = 0;
+          do { b = str.charCodeAt(idx++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20 && idx < str.length + 1);
+          lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+          shift = 0; result = 0;
+          do { b = str.charCodeAt(idx++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20 && idx < str.length + 1);
+          lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+          out.push([lat / 1e5, lng / 1e5]);
+        }
+        return out;
+      }
+
+      function getFerryLegCoords(pA, pB) {
+        if (!ferryNetwork) return [];
+        const key = `${pA}|${pB}`;
+        if (ferryLegsDecoded.has(key)) return ferryLegsDecoded.get(key);
+        const revKey = `${pB}|${pA}`;
+        let pts = [];
+        if (ferryNetwork.legs && ferryNetwork.legs[key]) {
+          pts = decodePolylineClient(ferryNetwork.legs[key]);
+        } else if (ferryNetwork.legs && ferryNetwork.legs[revKey]) {
+          pts = decodePolylineClient(ferryNetwork.legs[revKey]).slice().reverse();
+        } else {
+          const a = ferryNetwork.piers && ferryNetwork.piers[pA];
+          const b = ferryNetwork.piers && ferryNetwork.piers[pB];
+          if (a && b) pts = [[a.lat, a.lon], [b.lat, b.lon]];
+        }
+        ferryLegsDecoded.set(key, pts);
+        return pts;
+      }
+
+      function interpolateAlongPolyline(pts, frac) {
+        if (!pts || !pts.length) return [41.02, 29.0];
+        if (pts.length === 1 || frac <= 0) return pts[0];
+        if (frac >= 1) return pts[pts.length - 1];
+        const segDists = [];
+        let total = 0;
+        for (let i = 0; i < pts.length - 1; i++) {
+          const d = geoDistanceMeters(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
+          segDists.push(d);
+          total += d;
+        }
+        if (total <= 0) return pts[0];
+        const target = frac * total;
+        let acc = 0;
+        for (let i = 0; i < segDists.length; i++) {
+          if (acc + segDists[i] >= target) {
+            const u = segDists[i] > 0 ? (target - acc) / segDists[i] : 0;
+            return [
+              pts[i][0] + (pts[i + 1][0] - pts[i][0]) * u,
+              pts[i][1] + (pts[i + 1][1] - pts[i][1]) * u
+            ];
+          }
+          acc += segDists[i];
+        }
+        return pts[pts.length - 1];
+      }
+
+      async function loadFerriesData() {
+        try {
+          const [netRes, stRes, ttRes, liveRes] = await Promise.allSettled([
+            fetch("/ferries/network"),
+            fetch("/ferries/status"),
+            fetch("/ferries/timetables"),
+            fetch("/ferries/live")
+          ]);
+          if (netRes.status === "fulfilled" && netRes.value.ok) {
+            ferryNetwork = await netRes.value.json();
+          }
+          if (stRes.status === "fulfilled" && stRes.value.ok) {
+            const st = await stRes.value.json();
+            if (st) ferryStatus = st;
+          }
+          if (ttRes.status === "fulfilled" && ttRes.value.ok && ferryNetwork) {
+            const liveTt = await ttRes.value.json();
+            if (liveTt && Array.isArray(liveTt.lines) && liveTt.lines.length >= 5) {
+              const nonSh = (ferryNetwork.lines || []).filter(l => l.op !== "sh");
+              ferryNetwork.lines = [...liveTt.lines, ...nonSh];
+            }
+          }
+          if (liveRes.status === "fulfilled" && liveRes.value.ok) {
+            const lv = await liveRes.value.json();
+            if (lv && Array.isArray(lv.vessels)) ferryLiveVessels = lv.vessels;
+          }
+          renderFerryNetwork();
+          tickFerryVessels();
+        } catch (e) {
+          console.warn("Vapur verisi yüklenemedi:", e);
+        }
+      }
+
+      function renderFerryNetwork() {
+        ferriesLayer.clearLayers();
+        if (!ferryNetwork || (chkFerries && !chkFerries.checked)) {
+          ferryVesselsLayer.clearLayers();
+          ferryVesselMarkers.clear();
+          return;
+        }
+
+        // 1. Draw sea legs
+        const legs = ferryNetwork.legs || {};
+        for (const [k, enc] of Object.entries(legs)) {
+          const pts = decodePolylineClient(enc);
+          if (pts.length < 2) continue;
+          const poly = L.polyline(pts, {
+            color: "#38bdf8",
+            weight: 2.2,
+            opacity: 0.5,
+            dashArray: "5, 6",
+            interactive: false
+          });
+          ferriesLayer.addLayer(poly);
+        }
+
+        // 2. Draw ferry piers
+        const piers = ferryNetwork.piers || {};
+        const ops = ferryNetwork.operators || {};
+        for (const [pid, p] of Object.entries(piers)) {
+          const mainOp = (p.ops && p.ops[0] && ops[p.ops[0]]) || { color: "#0b5cad", short: "ŞH" };
+          const icon = L.divIcon({
+            className: "ferry-pier-div-icon",
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+            html: `<div class="ferry-pier-marker" style="background:${mainOp.color || '#0b5cad'}" title="${p.full || p.name}">⚓</div>`
+          });
+          const m = L.marker([p.lat, p.lon], { icon, zIndexOffset: 350 });
+          m.bindTooltip(`<b>⚓ ${p.full || p.name}</b><br><small style="color:#93c5fd">Vapur İskelesi · Seferler için dokunun</small>`, {
+            direction: "top",
+            offset: [0, -10]
+          });
+          m.on("click", (e) => {
+            L.DomEvent.stopPropagation(e);
+            openFerryPierPopup(pid, p);
+          });
+          ferriesLayer.addLayer(m);
+        }
+      }
+
+      window.openFerryPierById = function(pid) {
+        if (!ferryNetwork || !ferryNetwork.piers || !ferryNetwork.piers[pid]) return;
+        const p = ferryNetwork.piers[pid];
+        map.flyTo([p.lat, p.lon], Math.max(map.getZoom(), 14), { duration: 0.8 });
+        openFerryPierPopup(pid, p);
+      };
+
+      function openFerryPierPopup(pid, pier) {
+        if (!ferryNetwork) return;
+        const ops = ferryNetwork.operators || {};
+        const cancelledSet = new Set((ferryStatus && ferryStatus.active && ferryStatus.cancelled_line_ids) || []);
+        const overrides = (ferryStatus && ferryStatus.active && ferryStatus.overrides) || {};
+
+        const nowIst = new Date(Date.now() + 10800000);
+        const dow = nowIst.getUTCDay();
+        const weekday = dow === 0 ? 7 : dow;
+        const dayBit = 1 << (weekday - 1);
+        const curMin = nowIst.getUTCHours() * 60 + nowIst.getUTCMinutes() + nowIst.getUTCSeconds() / 60;
+
+        const upcoming = [];
+        const servingLines = [];
+
+        for (const line of (ferryNetwork.lines || [])) {
+          if (!line.piers || !line.piers.includes(pid)) continue;
+          const isCancelled = cancelledSet.has(line.id);
+          const op = ops[line.op] || { name: "Şehir Hatları", short: "ŞH", color: "#0b5cad" };
+          servingLines.push({ line, op, isCancelled });
+          if (isCancelled) continue;
+
+          const patterns = (overrides[line.id] && overrides[line.id].patterns) || line.patterns || [];
+          for (const pat of patterns) {
+            for (const trip of (pat.trips || [])) {
+              if (((trip.d || 127) & dayBit) === 0) continue;
+              const stops = trip.s || [];
+              for (let i = 0; i < stops.length - 1; i++) {
+                if (stops[i][0] !== pid) continue;
+                const depMin = stops[i][1];
+                let diffMin = depMin - curMin;
+                if (diffMin < -1 || diffMin > 240) continue;
+                const destPierId = stops[stops.length - 1][0];
+                const destPier = (ferryNetwork.piers && ferryNetwork.piers[destPierId]) || { name: pat.label };
+                const hh = String(Math.floor((depMin % 1440) / 60)).padStart(2, "0");
+                const mm = String(Math.floor(depMin % 60)).padStart(2, "0");
+                upcoming.push({
+                  lineName: line.name,
+                  opShort: op.short || "ŞH",
+                  opColor: op.color || "#0b5cad",
+                  destName: destPier.name,
+                  timeStr: `${hh}:${mm}`,
+                  waitMin: Math.max(0, Math.round(diffMin)),
+                  depMin
+                });
+              }
+            }
+          }
+        }
+
+        upcoming.sort((a, b) => a.depMin - b.depMin);
+        const topUpcoming = upcoming.slice(0, 7);
+
+        const opBadges = (pier.ops || ["sh"]).map(opId => {
+          const o = ops[opId] || { name: opId.toUpperCase(), color: "#0b5cad" };
+          return `<span style="padding:2px 7px;border-radius:6px;background:${o.color};color:#fff;font-size:10px;font-weight:800">${o.name}</span>`;
+        }).join(" ");
+
+        const cancelBanner = servingLines.some(s => s.isCancelled)
+          ? `<div style="margin:6px 0;padding:6px 8px;border-radius:8px;background:rgba(239,68,68,0.18);border:1px solid rgba(239,68,68,0.45);color:#fca5a5;font-size:11px;font-weight:700">⚠️ Şehir Hatları Duyurusu: Bu iskeleden geçen bazı hatlarda sefer iptali var.</div>`
+          : "";
+
+        const upcomingHtml = topUpcoming.length
+          ? topUpcoming.map(u => `
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);margin-bottom:4px;">
+                <div style="display:flex;align-items:center;gap:7px;min-width:0;">
+                  <span style="padding:2px 6px;border-radius:5px;background:${u.opColor};color:#fff;font-size:10px;font-weight:800;flex-shrink:0">${u.opShort}</span>
+                  <div style="min-width:0;">
+                    <div style="font-size:11.5px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">➔ ${u.destName}</div>
+                    <div style="font-size:10px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.lineName}</div>
+                  </div>
+                </div>
+                <div style="text-align:right;flex-shrink:0;margin-left:8px;">
+                  <div style="font-size:12px;font-weight:800;color:#38bdf8;font-variant-numeric:tabular-nums;">${u.timeStr}</div>
+                  <div style="font-size:10px;color:${u.waitMin <= 5 ? '#34d399' : '#a1a1aa'};font-weight:700;">${u.waitMin === 0 ? 'İskelede' : u.waitMin + ' dk sonra'}</div>
+                </div>
+              </div>
+            `).join("")
+          : `<div class="tt-loading">Yakın saatte planlı sefer bulunamadı.</div>`;
+
+        const html = `
+          <div class="stop-popup-card" style="min-width:280px;">
+            <div class="stop-popup-header">
+              <div class="stop-popup-title"><span>⚓</span><span>${pier.full || pier.name}</span></div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">${opBadges}</div>
+              <div class="popup-route-actions">
+                <button type="button" class="btn-popup-route" onclick="window.setRoutePoint('orig', ${pier.lat}, ${pier.lon}, '${String(pier.full || pier.name).replace(/'/g, "\\'")}')">🛫 Buradan Git</button>
+                <button type="button" class="btn-popup-route" onclick="window.setRoutePoint('dest', ${pier.lat}, ${pier.lon}, '${String(pier.full || pier.name).replace(/'/g, "\\'")}')">🏁 Buraya Git</button>
+              </div>
+            </div>
+            <div class="stop-popup-body">
+              ${cancelBanner}
+              <div class="stop-section-title">
+                <span>Yaklaşan Vapur Seferleri</span>
+                <span style="color:#38bdf8;font-size:10px;">Resmî Tarife</span>
+              </div>
+              <div>${upcomingHtml}</div>
+            </div>
+          </div>
+        `;
+
+        L.popup({ maxWidth: 340, minWidth: 280 })
+          .setLatLng([pier.lat, pier.lon])
+          .setContent(html)
+          .openOn(map);
+      }
+
+      function tickFerryVessels() {
+        if (!ferryNetwork || (chkFerries && !chkFerries.checked)) {
+          ferryVesselsLayer.clearLayers();
+          ferryVesselMarkers.clear();
+          if (statFerries) statFerries.innerHTML = `0 <small>vapur</small>`;
+          return;
+        }
+
+        const ops = ferryNetwork.operators || {};
+        const piers = ferryNetwork.piers || {};
+        const cancelledSet = new Set((ferryStatus && ferryStatus.active && ferryStatus.cancelled_line_ids) || []);
+        const overrides = (ferryStatus && ferryStatus.active && ferryStatus.overrides) || {};
+
+        const nowIst = new Date(Date.now() + 10800000);
+        const dow = nowIst.getUTCDay();
+        const weekday = dow === 0 ? 7 : dow;
+        const dayBit = 1 << (weekday - 1);
+        const curMin = nowIst.getUTCHours() * 60 + nowIst.getUTCMinutes() + nowIst.getUTCSeconds() / 60;
+
+        const activeVessels = [];
+
+        // 1. Live AIS vessels if available
+        for (const av of (ferryLiveVessels || [])) {
+          if ((av.age || 0) > 600 || !av.lat || !av.lon) continue;
+          activeVessels.push({
+            id: `ais:${av.mmsi || av.name}`,
+            label: av.name || "Vapur",
+            lineName: "Canlı AIS Deniz Aracı",
+            opName: av.op || "Şehir Hatları",
+            color: "#0b5cad",
+            lat: av.lat,
+            lon: av.lon,
+            nextPier: "",
+            etaMin: 0,
+            isLiveAis: true
+          });
+        }
+
+        // 2. Scheduled active vessels from ferry_network.json
+        for (const line of (ferryNetwork.lines || [])) {
+          if (cancelledSet.has(line.id)) continue;
+          const op = ops[line.op] || { name: "Şehir Hatları", short: "ŞH", color: "#0b5cad" };
+          const patterns = (overrides[line.id] && overrides[line.id].patterns) || line.patterns || [];
+
+          for (let pIdx = 0; pIdx < patterns.length; pIdx++) {
+            const pat = patterns[pIdx];
+            const trips = pat.trips || [];
+            for (let tIdx = 0; tIdx < trips.length; tIdx++) {
+              const trip = trips[tIdx];
+              if (((trip.d || 127) & dayBit) === 0) continue;
+              const s = trip.s || [];
+              if (s.length < 2) continue;
+              const startM = s[0][1], endM = s[s.length - 1][1];
+              if (curMin < startM || curMin > endM) continue;
+
+              for (let i = 0; i < s.length - 1; i++) {
+                const [pA, tA] = s[i];
+                const [pB, tB] = s[i + 1];
+                if (curMin >= tA && curMin <= tB && tB > tA) {
+                  const frac = (curMin - tA) / (tB - tA);
+                  const pts = getFerryLegCoords(pA, pB);
+                  const [lat, lon] = interpolateAlongPolyline(pts, frac);
+                  const nextP = piers[pB] ? piers[pB].name : pB;
+                  const fromP = piers[pA] ? piers[pA].name : pA;
+                  activeVessels.push({
+                    id: `sch:${line.id}:${pIdx}:${tIdx}`,
+                    label: `${op.short || "ŞH"}`,
+                    lineName: line.name,
+                    opName: op.name,
+                    color: op.color || "#0b5cad",
+                    lat,
+                    lon,
+                    fromPier: fromP,
+                    nextPier: nextP,
+                    etaMin: Math.max(1, Math.round(tB - curMin)),
+                    isLiveAis: false
+                  });
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        const seenIds = new Set();
+        for (const v of activeVessels) {
+          seenIds.add(v.id);
+          let m = ferryVesselMarkers.get(v.id);
+          const tip = `<b>⛴️ ${v.lineName}</b><br><span style="color:#93c5fd">${v.opName}</span>${v.nextPier ? `<br>➔ ${v.nextPier} (${v.etaMin} dk)` : ""}`;
+          if (!m) {
+            const icon = L.divIcon({
+              className: "ferry-vessel-div-icon",
+              iconSize: [46, 22],
+              iconAnchor: [23, 11],
+              html: `<div class="ferry-vessel-marker" style="background:${v.color}">⛴️ ${v.label}</div>`
+            });
+            m = L.marker([v.lat, v.lon], { icon, zIndexOffset: 520 });
+            m.bindTooltip(tip, { direction: "top", offset: [0, -10], className: "metro-tooltip" });
+            ferryVesselsLayer.addLayer(m);
+            ferryVesselMarkers.set(v.id, m);
+          } else {
+            m.setLatLng([v.lat, v.lon]);
+            if (m.getTooltip()) m.setTooltipContent(tip);
+          }
+        }
+
+        for (const [id, m] of ferryVesselMarkers.entries()) {
+          if (!seenIds.has(id)) {
+            ferryVesselsLayer.removeLayer(m);
+            ferryVesselMarkers.delete(id);
+          }
+        }
+
+        if (statFerries) {
+          statFerries.innerHTML = `${activeVessels.length} <small>vapur</small>`;
+        }
+      }
+
+      if (chkFerries && chkFerriesModal) {
+        syncCheckboxes(chkFerries, chkFerriesModal, () => {
+          renderFerryNetwork();
+          tickFerryVessels();
+        });
+      }
+
+      // Wire "⛴️ Vapurlar" quick chip
+      document.querySelectorAll('.chip[data-filter="ferries"]').forEach(chip => {
+        chip.addEventListener("click", () => {
+          if (chkFerries && !chkFerries.checked) {
+            chkFerries.checked = true;
+            if (chkFerriesModal) chkFerriesModal.checked = true;
+            renderFerryNetwork();
+            tickFerryVessels();
+          }
+          clearSelectedLine();
+          map.flyTo([41.022, 29.005], 12.5, { duration: 0.9 });
+          showToast("⛴️ Boğaz ve Marmara vapur hatları gösteriliyor");
+        });
+      });
+
+      // ─── MINIMALIST MULTI-MODAL ROUTE PLANNER MODULE ───
+      const rpState = {
+        origin: null, // { name, lat, lon }
+        dest: null,   // { name, lat, lon }
+        mode: "now",  // "now" | "dep" | "arr"
+        pickingField: null, // "orig" | "dest" | null
+        itineraries: [],
+        activeIdx: 0
+      };
+
+      const btnModeExplore = el("btn-mode-explore");
+      const btnModeRoute = el("btn-mode-route");
+      const rpOriginInput = el("rp-origin-input");
+      const rpDestInput = el("rp-dest-input");
+      const rpOriginSuggest = el("rp-origin-suggest");
+      const rpDestSuggest = el("rp-dest-suggest");
+      const btnRpGps = el("btn-rp-gps");
+      const btnRpSwap = el("btn-rp-swap");
+      const btnRpPickOrig = el("btn-rp-pick-orig");
+      const btnRpPickDest = el("btn-rp-pick-dest");
+      const rpDatetimeRow = el("rp-datetime-row");
+      const rpQuickDayRow = el("rp-quick-day-row");
+      const rpDateInput = el("rp-date-input");
+      const rpTimeInput = el("rp-time-input");
+      const btnRpCalc = el("btn-rp-calc");
+      const rpResultsList = el("rp-results-list");
+
+      function initRoutePlannerDateTime() {
+        const now = new Date(Date.now() + 10800000);
+        if (rpDateInput && !rpDateInput.value) {
+          rpDateInput.value = now.toISOString().slice(0, 10);
+        }
+        if (rpTimeInput && !rpTimeInput.value) {
+          const hh = String(now.getUTCHours()).padStart(2, "0");
+          const mm = String(now.getUTCMinutes()).padStart(2, "0");
+          rpTimeInput.value = `${hh}:${mm}`;
+        }
+      }
+      initRoutePlannerDateTime();
+
+      function setSidebarMode(mode) {
+        const isRoute = mode === "route";
+        sidebar.classList.toggle("route-mode", isRoute);
+        if (btnModeExplore) btnModeExplore.classList.toggle("active", !isRoute);
+        if (btnModeRoute) btnModeRoute.classList.toggle("active", isRoute);
+        if (!isRoute) {
+          plannerRouteLayer.clearLayers();
+          rpState.pickingField = null;
+          if (btnRpPickOrig) btnRpPickOrig.classList.remove("picking");
+          if (btnRpPickDest) btnRpPickDest.classList.remove("picking");
+        } else {
+          if (window.innerWidth <= 768 && currentSheetState === "peek") {
+            setSheetState("half");
+          }
+          initRoutePlannerDateTime();
+        }
+      }
+
+      if (btnModeExplore) btnModeExplore.addEventListener("click", () => setSidebarMode("explore"));
+      if (btnModeRoute) btnModeRoute.addEventListener("click", () => setSidebarMode("route"));
+
+      window.setRoutePoint = function(which, lat, lon, name) {
+        map.closePopup();
+        setSidebarMode("route");
+        if (which === "orig") {
+          rpState.origin = { name, lat: Number(lat), lon: Number(lon) };
+          if (rpOriginInput) rpOriginInput.value = name;
+        } else {
+          rpState.dest = { name, lat: Number(lat), lon: Number(lon) };
+          if (rpDestInput) rpDestInput.value = name;
+        }
+        if (rpState.origin && rpState.dest) {
+          executeRoutePlan();
+        } else {
+          showToast(which === "orig" ? "Kalkış seçildi, şimdi varış noktasını seçin" : "Varış seçildi, şimdi kalkış noktasını seçin");
+        }
+      };
+
+      function searchPlacesForPlanner(q) {
+        q = (q || "").trim().toLocaleLowerCase("tr-TR");
+        if (q.length < 2) return [];
+        const results = [];
+        const seen = new Set();
+
+        // 1. Ferry Piers
+        if (ferryNetwork && ferryNetwork.piers) {
+          for (const [pid, p] of Object.entries(ferryNetwork.piers)) {
+            const label = p.full || p.name;
+            if (label.toLocaleLowerCase("tr-TR").includes(q) || p.name.toLocaleLowerCase("tr-TR").includes(q)) {
+              const k = `pier:${p.name}`;
+              if (seen.has(k)) continue;
+              seen.add(k);
+              results.push({ badge: "⛴️ İskele", name: `${p.name} İskelesi`, sub: label, lat: p.lat, lon: p.lon });
+            }
+          }
+        }
+
+        // 2. Metro / Marmaray / Tram Stations
+        if (metroNetwork) {
+          for (const [code, stList] of Object.entries(metroNetwork)) {
+            for (const s of (stList || [])) {
+              if ((s.name || "").toLocaleLowerCase("tr-TR").includes(q)) {
+                const k = `rail:${s.name}`;
+                if (seen.has(k)) continue;
+                seen.add(k);
+                results.push({ badge: `🚇 ${code}`, name: `${s.name} İstasyonu`, sub: `${code} Raylı Sistem`, lat: s.lat, lon: s.lon });
+              }
+            }
+          }
+        }
+
+        // 3. Bus & Metrobüs Stops
+        for (const s of (allBusStops || [])) {
+          if (results.length >= 16) break;
+          const nm = (s.n || "").toLocaleLowerCase("tr-TR");
+          const ds = (s.d || "").toLocaleLowerCase("tr-TR");
+          if (nm.includes(q) || String(s.c) === q) {
+            const k = `stop:${s.n}:${s.d || ""}`;
+            if (seen.has(k)) continue;
+            seen.add(k);
+            const isMb = String(s.c).startsWith("900") || s.y === "METROBÜS";
+            results.push({
+              badge: isMb ? "⚡ Metrobüs" : "🚏 Durak",
+              name: s.n,
+              sub: `${s.d || "İstanbul"}${s.y ? ` · ➔ ${s.y}` : ""}`,
+              lat: s.lat,
+              lon: s.lon
+            });
+          } else if (q.length >= 3 && ds === q && !seen.has(`dist:${ds}`)) {
+            seen.add(`dist:${ds}`);
+            results.push({ badge: "📍 İlçe", name: s.d, sub: `${s.n} Merkez`, lat: s.lat, lon: s.lon });
+          }
+        }
+
+        return results.slice(0, 10);
+      }
+
+      function bindPlannerInput(inputEl, suggestEl, fieldKey) {
+        if (!inputEl || !suggestEl) return;
+        inputEl.addEventListener("input", () => {
+          const list = searchPlacesForPlanner(inputEl.value);
+          if (!list.length) {
+            suggestEl.style.display = "none";
+            return;
+          }
+          suggestEl.innerHTML = list.map((item, idx) => `
+            <div class="suggest-item" data-rp-idx="${idx}">
+              <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                <span class="suggest-code">${item.name}</span>
+                <span class="suggest-desc">${item.sub}</span>
+              </div>
+              <span style="font-size:10.5px;font-weight:700;color:#38bdf8;flex-shrink:0;margin-left:6px;">${item.badge}</span>
+            </div>
+          `).join("");
+          suggestEl.style.display = "block";
+          suggestEl.querySelectorAll(".suggest-item").forEach(row => {
+            row.addEventListener("click", () => {
+              const chosen = list[Number(row.getAttribute("data-rp-idx"))];
+              if (!chosen) return;
+              if (fieldKey === "orig") {
+                rpState.origin = { name: chosen.name, lat: chosen.lat, lon: chosen.lon };
+              } else {
+                rpState.dest = { name: chosen.name, lat: chosen.lat, lon: chosen.lon };
+              }
+              inputEl.value = chosen.name;
+              suggestEl.style.display = "none";
+              if (rpState.origin && rpState.dest) executeRoutePlan();
+            });
+          });
+        });
+      }
+
+      bindPlannerInput(rpOriginInput, rpOriginSuggest, "orig");
+      bindPlannerInput(rpDestInput, rpDestSuggest, "dest");
+
+      // Also enhance main #line-input search so users can search Ferry Piers too
+      lineInput.addEventListener("input", () => {
+        const q = (lineInput.value || "").trim().toLocaleLowerCase("tr-TR");
+        if (q.length >= 2 && ferryNetwork && ferryNetwork.piers) {
+          const pierMatches = Object.entries(ferryNetwork.piers)
+            .filter(([, p]) => (p.full || p.name).toLocaleLowerCase("tr-TR").includes(q))
+            .slice(0, 3);
+          if (pierMatches.length > 0 && searchSuggestions) {
+            const extraHtml = pierMatches.map(([pid, p]) => `
+              <div class="suggest-item" onclick="window.openFerryPierById('${pid}')">
+                <span class="suggest-code">⚓ ${p.full || p.name}</span>
+                <span class="suggest-desc">Vapur İskelesi</span>
+              </div>
+            `).join("");
+            searchSuggestions.insertAdjacentHTML("beforeend", extraHtml);
+            searchSuggestions.style.display = "block";
+          }
+        }
+      });
+
+      if (btnRpGps) {
+        btnRpGps.addEventListener("click", () => {
+          if (!navigator.geolocation) {
+            showToast("Tarayıcınız konum özelliğini desteklemiyor");
+            return;
+          }
+          showToast("Konumunuz alınıyor…");
+          navigator.geolocation.getCurrentPosition((pos) => {
+            rpState.origin = { name: "Mevcut Konumum", lat: pos.coords.latitude, lon: pos.coords.longitude };
+            if (rpOriginInput) rpOriginInput.value = "📍 Mevcut Konumum";
+            if (rpState.dest) executeRoutePlan();
+          }, () => {
+            showToast("Konum izni alınamadı");
+          }, { enableHighAccuracy: true, timeout: 8000 });
+        });
+      }
+
+      if (btnRpSwap) {
+        btnRpSwap.addEventListener("click", () => {
+          const tmp = rpState.origin;
+          rpState.origin = rpState.dest;
+          rpState.dest = tmp;
+          if (rpOriginInput) rpOriginInput.value = rpState.origin ? rpState.origin.name : "";
+          if (rpDestInput) rpDestInput.value = rpState.dest ? rpState.dest.name : "";
+          if (rpState.origin && rpState.dest) executeRoutePlan();
+        });
+      }
+
+      if (btnRpPickOrig) {
+        btnRpPickOrig.addEventListener("click", () => {
+          rpState.pickingField = rpState.pickingField === "orig" ? null : "orig";
+          btnRpPickOrig.classList.toggle("picking", rpState.pickingField === "orig");
+          if (btnRpPickDest) btnRpPickDest.classList.remove("picking");
+          if (rpState.pickingField) showToast("Haritada kalkış noktasına dokunun");
+        });
+      }
+
+      if (btnRpPickDest) {
+        btnRpPickDest.addEventListener("click", () => {
+          rpState.pickingField = rpState.pickingField === "dest" ? null : "dest";
+          btnRpPickDest.classList.toggle("picking", rpState.pickingField === "dest");
+          if (btnRpPickOrig) btnRpPickOrig.classList.remove("picking");
+          if (rpState.pickingField) showToast("Haritada varış noktasına dokunun");
+        });
+      }
+
+      map.on("click", (e) => {
+        if (!rpState.pickingField) return;
+        const { lat, lng } = e.latlng;
+        // Find nearest stop/station/pier name for friendly label
+        let bestName = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+        let minD = 450;
+        for (const s of (allBusStops || [])) {
+          const d = geoDistanceMeters(lat, lng, s.lat, s.lon);
+          if (d < minD) { minD = d; bestName = `${s.n} yakını`; }
+        }
+        if (rpState.pickingField === "orig") {
+          rpState.origin = { name: bestName, lat, lon: lng };
+          if (rpOriginInput) rpOriginInput.value = bestName;
+        } else {
+          rpState.dest = { name: bestName, lat, lon: lng };
+          if (rpDestInput) rpDestInput.value = bestName;
+        }
+        rpState.pickingField = null;
+        if (btnRpPickOrig) btnRpPickOrig.classList.remove("picking");
+        if (btnRpPickDest) btnRpPickDest.classList.remove("picking");
+        if (rpState.origin && rpState.dest) executeRoutePlan();
+      });
+
+      // Time & Date mode pills
+      document.querySelectorAll("[data-rp-mode]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          rpState.mode = btn.getAttribute("data-rp-mode") || "now";
+          document.querySelectorAll("[data-rp-mode]").forEach(b => b.classList.toggle("active", b === btn));
+          const showCustom = rpState.mode !== "now";
+          if (rpDatetimeRow) rpDatetimeRow.classList.toggle("show", showCustom);
+          if (rpQuickDayRow) rpQuickDayRow.classList.toggle("show", showCustom);
+          initRoutePlannerDateTime();
+          if (rpState.origin && rpState.dest) executeRoutePlan();
+        });
+      });
+
+      document.querySelectorAll(".rp-day-chip").forEach(chip => {
+        chip.addEventListener("click", () => {
+          initRoutePlannerDateTime();
+          if (chip.hasAttribute("data-day-offset")) {
+            const off = Number(chip.getAttribute("data-day-offset"));
+            const dt = new Date(Date.now() + 10800000 + off * 86400000);
+            if (rpDateInput) rpDateInput.value = dt.toISOString().slice(0, 10);
+          } else if (chip.hasAttribute("data-time-add")) {
+            const addM = Number(chip.getAttribute("data-time-add"));
+            const [hh, mm] = (rpTimeInput.value || "12:00").split(":").map(Number);
+            const tot = ((hh * 60 + mm + addM) % 1440 + 1440) % 1440;
+            rpTimeInput.value = `${String(Math.floor(tot / 60)).padStart(2, "0")}:${String(tot % 60).padStart(2, "0")}`;
+          } else if (chip.hasAttribute("data-time-preset")) {
+            rpTimeInput.value = chip.getAttribute("data-time-preset");
+          }
+          if (rpState.origin && rpState.dest) executeRoutePlan();
+        });
+      });
+
+      if (rpDateInput) rpDateInput.addEventListener("change", () => { if (rpState.origin && rpState.dest) executeRoutePlan(); });
+      if (rpTimeInput) rpTimeInput.addEventListener("change", () => { if (rpState.origin && rpState.dest) executeRoutePlan(); });
+      if (btnRpCalc) btnRpCalc.addEventListener("click", executeRoutePlan);
+
+      function modeIcon(type) {
+        if (type === "walk") return "🚶";
+        if (type === "ferry") return "⛴️";
+        if (type === "marmaray") return "🚆";
+        if (type === "metro") return "🚇";
+        if (type === "tram") return "🚊";
+        if (type === "funicular") return "🚡";
+        if (type === "metrobus") return "⚡";
+        return "🚌";
+      }
+
+      function drawItineraryOnMap(itin) {
+        plannerRouteLayer.clearLayers();
+        if (!itin || !Array.isArray(itin.legs)) return;
+        const allPts = [];
+
+        for (const leg of itin.legs) {
+          const coords = leg.coords || [];
+          if (coords.length < 2) continue;
+          coords.forEach(p => allPts.push(p));
+          const isWalk = leg.type === "walk";
+          const col = isWalk ? "#94a3b8" : (leg.color || "#38bdf8");
+
+          if (!isWalk) {
+            const glow = L.polyline(coords, { color: col, weight: 9, opacity: 0.28, lineJoin: "round", interactive: false });
+            plannerRouteLayer.addLayer(glow);
+          }
+          const poly = L.polyline(coords, {
+            color: col,
+            weight: isWalk ? 3.5 : 5,
+            opacity: 0.95,
+            dashArray: isWalk ? "4, 7" : (leg.type === "ferry" ? "7, 6" : null),
+            lineJoin: "round"
+          });
+          poly.bindTooltip(`<b>${modeIcon(leg.type)} ${leg.line}</b> ${leg.headsign || ""} (${leg.duration_min} dk)`, { sticky: true });
+          plannerRouteLayer.addLayer(poly);
+
+          if (!isWalk && leg.from && leg.to) {
+            for (const [pt, isBoard] of [[leg.from, true], [leg.to, false]]) {
+              const dot = L.circleMarker([pt.lat, pt.lon], {
+                radius: 6,
+                weight: 2.5,
+                color: "#ffffff",
+                fillColor: col,
+                fillOpacity: 1
+              });
+              dot.bindTooltip(`<b>${isBoard ? "🟢 Biniş" : "🔴 İniş"}: ${pt.name}</b><br>${modeIcon(leg.type)} ${leg.line} · ${isBoard ? leg.dep_time : leg.arr_time}`, {
+                direction: "top",
+                offset: [0, -5]
+              });
+              plannerRouteLayer.addLayer(dot);
+            }
+          }
+        }
+
+        if (allPts.length >= 2) {
+          map.fitBounds(allPts, { padding: [55, 55], maxZoom: 15 });
+        }
+      }
+
+      async function executeRoutePlan() {
+        // Resolve text inputs if user typed without clicking suggestion
+        if (!rpState.origin && rpOriginInput && rpOriginInput.value.trim().length >= 2) {
+          const m = searchPlacesForPlanner(rpOriginInput.value)[0];
+          if (m) rpState.origin = { name: m.name, lat: m.lat, lon: m.lon };
+        }
+        if (!rpState.dest && rpDestInput && rpDestInput.value.trim().length >= 2) {
+          const m = searchPlacesForPlanner(rpDestInput.value)[0];
+          if (m) rpState.dest = { name: m.name, lat: m.lat, lon: m.lon };
+        }
+        if (!rpState.origin || !rpState.dest) {
+          showToast("Lütfen kalkış ve varış noktalarını seçin");
+          return;
+        }
+
+        rpResultsList.innerHTML = `<div class="tt-loading" style="padding:18px;text-align:center;">🧭 Otobüs, Metro, Marmaray ve Vapur tarifeleri taranıyor…</div>`;
+
+        try {
+          const qs = new URLSearchParams({
+            fromLat: String(rpState.origin.lat),
+            fromLon: String(rpState.origin.lon),
+            fromName: rpState.origin.name,
+            toLat: String(rpState.dest.lat),
+            toLon: String(rpState.dest.lon),
+            toName: rpState.dest.name,
+            mode: rpState.mode,
+            date: (rpDateInput && rpDateInput.value) || "",
+            time: (rpTimeInput && rpTimeInput.value) || ""
+          });
+          const res = await fetch(`/route/plan?${qs.toString()}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          const itins = data.itineraries || [];
+          rpState.itineraries = itins;
+          rpState.activeIdx = 0;
+
+          if (!itins.length) {
+            rpResultsList.innerHTML = `<div class="tt-loading" style="padding:16px;text-align:center;">Seçilen saat ve noktalar arasında uygun toplu taşıma bağlantısı bulunamadı.</div>`;
+            return;
+          }
+
+          const sum = data.summary || {};
+          const headerNote = `<div style="font-size:11px;color:#94a3b8;padding:2px 4px;display:flex;justify-content:space-between;align-items:center;">
+            <span>📅 ${sum.date || ""} · <b>${sum.day_label || ""}</b></span>
+            <span>${sum.mode === "arr" ? `🏁 ${sum.time} varış` : `🛫 ${sum.time} kalkış`}</span>
+          </div>`;
+
+          const cardsHtml = itins.map((it, idx) => {
+            const chainHtml = it.legs.map(l => {
+              if (l.type === "walk") {
+                return `<span class="rp-chain-pill" style="background:rgba(255,255,255,0.07);color:#cbd5e1;">🚶 ${l.duration_min} dk</span>`;
+              }
+              return `<span class="rp-chain-pill" style="background:${l.color || '#0284c7'}">${modeIcon(l.type)} ${l.line}</span>`;
+            }).join(`<span class="rp-chain-sep">›</span>`);
+
+            const stepsHtml = it.legs.map(l => {
+              if (l.type === "walk") {
+                return `
+                  <div class="rp-step">
+                    <div class="rp-step-time">${l.dep_time}</div>
+                    <div class="rp-step-line" style="background:#52525b"></div>
+                    <div class="rp-step-body">
+                      <div class="rp-step-detail">🚶 ${l.instruction || `${l.to.name} yönüne ${l.duration_min} dk yürü`}</div>
+                    </div>
+                  </div>
+                `;
+              }
+              const liveBadge = l.live_bus
+                ? `<span style="margin-left:6px;padding:1px 6px;border-radius:5px;background:rgba(16,185,129,0.2);border:1px solid #10b981;color:#34d399;font-size:10px;font-weight:800;">Canlı: ${l.live_bus.id} (${l.live_bus.eta_min} dk)</span>`
+                : "";
+              return `
+                <div class="rp-step">
+                  <div class="rp-step-time">${l.dep_time}</div>
+                  <div class="rp-step-line" style="background:${l.color || '#38bdf8'}"></div>
+                  <div class="rp-step-body">
+                    <div class="rp-step-title">🟢 ${l.from.name}</div>
+                    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin:2px 0;">
+                      <span class="rp-step-badge" style="background:${l.color || '#0284c7'}">${modeIcon(l.type)} ${l.line} ${l.headsign || ""}</span>
+                      ${liveBadge}
+                    </div>
+                    <div class="rp-step-detail">${l.stops_count} durak · ${l.duration_min} dk sürüş ${l.schedule_note ? `· ${l.schedule_note}` : ""}</div>
+                    <div class="rp-step-title" style="margin-top:3px;">🔴 ${l.to.name} <span style="font-weight:600;color:#94a3b8;font-size:11px;">(${l.arr_time})</span></div>
+                  </div>
+                </div>
+              `;
+            }).join("");
+
+            const xferText = it.transfers === 0 ? "Aktarmasız" : `${it.transfers} Aktarma`;
+            return `
+              <div class="rp-itin-card ${idx === 0 ? "active" : ""}" data-itin-idx="${idx}">
+                <div class="rp-itin-top">
+                  <div class="rp-itin-times">
+                    <span>${it.dep_time} ➔ ${it.arr_time}</span>
+                    <span class="rp-itin-tag">${it.tag}</span>
+                  </div>
+                  <div class="rp-itin-dur">${it.duration_min} dk</div>
+                </div>
+                <div class="rp-chain">${chainHtml}</div>
+                <div class="rp-itin-sub">
+                  <span>${xferText} · 🚶 Toplam ${it.walk_min} dk yürüyüş</span>
+                  <span style="color:#38bdf8;font-weight:700;">Detay & Harita ▾</span>
+                </div>
+                <div class="rp-timeline">${stepsHtml}</div>
+              </div>
+            `;
+          }).join("");
+
+          rpResultsList.innerHTML = headerNote + cardsHtml;
+          drawItineraryOnMap(itins[0]);
+
+          rpResultsList.querySelectorAll(".rp-itin-card").forEach(card => {
+            card.addEventListener("click", () => {
+              const idx = Number(card.getAttribute("data-itin-idx"));
+              rpState.activeIdx = idx;
+              rpResultsList.querySelectorAll(".rp-itin-card").forEach(c => c.classList.toggle("active", c === card));
+              if (itins[idx]) drawItineraryOnMap(itins[idx]);
+            });
+          });
+        } catch (err) {
+          console.error("Route plan error:", err);
+          rpResultsList.innerHTML = `<div class="tt-loading" style="padding:16px;text-align:center;">Rota hesaplanırken bir hata oluştu. Lütfen tekrar deneyin.</div>`;
+        }
+      }
 
       // ─── INITIALIZATION ───
       async function init() {
@@ -6567,9 +8094,9 @@
           setSheetState("peek");
         }
 
-        // Fetch initial fleet and metro data
-        await fetchFleet();
-        await loadMetroData();
+        // Fetch initial fleet, metro and ferries data
+        await Promise.all([fetchFleet(), loadMetroData(), loadFerriesData()]);
+        setInterval(loadFerriesData, 120000);
 
         // Background Route Pre-caching for Popular Bus & Metrobüs Lines
         precachePopularRoutes();
@@ -6577,13 +8104,14 @@
         // 2.5-Second Fast Edge Polling with ETag / 304 Not Modified
         setInterval(fetchFleet, POLL_INTERVAL_MS);
 
-        // 1-Second Smooth UI, Live Bus Ages & Train Tick
+        // 1-Second Smooth UI, Live Bus Ages, Train & Ferry Tick
         LiveEta.loadTraffic();
         setInterval(LiveEta.loadTraffic, 20000);
         setInterval(() => {
           updateFleetAgeDisplay();
           updateLiveAges();
           tickTrains();
+          tickFerryVessels();
           tickEtaChips();
         }, 1000);
       }

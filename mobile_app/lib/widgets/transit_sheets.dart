@@ -137,7 +137,15 @@ Widget _bigStat(String value, String label) => Column(crossAxisAlignment: CrossA
 class PierSheet extends StatefulWidget {
   final TransitProvider provider;
   final VoidCallback onClose;
-  const PierSheet({super.key, required this.provider, required this.onClose});
+  final VoidCallback? onPlanFromHere;
+  final VoidCallback? onPlanToHere;
+  const PierSheet({
+    super.key,
+    required this.provider,
+    required this.onClose,
+    this.onPlanFromHere,
+    this.onPlanToHere,
+  });
 
   @override
   State<PierSheet> createState() => _PierSheetState();
@@ -173,6 +181,39 @@ class _PierSheetState extends State<PierSheet> {
         trailing: running.isEmpty ? null : _nextStat(running.first.at.difference(now), running.first.at),
         onClose: widget.onClose,
       ),
+      if (widget.onPlanFromHere != null || widget.onPlanToHere != null) ...[
+        const SizedBox(height: 10),
+        Row(children: [
+          if (widget.onPlanToHere != null)
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: widget.onPlanToHere,
+                icon: const Icon(Icons.flag_rounded, size: 15, color: Colors.white),
+                label: const Text('Buraya Rota Çiz', style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w800)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0EA5E9),
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+          if (widget.onPlanToHere != null && widget.onPlanFromHere != null) const SizedBox(width: 8),
+          if (widget.onPlanFromHere != null)
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: widget.onPlanFromHere,
+                icon: const Icon(Icons.trip_origin_rounded, size: 14, color: Color(0xFF34D399)),
+                label: const Text('Buradan Rota Çiz', style: TextStyle(color: Color(0xFF34D399), fontSize: 12.5, fontWeight: FontWeight.w800)),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: const Color(0xFF34D399).withValues(alpha: 0.4)),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+        ]),
+      ],
       const SizedBox(height: 10),
       if (showNotice) ...[
         _serviceNotice(status, cancelledHere, specialHere),
