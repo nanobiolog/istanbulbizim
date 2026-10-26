@@ -2403,7 +2403,7 @@
       <label class="toggle-row">
         <span>🚌 Yakın İETT Otobüsleri</span>
         <div class="switch">
-          <input type="checkbox" id="chk-buses">
+          <input type="checkbox" id="chk-buses" checked>
           <span class="slider"></span>
         </div>
       </label>
@@ -2424,7 +2424,7 @@
       <label class="toggle-row">
         <span>🚏 Otobüs Durakları</span>
         <div class="switch">
-          <input type="checkbox" id="chk-stops">
+          <input type="checkbox" id="chk-stops" checked>
           <span class="slider"></span>
         </div>
       </label>
@@ -2506,7 +2506,7 @@
         <label class="toggle-row">
           <span>🚌 Yakın İETT Otobüsleri</span>
           <div class="switch">
-            <input type="checkbox" id="chk-buses-modal">
+            <input type="checkbox" id="chk-buses-modal" checked>
             <span class="slider"></span>
           </div>
         </label>
@@ -2527,7 +2527,7 @@
         <label class="toggle-row">
           <span>🚏 Otobüs Durakları</span>
           <div class="switch">
-            <input type="checkbox" id="chk-stops-modal">
+            <input type="checkbox" id="chk-stops-modal" checked>
             <span class="slider"></span>
           </div>
         </label>
@@ -4009,7 +4009,7 @@
         if (!allBusStops || allBusStops.length === 0) return;
 
         const zoom = map.getZoom();
-        if (zoom < 13.5) return; // Keep map clean when zoomed out
+        if (zoom < 12.8) return; // Keep map clean when zoomed out
 
         if (!stopsCanvasRenderer) {
           stopsCanvasRenderer = L.canvas({ padding: 0.25 });
@@ -4214,14 +4214,8 @@
           const age = getBusAgeSec(b.t, b.a);
           if (!showStale && age > 600) continue;
 
-          // If zoomed in (zoom >= 11.5), only consider buses inside map viewport
-          if (zoom >= 11.5) {
-            if (!bounds.contains([b.lat, b.lon])) continue;
-          } else {
-            // If zoomed out, only show key rapid transit buses (e.g. 34 Metrobüs corridor, 500T, E-10)
-            const line = b.line || doorLineMap[b.id] || "";
-            if (!line.startsWith("34") && line !== "500T" && line !== "E-10") continue;
-          }
+          // Viewport culling: only consider buses inside map viewport
+          if (!bounds.contains([b.lat, b.lon])) continue;
 
           const dist = geoDistanceMeters(center.lat, center.lng, b.lat, b.lon);
           candidates.push({ bus: b, dist });
@@ -4968,6 +4962,12 @@
             fleetBuses = data.buses;
             lastFleetTime = data.updated_at || now;
             txtStatusPill.innerHTML = '<span class="pulse-dot"></span><span>CANLI</span>';
+
+            if (!selectedLineCode && statBuses) {
+              statBuses.innerHTML = `${fleetBuses.length.toLocaleString("tr-TR")} <small>araç</small>`;
+              if (modalStatBuses) modalStatBuses.textContent = fleetBuses.length.toLocaleString("tr-TR");
+              if (mobileFleetText) mobileFleetText.textContent = `${fleetBuses.length.toLocaleString("tr-TR")} İETT • ${(typeof activeTrains !== "undefined" && activeTrains) ? activeTrains.length : 0} Tren Canlı`;
+            }
 
             if (selectedLineCode) {
               if (isFreshBatch) {
@@ -5796,6 +5796,10 @@
           const line = chip.getAttribute("data-line");
           const filter = chip.getAttribute("data-filter");
           if (filter === "all") {
+            if (chkBuses && !chkBuses.checked) {
+              chkBuses.checked = true;
+              if (chkBusesModal) chkBusesModal.checked = true;
+            }
             clearSelectedLine();
           } else if (line) {
             searchLine(line);
@@ -5881,6 +5885,9 @@
       map.on("zoomend", () => {
         if (!selectedLineCode && chkBuses && chkBuses.checked) {
           renderBuses();
+        }
+        if (!selectedLineCode && chkStops && chkStops.checked) {
+          renderAllBusStops();
         }
       });
 
