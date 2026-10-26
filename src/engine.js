@@ -504,6 +504,20 @@ async function handleStopArrivals(env, url) {
     }
   }
 
+  // Also include lines known to pass through this stop from STOP_LINES_MAP
+  const knownLines = (typeof STOP_LINES_MAP !== "undefined" && STOP_LINES_MAP[code]) || [];
+  for (const kln of knownLines) {
+    if (!byLine.has(kln)) {
+      const matchBuses = fleet.list.filter(b => {
+        if (Math.abs(b.lat - stop.lat) > 0.08 || Math.abs(b.lon - stop.lon) > 0.10) return false;
+        return (DOOR_LINES_MAP[b.id] || []).includes(kln);
+      });
+      if (matchBuses.length > 0) {
+        byLine.set(kln, { line: kln, minD: 0, buses: matchBuses });
+      }
+    }
+  }
+
   const candidates = Array.from(byLine.values()).sort((a, b) => a.minD - b.minD).slice(0, 28);
 
   // 2. route per line (cached) + along-route ETA
@@ -512,7 +526,30 @@ async function handleStopArrivals(env, url) {
   await Promise.all(candidates.map(async (c) => {
     let route;
     try { route = await getRouteForEta(c.line, env); } catch (e) { route = null; }
-    if (!route || !route.directions || !Object.keys(route.directions).length) { skipped++; return; }
+    if (!route || !route.directions || !Object.keys(route.directions).length) {
+      // Fallback straight-line & traffic calculation when SOAP/OSRM route is unavailable
+      for (const b of c.buses) {
+        const d = haversineMeters(b.lat, b.lon, stop.lat, stop.lon);
+        if (d > 8500) continue;
+        const speedMs = Math.max(3.5, (b.s || 20) / 3.6);
+        const etaSec = Math.max(20, Math.round(d / speedMs));
+        const headsign = (typeof LINE_DESTINATIONS !== "undefined" && LINE_DESTINATIONS[c.line]) || (c.line + " Hattı");
+        arrivals.push({
+          line: c.line,
+          bus_id: b.id,
+          plate: b.p || "",
+          dir: "D",
+          headsign: headsign,
+          speed: b.s || 0,
+          dist_m: Math.round(d),
+          stops_away: Math.max(1, Math.round(d / 450)),
+          eta_sec: etaSec,
+          age_s: b.a || 0,
+          conf: "med"
+        });
+      }
+      return;
+    }
     const indexes = getRouteIndexes(route);
     // which direction(s) serve this stop?
     const serving = {};

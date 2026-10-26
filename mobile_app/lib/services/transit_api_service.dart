@@ -163,6 +163,8 @@ class TransitApiService {
   List<BusStop> _busStops = [];
   Map<int, List<BusStop>> _busStopsGrid = {}; // Spatial grid cache for fast O(1) stop lookups
   List<LineInfo> _allLines = [];
+  Map<String, List<String>> _stopLinesMap = {};
+  Map<String, String> _lineDestinations = {};
   bool _assetsLoaded = false;
 
   Future<void> loadLocalAssets() async {
@@ -176,6 +178,8 @@ class TransitApiService {
         rootBundle.loadString('assets/data/bus_lines.json'),
         rootBundle.loadString('assets/data/bus_stops.json'),
         rootBundle.loadString('assets/data/metrobus_corridor.json'),
+        rootBundle.loadString('assets/data/stop_lines_map.json'),
+        rootBundle.loadString('assets/data/line_destinations.json'),
       ]);
 
       // Parse massive JSON files in background isolates using compute() to prevent main thread freezing
@@ -186,6 +190,8 @@ class TransitApiService {
         results[3],
         results[4],
         results[5],
+        results[6],
+        results[7],
       ]);
 
       _busLinesDoors = parsedData.busLinesDoors;
@@ -196,6 +202,8 @@ class TransitApiService {
       _busStops = parsedData.busStops;
       _busStopsGrid = parsedData.busStopsGrid;
       _metrobusCorridor = parsedData.metrobusCorridor;
+      _stopLinesMap = parsedData.stopLinesMap;
+      _lineDestinations = parsedData.lineDestinations;
 
       _assetsLoaded = true;
     } catch (_) {}
@@ -286,6 +294,32 @@ class TransitApiService {
       }
     } catch (_) {}
 
+    // 7. Stop to Passing Lines Map
+    final Map<String, List<String>> stopLinesMap = {};
+    try {
+      if (rawStrings.length > 6) {
+        final dynamic parsed = jsonDecode(rawStrings[6]);
+        if (parsed is Map) {
+          parsed.forEach((k, v) {
+            if (v is List) {
+              stopLinesMap[k.toString()] = v.map((e) => e.toString()).toList();
+            }
+          });
+        }
+      }
+    } catch (_) {}
+
+    // 8. Line Destinations Map
+    final Map<String, String> lineDestinations = {};
+    try {
+      if (rawStrings.length > 7) {
+        final dynamic parsed = jsonDecode(rawStrings[7]);
+        if (parsed is Map) {
+          parsed.forEach((k, v) => lineDestinations[k.toString()] = v.toString());
+        }
+      }
+    } catch (_) {}
+
     return _ParsedAssets(
       busLinesDoors: linesDoors,
       doorToLine: doorToLine,
@@ -295,16 +329,24 @@ class TransitApiService {
       busStops: busStops,
       busStopsGrid: grid,
       metrobusCorridor: corridor,
+      stopLinesMap: stopLinesMap,
+      lineDestinations: lineDestinations,
     );
   }
 
   Map<String, List<String>> get busLinesDoors => _busLinesDoors;
+  Map<String, String> get doorToLine => _doorToLine;
   Map<String, List<MetroStation>> get metroStations => _metroStations;
   Map<String, String> get metroColors => _metroColors;
   Map<String, List<List<double>>> get metrobusCorridor => _metrobusCorridor;
   List<BusStop> get busStops => _busStops;
   Map<int, List<BusStop>> get busStopsGrid => _busStopsGrid;
   List<LineInfo> get allLines => _allLines;
+  Map<String, List<String>> get stopLinesMap => _stopLinesMap;
+  Map<String, String> get lineDestinations => _lineDestinations;
+
+  List<String> getLinesForStop(String stopCode) => _stopLinesMap[stopCode] ?? const [];
+  String getDestinationForLine(String lineCode) => _lineDestinations[lineCode] ?? '';
 
   @visibleForTesting
   void setMetrobusCorridor(Map<String, List<List<double>>> corridor) {
@@ -958,6 +1000,8 @@ class _ParsedAssets {
   final List<BusStop> busStops;
   final Map<int, List<BusStop>> busStopsGrid;
   final Map<String, List<List<double>>> metrobusCorridor;
+  final Map<String, List<String>> stopLinesMap;
+  final Map<String, String> lineDestinations;
 
   _ParsedAssets({
     required this.busLinesDoors,
@@ -968,6 +1012,8 @@ class _ParsedAssets {
     required this.busStops,
     required this.busStopsGrid,
     required this.metrobusCorridor,
+    required this.stopLinesMap,
+    required this.lineDestinations,
   });
 }
 

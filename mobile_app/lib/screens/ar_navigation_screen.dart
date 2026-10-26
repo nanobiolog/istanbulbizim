@@ -191,7 +191,7 @@ class _ArNavigationScreenState extends State<ArNavigationScreen> with WidgetsBin
     final stop = widget.targetStop;
     if (stop == null) return;
     final res = await _p.loadStopArrivals(stop);
-    if (mounted && res != null) setState(() => _busArrivals = res);
+    if (mounted) setState(() => _busArrivals = res);
   }
 
   List<RailDeparture> _railDepartures() {

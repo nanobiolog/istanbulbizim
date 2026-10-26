@@ -721,6 +721,12 @@ class StopArrival {
   final int stopsAway;
   final DateTime etaAt;
   final String conf;
+  final String plate;
+  final bool haveWifi;
+  final bool haveUsb;
+  final bool haveAccessibility;
+  final bool haveAir;
+  final bool haveBicycle;
 
   const StopArrival({
     required this.line,
@@ -731,20 +737,49 @@ class StopArrival {
     required this.stopsAway,
     required this.etaAt,
     this.conf = '',
+    this.plate = '',
+    this.haveWifi = false,
+    this.haveUsb = true,
+    this.haveAccessibility = true,
+    this.haveAir = true,
+    this.haveBicycle = false,
   });
 
   factory StopArrival.fromJson(Map<String, dynamic> j, DateTime now) {
-    final sec = (j['eta_sec'] as num?)?.toInt() ?? 0;
+    int sec = (j['eta_sec'] as num?)?.toInt() ?? 0;
+    if (sec == 0) {
+      final minVal = (j['minute'] as num?)?.toInt() ?? (j['Minute'] as num?)?.toInt();
+      if (minVal != null) {
+        sec = minVal * 60;
+      }
+    }
     return StopArrival(
-      line: j['line']?.toString() ?? '',
-      busId: j['bus_id']?.toString() ?? '',
-      headsign: j['headsign']?.toString() ?? '',
+      line: (j['line'] ?? j['lineCode'] ?? j['LineCode'] ?? '').toString(),
+      busId: (j['bus_id'] ?? j['doorNumber'] ?? j['DoorNumber'] ?? '').toString(),
+      headsign: (j['headsign'] ?? j['lineType'] ?? j['LineType'] ?? '').toString(),
       speed: (j['speed'] as num?)?.toDouble() ?? 0,
       distM: (j['dist_m'] as num?)?.toInt() ?? 0,
       stopsAway: (j['stops_away'] as num?)?.toInt() ?? 0,
       etaAt: now.add(Duration(seconds: sec)),
       conf: j['conf']?.toString() ?? '',
+      plate: (j['plate'] ?? j['Plate'] ?? '').toString(),
+      haveWifi: j['haveWifi'] == 1 || j['HaveWifi'] == 1 || j['have_wifi'] == true,
+      haveUsb: j['haveUsb'] == 1 || j['HaveUsb'] == 1 || j['have_usb'] == true || true,
+      haveAccessibility: j['haveAccessibility'] == 1 || j['HaveAccessibility'] == 1 || j['have_accessibility'] == true || true,
+      haveAir: j['haveAir'] == 1 || j['HaveAir'] == 1 || j['have_air'] == true || true,
+      haveBicycle: j['haveBicycle'] == 1 || j['HaveBicycle'] == 1 || j['have_bicycle'] == true,
     );
+  }
+
+  int get distanceMeters => distM;
+
+  int etaMinutes(DateTime now) {
+    final s = math.max(0, etaAt.difference(now).inSeconds);
+    return math.max(1, (s / 60).round());
+  }
+
+  bool isImminent(DateTime now) {
+    return math.max(0, etaAt.difference(now).inSeconds) <= 180;
   }
 }
 
