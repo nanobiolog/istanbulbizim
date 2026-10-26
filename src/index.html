@@ -3922,7 +3922,19 @@
               </div>`;
           }
 
-          const buildContent = (arrivals, pending, sourceNote) => `
+          const buildContent = (arrivals, pending, sourceNote, passingLines) => {
+            const pLines = (passingLines && passingLines.length) ? passingLines : ((activeStopPopupData && activeStopPopupData.passingLines) || []);
+            const linesHtml = pLines.length > 0 ? `
+              <div style="margin-bottom:10px;">
+                <div class="stop-section-title">
+                  <span>Geçen Hatlar (${pLines.length})</span>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:4px;max-height:64px;overflow-y:auto;padding-bottom:4px;">
+                  ${pLines.map(ln => `<span class="stop-line-chip" onclick="window.filterLine('${ln}')" style="display:inline-flex;align-items:center;padding:2px 7px;font-size:11px;font-weight:700;font-family:monospace;border-radius:6px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#fff;cursor:pointer;" title="${ln} hattını göster">${ln}</span>`).join("")}
+                </div>
+              </div>` : "";
+
+            return `
             <div class="stop-popup-card">
               <div class="stop-popup-header">
                 <div class="stop-popup-title"><span>🚏</span><span>${stopName}</span></div>
@@ -3934,14 +3946,16 @@
                 ${oppositeHtml}
               </div>
               <div class="stop-popup-body">
+                ${linesHtml}
                 <div class="stop-section-title">
-                  <span>Bu Duraktan Geçen Yaklaşan Otobüsler</span>
+                  <span>Yaklaşan Canlı Otobüsler</span>
                   <span style="font-size:10px;font-weight:600;color:#0284c7">${sourceNote}</span>
                 </div>
                 <div class="stop-arrivals-list">${stopArrivalsHtml(arrivals, pending)}</div>
                 ${disruptionsHtml}
               </div>
             </div>`;
+          };
 
           if (activeStopCountdownTimer) { clearInterval(activeStopCountdownTimer); activeStopCountdownTimer = null; }
           if (window._stopRefreshTimer) { clearInterval(window._stopRefreshTimer); window._stopRefreshTimer = null; }
@@ -3968,8 +3982,9 @@
               if (activeStopPopup !== popup) return;
               const now = Date.now();
               const arr = (d.arrivals || []).map(x => Object.assign({}, x, { est_sec: x.eta_sec, target_time: now + x.eta_sec * 1000 }));
-              activeStopPopupData = { stop, arrivals: arr };
-              popup.setContent(buildContent(arr, false, "Canlı · güzergah ve trafik"));
+              const passingLines = d.passing_lines || [];
+              activeStopPopupData = { stop, arrivals: arr, passingLines: passingLines };
+              popup.setContent(buildContent(arr, false, "Canlı · güzergah ve trafik", passingLines));
               if (!activeStopCountdownTimer && arr.length > 0) {
                 activeStopCountdownTimer = setInterval(updateActiveStopPopupCountdowns, 1000);
               }

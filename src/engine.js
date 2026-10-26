@@ -607,6 +607,7 @@ async function handleStopArrivals(env, url) {
     traffic: field.city ? { level: field.city.level, median_moving_kmh: field.city.median_moving_kmh } : null,
     candidate_lines: candidates.length,
     skipped_lines: skipped,
+    passing_lines: (typeof STOP_LINES_MAP !== "undefined" && STOP_LINES_MAP[code]) || [],
     arrivals: arrivals.slice(0, 16)
   };
   arrivalsCache.set(code, { at: Date.now(), snapshot: inMemoryMeta ? inMemoryMeta.t : 0, body });
