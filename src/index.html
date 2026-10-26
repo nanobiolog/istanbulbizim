@@ -2747,17 +2747,25 @@
       const busAnimMap = new Map();
       const lineRouteCache = new Map();
       const lineSpatialIndices = new Map();
-      const ROUTE_CACHE_PREFIX = "ib_route_v4_";
+      const ROUTE_CACHE_PREFIX = "ib_route_v5_";
       const ROUTE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
       function getStoredRoute(code) {
         if (!code) return null;
-        if (lineRouteCache.has(code)) return lineRouteCache.get(code);
+        if (lineRouteCache.has(code)) {
+          const hit = lineRouteCache.get(code);
+          if (hit && hit.directions && Object.keys(hit.directions).length > 0) return hit;
+        }
         try {
           const raw = localStorage.getItem(ROUTE_CACHE_PREFIX + code);
           if (!raw) return null;
           const item = JSON.parse(raw);
-          if (Date.now() - item.savedAt < ROUTE_CACHE_MAX_AGE_MS && item.data && item.data.directions) {
+          if (
+            Date.now() - item.savedAt < ROUTE_CACHE_MAX_AGE_MS &&
+            item.data &&
+            item.data.directions &&
+            Object.keys(item.data.directions).length > 0
+          ) {
             lineRouteCache.set(code, item.data);
             return item.data;
           }
@@ -2766,7 +2774,7 @@
       }
 
       function setStoredRoute(code, data) {
-        if (!code || !data || !data.directions) return;
+        if (!code || !data || !data.directions || Object.keys(data.directions).length === 0) return;
         lineRouteCache.set(code, data);
         try {
           localStorage.setItem(ROUTE_CACHE_PREFIX + code, JSON.stringify({
@@ -2947,6 +2955,7 @@
               if (selectedLineData && selectedLineData.directions && selectedLineData.directions[k]) {
                 selectedLineData.directions[k].coordinates = allRoadPts;
                 selectedLineData.directions[k].has_road_geometry = true;
+                currentlyDrawnRouteCode = null;
                 drawRoute(selectedLineData.directions);
               }
             }
@@ -4727,8 +4736,9 @@
           c.classList.toggle("active", c.getAttribute("data-line") === code);
         });
 
-        // Ensure background fleet layer is cleared
+        // Ensure background fleet and citywide stop layers are cleared
         busesLayer.clearLayers();
+        allStopsLayer.clearLayers();
 
         // 1. INSTANT LOCAL RENDERING (0ms):
         // If route is stored or if we have mapped buses in fleet, show them IMMEDIATELY!
@@ -4761,12 +4771,9 @@
               if (reqId !== currentSearchRequestId || selectedLineCode !== code) return;
               if (routeData && routeData.directions && Object.keys(routeData.directions).length > 0) {
                 setStoredRoute(code, routeData);
-                if (selectedLineData) {
-                  selectedLineData.directions = routeData.directions;
-                  selectedLineData.name = routeData.name;
-                  selectedLineData = matchBusesForLine(code, routeData);
-                  renderSelectedLine(true);
-                }
+                currentlyDrawnRouteCode = null;
+                selectedLineData = matchBusesForLine(code, routeData);
+                renderSelectedLine(isSilent);
                 enrichDirectionsWithRoads(routeData.directions);
               }
             })
@@ -4782,7 +4789,10 @@
             if (reqId !== currentSearchRequestId || selectedLineCode !== code) return;
 
             if (data.directions || data.buses) {
-              setStoredRoute(code, data);
+              if (data.directions && Object.keys(data.directions).length > 0) {
+                setStoredRoute(code, data);
+                currentlyDrawnRouteCode = null;
+              }
               LiveEta.adoptServer(data);
               selectedLineData = data;
               renderSelectedLine(isSilent);
@@ -4848,6 +4858,7 @@
         });
 
         renderBuses();
+        renderAllBusStops();
         txtStatusMsg.textContent = "Tüm filo gösteriliyor";
       }
 

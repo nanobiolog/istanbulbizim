@@ -398,59 +398,62 @@ async function fetchRoadGeometry(stops) {
     i += CHUNK_SIZE - 1; // 1 waypoint overlap between adjacent chunks
   }
 
-  const allRoadCoords = [];
-  for (let idx = 0; idx < chunks.length; idx++) {
-    const chunk = chunks[idx];
-    const coordsStr = chunk.map(s => `${s.lon.toFixed(5)},${s.lat.toFixed(5)}`).join(";");
-    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`;
-
-    try {
+  try {
+    const chunkResults = await Promise.all(chunks.map(async (chunk) => {
+      const coordsStr = chunk.map(s => `${s.lon.toFixed(5)},${s.lat.toFixed(5)}`).join(";");
+      const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`;
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2500);
-      const res = await fetch(osrmUrl, {
-        headers: { "User-Agent": "IstanbulBizim/1.0 (CF-Worker)" },
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
+      const timeoutId = setTimeout(() => controller.abort(), 1800);
+      try {
+        const res = await fetch(osrmUrl, {
+          headers: { "User-Agent": "IstanbulBizim/1.0 (CF-Worker)" },
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (!data.routes || !data.routes[0] || !data.routes[0].geometry) return null;
 
-      if (!res.ok) return null;
-      const data = await res.json();
-      if (!data.routes || !data.routes[0] || !data.routes[0].geometry) return null;
-
-      // Detour sanity check: verify OSRM did not create absurd loops for this chunk
-      let chunkDirectDist = 0;
-      for (let j = 0; j < chunk.length - 1; j++) {
-        chunkDirectDist += haversineMeters(chunk[j].lat, chunk[j].lon, chunk[j + 1].lat, chunk[j + 1].lon);
-      }
-      const routeDist = data.routes[0].distance || 0;
-      if (chunkDirectDist > 0 && routeDist > chunkDirectDist * 2.5) {
-        // Discard crazy detour, fall back to direct stop points for this chunk
-        const fallback = chunk.map(p => [p.lat, p.lon]);
-        if (idx > 0 && fallback.length > 0) {
-          allRoadCoords.push(...fallback.slice(1));
-        } else {
-          allRoadCoords.push(...fallback);
+        let chunkDirectDist = 0;
+        for (let j = 0; j < chunk.length - 1; j++) {
+          chunkDirectDist += haversineMeters(chunk[j].lat, chunk[j].lon, chunk[j + 1].lat, chunk[j + 1].lon);
         }
-        continue;
+        const routeDist = data.routes[0].distance || 0;
+        if (chunkDirectDist > 0 && routeDist > chunkDirectDist * 2.5) {
+          return chunk.map(p => [p.lat, p.lon]);
+        }
+        return data.routes[0].geometry.coordinates.map(p => [p[1], p[0]]);
+      } catch (e) {
+        clearTimeout(timeoutId);
+        return null;
       }
+    }));
 
-      // Convert OSRM GeoJSON [lon, lat] coordinates to Leaflet [lat, lon]
-      const pts = data.routes[0].geometry.coordinates.map(p => [p[1], p[0]]);
-      if (idx > 0 && pts.length > 0) {
-        allRoadCoords.push(...pts.slice(1)); // avoid duplicate junction vertex
+    const allRoadCoords = [];
+    for (let idx = 0; idx < chunkResults.length; idx++) {
+      const pts = chunkResults[idx];
+      if (!pts || pts.length === 0) return null;
+      if (idx > 0) {
+        allRoadCoords.push(...pts.slice(1));
       } else {
         allRoadCoords.push(...pts);
       }
-    } catch (e) {
-      // In case of network timeout or OSRM unavailability, gracefully return null
-      return null;
     }
+    return allRoadCoords.length >= 2 ? allRoadCoords : null;
+  } catch (e) {
+    return null;
   }
-
-  return allRoadCoords.length >= 2 ? allRoadCoords : null;
 }
 
-// Fetch line route, stops, and directions from IETT ibb.asmx (cached for 24h)
+let _stopLookupMap = null;
+function getStopByCodeMap() {
+  if (!_stopLookupMap && typeof BUS_STOPS !== "undefined") {
+    _stopLookupMap = new Map(BUS_STOPS.map(s => [String(s.c), s]));
+  }
+  return _stopLookupMap;
+}
+
+// Fetch line route, stops, and directions from static GTFS map or IETT ibb.asmx (cached for 24h)
 async function fetchLineRoute(code, env, opts = {}) {
   const normCode = String(code || "").toUpperCase().trim();
   const railCode = normCode === "MARMARAY" ? "B1" : normCode;
@@ -498,60 +501,90 @@ async function fetchLineRoute(code, env, opts = {}) {
     return { code: normCode, name: lineName, directions };
   }
 
-  const key = (opts.fast ? "route_fast_v1:" : "route_v4:") + code;
-  let cached = await edgeGetJson(key);
-  if (cached && cached.directions) return cached;
-
-  const url = "https://api.ibb.gov.tr/iett/ibb/ibb.asmx";
-  const body = `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema"><soap:Body><DurakDetay_GYY xmlns="${NS}"><hat_kodu>${esc(code)}</hat_kodu></DurakDetay_GYY></soap:Body></soap:Envelope>`;
-  const headers = {
-    "content-type": "text/xml; charset=utf-8",
-    "soapaction": `"${NS}DurakDetay_GYY"`,
-    "User-Agent": "Mozilla/5.0"
-  };
-
-  const apiKey = env.IBB_API_KEY || env.IBB_SECRET || "";
-  if (apiKey) {
-    headers["X-Api-Key"] = apiKey;
-    headers["Authorization"] = apiKey.startsWith("Bearer ") ? apiKey : `Bearer ${apiKey}`;
-  }
-
-  let xml = "";
-  try {
-    const res = await fetch(url, { method: "POST", headers, body });
-    xml = await res.text();
-  } catch (e) {
-    console.error(`Route fetch error for ${code}:`, String(e));
+  const key = (opts.fast ? "route_fast_v2:" : "route_v5:") + normCode;
+  if (!opts.fast) {
+    let cached = await edgeGetJson(key);
+    if (cached && cached.directions && Object.keys(cached.directions).length > 0) return cached;
   }
 
   const dirs = {};
-  const tableRe = /<Table>([\s\S]*?)<\/Table>/g;
-  let m;
-  while ((m = tableRe.exec(xml)) !== null) {
-    const row = m[1];
-    const getTag = tag => {
-      const tm = new RegExp("<" + tag + ">([^<]*)<\\/" + tag + ">", "i").exec(row);
-      return tm ? tm[1].trim() : "";
+  const stopMap = getStopByCodeMap();
+  if (typeof LINE_ROUTES_MAP !== "undefined" && LINE_ROUTES_MAP[normCode] && stopMap) {
+    const gtfsDirs = LINE_ROUTES_MAP[normCode];
+    for (const [yon, codes] of Object.entries(gtfsDirs)) {
+      const list = [];
+      for (let i = 0; i < codes.length; i++) {
+        const st = stopMap.get(String(codes[i]));
+        if (st && st.lat != null && st.lon != null) {
+          list.push({
+            seq: list.length + 1,
+            code: String(st.c),
+            name: st.n || "",
+            district: st.d || "",
+            lat: st.lat,
+            lon: st.lon
+          });
+        }
+      }
+      if (list.length >= 2) dirs[yon] = list;
+    }
+  }
+
+  // Fallback to IETT SOAP service with fast timeout if not in LINE_ROUTES_MAP
+  const url = "https://api.ibb.gov.tr/iett/ibb/ibb.asmx";
+  if (Object.keys(dirs).length === 0) {
+    const body = `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema"><soap:Body><DurakDetay_GYY xmlns="${NS}"><hat_kodu>${esc(normCode)}</hat_kodu></DurakDetay_GYY></soap:Body></soap:Envelope>`;
+    const headers = {
+      "content-type": "text/xml; charset=utf-8",
+      "soapaction": `"${NS}DurakDetay_GYY"`,
+      "User-Agent": "Mozilla/5.0"
     };
-    let yon = getTag("YON") || "D";
-    if (!dirs[yon]) dirs[yon] = [];
-    const lon = num(getTag("XKOORDINATI"));
-    const lat = num(getTag("YKOORDINATI"));
-    if (lat !== null && lon !== null && lat > 40.0 && lat < 42.0 && lon > 27.0 && lon < 30.5) {
-      dirs[yon].push({
-        seq: parseInt(getTag("SIRANO") || "0", 10),
-        code: getTag("DURAKKODU"),
-        name: getTag("DURAKADI"),
-        district: getTag("ILCEADI"),
-        lat,
-        lon
-      });
+
+    const apiKey = (env && (env.IBB_API_KEY || env.IBB_SECRET)) || "";
+    if (apiKey) {
+      headers["X-Api-Key"] = apiKey;
+      headers["Authorization"] = apiKey.startsWith("Bearer ") ? apiKey : `Bearer ${apiKey}`;
+    }
+
+    let xml = "";
+    try {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 2500);
+      const res = await fetch(url, { method: "POST", headers, body, signal: controller.signal });
+      clearTimeout(tid);
+      xml = await res.text();
+    } catch (e) {
+      // SOAP timeout or blocked
+    }
+
+    const tableRe = /<Table>([\s\S]*?)<\/Table>/g;
+    let m;
+    while ((m = tableRe.exec(xml)) !== null) {
+      const row = m[1];
+      const getTag = tag => {
+        const tm = new RegExp("<" + tag + ">([^<]*)<\\/" + tag + ">", "i").exec(row);
+        return tm ? tm[1].trim() : "";
+      };
+      let yon = getTag("YON") || "D";
+      if (!dirs[yon]) dirs[yon] = [];
+      const lon = num(getTag("XKOORDINATI"));
+      const lat = num(getTag("YKOORDINATI"));
+      if (lat !== null && lon !== null && lat > 40.0 && lat < 42.0 && lon > 27.0 && lon < 30.5) {
+        dirs[yon].push({
+          seq: parseInt(getTag("SIRANO") || "0", 10),
+          code: getTag("DURAKKODU"),
+          name: getTag("DURAKADI"),
+          district: getTag("ILCEADI"),
+          lat,
+          lon
+        });
+      }
     }
   }
 
   const directions = {};
-  const isMetrobus = isMetrobusLine(code);
-  for (const k of Object.keys(dirs)) {
+  const isMetrobus = isMetrobusLine(normCode);
+  await Promise.all(Object.keys(dirs).map(async (k) => {
     dirs[k].sort((a, b) => a.seq - b.seq);
     const stops = dirs[k];
     if (stops.length > 0) {
@@ -583,26 +616,27 @@ async function fetchLineRoute(code, env, opts = {}) {
         has_road_geometry: Boolean(roadCoords)
       };
     }
+  }));
+
+  // Resolve official line name from static LINE_DESTINATIONS or route endpoints
+  let lineName = (typeof LINE_DESTINATIONS !== "undefined" && LINE_DESTINATIONS[normCode]) || "";
+  if (!lineName) {
+    const refDir = directions.G || directions.D || Object.values(directions)[0];
+    if (refDir && refDir.origin && refDir.destination) {
+      lineName = `${refDir.origin} - ${refDir.destination}`;
+    } else {
+      lineName = normCode;
+    }
   }
 
-  // Fetch official line name
-  let lineName = code;
-  try {
-    const hBody = `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><HatServisi_GYY xmlns="${NS}"><hat_kodu>${esc(code)}</hat_kodu></HatServisi_GYY></soap:Body></soap:Envelope>`;
-    const hRes = await fetch(url, { method: "POST", headers: { "content-type": "text/xml; charset=utf-8", "soapaction": `"${NS}HatServisi_GYY"`, "User-Agent": "Mozilla/5.0" }, body: hBody });
-    const hXml = await hRes.text();
-    const hMatch = /<HAT_ADI>([^<]*)<\/HAT_ADI>/i.exec(hXml);
-    if (hMatch && hMatch[1]) lineName = hMatch[1].trim();
-  } catch (e) {}
-
   const routeData = {
-    code,
+    code: normCode,
     name: lineName,
     directions,
     total_stops: Object.values(directions).reduce((acc, d) => acc + d.stops.length, 0)
   };
 
-  if (Object.keys(directions).length > 0) {
+  if (!opts.fast && Object.keys(directions).length > 0) {
     await edgePutJson(key, routeData, 86400);
   }
   return routeData;

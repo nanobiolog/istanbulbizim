@@ -401,15 +401,34 @@ function enrichBusEta(b, indexes, field, t) {
   };
 }
 
-// Fast route (stops only, no OSRM) — cached 24 h; prefers the full road-snapped route if present.
+// Fast route (stops only, no OSRM) — cached in memory & 24 h edge; prefers full road-snapped route if present.
+const routeEtaMemCache = new Map();
 async function getRouteForEta(code, env) {
+  const normCode = String(code || "").toUpperCase().trim();
+  if (routeEtaMemCache.has(normCode)) return routeEtaMemCache.get(normCode);
   try {
-    const full = await edgeGetJson("route_v4:" + code);
-    if (full && full.directions) return full;
-    const fast = await edgeGetJson("route_fast_v1:" + code);
-    if (fast && fast.directions) return fast;
+    const full = await edgeGetJson("route_v5:" + normCode);
+    if (full && full.directions && Object.keys(full.directions).length > 0) {
+      routeEtaMemCache.set(normCode, full);
+      return full;
+    }
   } catch (e) { /* fall through */ }
-  return fetchLineRoute(code, env, { fast: true });
+  const fast = await fetchLineRoute(normCode, env, { fast: true });
+  if (fast && fast.directions && Object.keys(fast.directions).length > 0) {
+    if (routeEtaMemCache.size > 600) routeEtaMemCache.clear();
+    routeEtaMemCache.set(normCode, fast);
+  }
+  return fast;
+}
+
+function getBusLines(b) {
+  if (!b) return [];
+  if (b.line) return [String(b.line).toUpperCase().trim()];
+  const raw = typeof DOOR_LINES_MAP !== "undefined" ? DOOR_LINES_MAP[b.id] : null;
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map(x => String(x).toUpperCase().trim()).filter(Boolean);
+  const s = String(raw).toUpperCase().trim();
+  return s ? [s] : [];
 }
 
 // Adds route-aware ETA fields to the bus objects built by handleLine (mutates).
@@ -477,14 +496,29 @@ async function handleStopArrivals(env, url) {
   const field = await getTrafficField(env);
   const t = istanbulNow();
 
-  // 1. candidate lines from nearby vehicles (door → assigned lines)
+  // 1. Determine lines that actually serve this stop
+  const knownLines = (typeof STOP_LINES_MAP !== "undefined" && Array.isArray(STOP_LINES_MAP[code]))
+    ? STOP_LINES_MAP[code].map(x => String(x).toUpperCase().trim()).filter(Boolean)
+    : [];
+  const allowedSet = new Set(knownLines);
+  if (String(stop.c).startsWith("900")) {
+    for (const mbLine of ["34G", "34AS", "34BZ", "34", "34Z", "34B", "34C", "34A"]) {
+      allowedSet.add(mbLine);
+    }
+  }
+
   const byLine = new Map();
+  const maxLatDiff = allowedSet.size > 0 ? 0.16 : 0.06;
+  const maxLonDiff = allowedSet.size > 0 ? 0.20 : 0.08;
+
   for (const b of fleet.list) {
-    if (Math.abs(b.lat - stop.lat) > 0.08 || Math.abs(b.lon - stop.lon) > 0.10) continue;
-    const lines = DOOR_LINES_MAP[b.id];
-    if (!lines) continue;
+    if ((b.a || 0) > 600) continue; // ignore stale GPS signals (>10 min old)
+    if (Math.abs(b.lat - stop.lat) > maxLatDiff || Math.abs(b.lon - stop.lon) > maxLonDiff) continue;
+    const busLines = getBusLines(b);
+    if (busLines.length === 0) continue;
     const d = haversineMeters(b.lat, b.lon, stop.lat, stop.lon);
-    for (const ln of lines.slice(0, 3)) {
+    for (const ln of busLines.slice(0, 3)) {
+      if (allowedSet.size > 0 && !allowedSet.has(ln)) continue;
       let e = byLine.get(ln);
       if (!e) { e = { line: ln, minD: Infinity, buses: [] }; byLine.set(ln, e); }
       e.minD = Math.min(e.minD, d);
@@ -492,33 +526,7 @@ async function handleStopArrivals(env, url) {
     }
   }
 
-  // Ensure Metrobüs lines are included for Metrobüs corridor stops (codes starting with 900)
-  if (String(stop.c).startsWith("900")) {
-    for (const mbLine of ["34G", "34AS", "34BZ", "34", "34Z", "34B", "34C"]) {
-      if (!byLine.has(mbLine)) {
-        const mbBuses = fleet.list.filter(b => (DOOR_LINES_MAP[b.id] || []).includes(mbLine));
-        if (mbBuses.length > 0) {
-          byLine.set(mbLine, { line: mbLine, minD: 0, buses: mbBuses });
-        }
-      }
-    }
-  }
-
-  // Also include lines known to pass through this stop from STOP_LINES_MAP
-  const knownLines = (typeof STOP_LINES_MAP !== "undefined" && STOP_LINES_MAP[code]) || [];
-  for (const kln of knownLines) {
-    if (!byLine.has(kln)) {
-      const matchBuses = fleet.list.filter(b => {
-        if (Math.abs(b.lat - stop.lat) > 0.08 || Math.abs(b.lon - stop.lon) > 0.10) return false;
-        return (DOOR_LINES_MAP[b.id] || []).includes(kln);
-      });
-      if (matchBuses.length > 0) {
-        byLine.set(kln, { line: kln, minD: 0, buses: matchBuses });
-      }
-    }
-  }
-
-  const candidates = Array.from(byLine.values()).sort((a, b) => a.minD - b.minD).slice(0, 28);
+  const candidates = Array.from(byLine.values()).sort((a, b) => a.minD - b.minD).slice(0, 32);
 
   // 2. route per line (cached) + along-route ETA
   let skipped = 0;
@@ -527,27 +535,41 @@ async function handleStopArrivals(env, url) {
     let route;
     try { route = await getRouteForEta(c.line, env); } catch (e) { route = null; }
     if (!route || !route.directions || !Object.keys(route.directions).length) {
-      // Fallback straight-line & traffic calculation when SOAP/OSRM route is unavailable
+      // Only allow straight-line fallback if this line is explicitly known to pass through this stop
+      if (!allowedSet.has(c.line)) {
+        skipped++;
+        return;
+      }
+      const perLineFallback = [];
       for (const b of c.buses) {
         const d = haversineMeters(b.lat, b.lon, stop.lat, stop.lon);
-        if (d > 8500) continue;
-        const speedMs = Math.max(3.5, (b.s || 20) / 3.6);
-        const etaSec = Math.max(20, Math.round(d / speedMs));
+        if (d > 6000) continue;
+        // If bus is moving and has heading, ensure it is not driving away from the stop
+        if ((b.s || 0) >= 6 && typeof b.h === "number") {
+          const brgToStop = (Math.atan2((stop.lon - b.lon) * KX, (stop.lat - b.lat) * KY) * 180 / Math.PI + 360) % 360;
+          if (angleDiff(b.h, brgToStop) > 100) continue;
+        }
+        const routeDist = Math.round(d * 1.25);
+        const speedMs = Math.max(4.0, Math.min(14.0, ((b.s || 18) * 0.85) / 3.6));
+        const stopsAway = Math.max(1, Math.round(routeDist / 420));
+        const etaSec = Math.max(15, Math.round(routeDist / speedMs) + stopsAway * 18 - Math.min(b.a || 0, 90));
         const headsign = (typeof LINE_DESTINATIONS !== "undefined" && LINE_DESTINATIONS[c.line]) || (c.line + " Hattı");
-        arrivals.push({
+        perLineFallback.push({
           line: c.line,
           bus_id: b.id,
           plate: b.p || "",
           dir: "D",
           headsign: headsign,
           speed: b.s || 0,
-          dist_m: Math.round(d),
-          stops_away: Math.max(1, Math.round(d / 450)),
+          dist_m: routeDist,
+          stops_away: stopsAway,
           eta_sec: etaSec,
           age_s: b.a || 0,
-          conf: "med"
+          conf: "low"
         });
       }
+      perLineFallback.sort((x, y) => x.eta_sec - y.eta_sec);
+      arrivals.push(...perLineFallback.slice(0, 2));
       return;
     }
     const indexes = getRouteIndexes(route);
@@ -557,7 +579,7 @@ async function handleStopArrivals(env, url) {
       if (!idx) continue;
       let si = idx.stops.findIndex(s => String(s.code) === code);
       if (si < 0) {
-        si = idx.stops.findIndex(s => haversineMeters(s.lat, s.lon, stop.lat, stop.lon) <= 100 && norm(s.name) === norm(stop.n));
+        si = idx.stops.findIndex(s => haversineMeters(s.lat, s.lon, stop.lat, stop.lon) <= 80 && norm(s.name) === norm(stop.n));
       }
       if (si >= 0) serving[dk] = si;
     }
@@ -569,6 +591,8 @@ async function handleStopArrivals(env, url) {
       const si = serving[loc.dk];
       const target = loc.idx.stops[si];
       if (target.along < loc.p.along - 25) continue; // already passed
+      // Ignore buses parked idle at origin depot if stop is >2 stops away
+      if (loc.p.along < 60 && (b.s || 0) < 2 && si >= 2) continue;
       const tl = etaTimeline(loc.idx, loc.p.along, field, t, si);
       const e = tl[tl.length - 1];
       if (!e || e.i !== si) continue;

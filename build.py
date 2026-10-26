@@ -86,6 +86,12 @@ def main():
         with open(line_dest_path, "r", encoding="utf-8") as f:
             line_destinations = json.load(f)
 
+    line_routes_map = {}
+    line_routes_path = os.path.join(SRC_DIR, "line_routes_map.json")
+    if os.path.exists(line_routes_path):
+        with open(line_routes_path, "r", encoding="utf-8") as f:
+            line_routes_map = json.load(f)
+
     with open(os.path.join(SRC_DIR, "index.html"), "r", encoding="utf-8") as f:
         html_page = f.read()
 
@@ -335,6 +341,7 @@ export default {
         f"const BUS_STOPS = {json.dumps(bus_stops, ensure_ascii=False)};\n",
         f"const STOP_LINES_MAP = {json.dumps(stop_lines_map, ensure_ascii=False, separators=(',', ':'))};\n",
         f"const LINE_DESTINATIONS = {json.dumps(line_destinations, ensure_ascii=False, separators=(',', ':'))};\n",
+        f"const LINE_ROUTES_MAP = {json.dumps(line_routes_map, ensure_ascii=False, separators=(',', ':'))};\n",
         f"const METRO_STATIONS = {json.dumps(metro_stations, ensure_ascii=False)};\n",
         f"const METRO_COLORS = {json.dumps(metro_colors, ensure_ascii=False)};\n",
         f"const METROBUS_CORRIDOR = {json.dumps(metrobus_corridor, ensure_ascii=False)};\n",
