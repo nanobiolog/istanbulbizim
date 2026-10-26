@@ -2,11 +2,11 @@ name = "istanbulbizim"
 main = "src/bundle.js"
 compatibility_date = "2026-10-05"
 
-# The website: Flutter app compiled to WebAssembly (python3 build.py --web).
-# Static files are served before the Worker runs; API routes (/buses, /line, /tile/*, …) fall through to it.
-[assets]
-directory = "./mobile_app/build/web"
-binding = "ASSETS"
+# The website is served directly by the Cloudflare Worker via src/bundle.js (HTML_PAGE).
+# If deploying Flutter WASM static assets, build with `python3 build.py --web` and uncomment below:
+# [assets]
+# directory = "./mobile_app/build/web"
+# binding = "ASSETS"
 
 [[kv_namespaces]]
 binding = "LIVE"
